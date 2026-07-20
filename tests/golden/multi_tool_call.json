@@ -1,0 +1,44 @@
+{
+  "id": "chatcmpl-multi-tool-001",
+  "object": "chat.completion",
+  "created": 1777777779,
+  "model": "deepseek-chat",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "I'll read both files for you.",
+        "tool_calls": [
+          {
+            "id": "call_001",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\": \"file_a.txt\"}"
+            }
+          },
+          {
+            "id": "call_002",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\": \"file_b.txt\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 60,
+    "completion_tokens": 40,
+    "prompt_tokens_details": {
+      "cached_tokens": 20
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 5
+    }
+  }
+}

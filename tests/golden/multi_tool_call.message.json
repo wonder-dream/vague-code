@@ -1,0 +1,17 @@
+{
+  "message": {
+    "role": "assistant",
+    "content": [
+      {"type": "text", "text": "I'll read both files for you."},
+      {"type": "tool_use", "id": "call_001", "name": "read_file", "input": {"path": "file_a.txt"}},
+      {"type": "tool_use", "id": "call_002", "name": "read_file", "input": {"path": "file_b.txt"}}
+    ]
+  },
+  "stop_reason": "tool_use",
+  "usage": {
+    "input_tokens": 60,
+    "output_tokens": 40,
+    "cache_read_tokens": 20,
+    "cache_write_tokens": 0
+  }
+}
