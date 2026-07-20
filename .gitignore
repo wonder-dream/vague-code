@@ -1,0 +1,6 @@
+.venv/
+.env
+Agent.md
+opencode.json
+discussion.md
+scratch_*.py
