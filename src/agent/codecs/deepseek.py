@@ -106,7 +106,6 @@ def _encode_user(msg: Message) -> list[dict[str, Any]]:
 
 
 def _dump_json(obj: Any) -> str:
-    import json
     return json.dumps(obj, ensure_ascii=False)
 
 
@@ -165,7 +164,6 @@ def _decode_usage(usage_dict: dict[str, Any]) -> NormalizedUsage:
 
 
 def json_loads(s: str) -> Any:
-    import json
     return json.loads(s)
 
 
