@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 from openai import OpenAI
@@ -120,10 +121,14 @@ def decode_response(response_dict: dict[str, Any]) -> ModelResponse:
         blocks.append(ThinkingBlock(text=reasoning))
     if tool_calls := msg_dict.get("tool_calls"):
         for tc in tool_calls:
+            try:
+                parsed = json_loads(args) if (args := tc["function"].get("arguments")) else {}
+            except (json.JSONDecodeError, ValueError):
+                parsed = {}
             blocks.append(ToolUseBlock(
                 id=tc["id"],
                 name=tc["function"]["name"],
-                input=json_loads(args) if (args := tc["function"].get("arguments")) else {},
+                input=parsed,
             ))
 
     stop_reason = _decode_stop_reason(choice["finish_reason"])
