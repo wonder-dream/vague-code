@@ -24,6 +24,17 @@ GOLDEN_DIR = Path(__file__).parent / "golden"
 # ── encode ──────────────────────────────────────────────────────────────
 
 
+def test_encode_empty_messages_raises():
+    with pytest.raises(ValueError, match="messages"):
+        encode_request([], None, None)
+
+
+def test_encode_assistant_thinking_only_raises():
+    msg = Message(role="assistant", content=[ThinkingBlock(text="hmm...")])
+    with pytest.raises(ValueError, match="assistant message has no text"):
+        encode_request([msg])
+
+
 def test_encode_text_only():
     messages = [
         Message(role="user", content="Hello"),
@@ -198,3 +209,15 @@ def test_decode_usage_no_details():
     }
     result = decode_response(raw)
     assert result.usage == NormalizedUsage(input_tokens=5, output_tokens=3, cache_read_tokens=0, cache_write_tokens=0)
+
+
+def test_decode_malformed_arguments_fallback():
+    raw = {
+        "choices": [{"index": 0, "message": {"role": "assistant",
+            "tool_calls": [{"id": "c1", "type": "function",
+                "function": {"name": "read_file", "arguments": '{"path": "'}}]},
+            "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+    result = decode_response(raw)
+    assert result.message.content[0].input == {}
