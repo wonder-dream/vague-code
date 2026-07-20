@@ -63,6 +63,8 @@ def _encode_assistant(msg: Message) -> dict[str, Any]:
         result["content"] = "".join(text_parts)
     if tool_calls:
         result["tool_calls"] = tool_calls
+    if not text_parts and not tool_calls:
+        raise ValueError("assistant message has no text or tool_use after dropping thinking blocks")
     return result
 
 
