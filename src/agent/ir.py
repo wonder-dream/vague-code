@@ -41,6 +41,14 @@ class ToolUseBlock:
     input: dict
     meta: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.input, dict):
+            raise ValueError(f"ToolUseBlock.input must be dict, got {type(self.input).__name__}")
+        if not self.id:
+            raise ValueError("ToolUseBlock.id must not be empty")
+        if not self.name:
+            raise ValueError("ToolUseBlock.name must not be empty")
+
     @staticmethod
     def _type() -> BlockType:
         return "tool_use"
@@ -55,6 +63,10 @@ class ToolResultBlock:
     content: str
     is_error: bool = False
     meta: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.tool_use_id:
+            raise ValueError("ToolResultBlock.tool_use_id must not be empty")
 
     @staticmethod
     def _type() -> BlockType:
@@ -74,9 +86,13 @@ class Message:
 
     def __init__(self, role: Literal["user", "assistant"], content: str | list[Block]):
         self.role = role
+        if content is None:
+            raise ValueError("content must not be None")
         if isinstance(content, str):
             self.content = [TextBlock(text=content)]
         else:
+            if not content:
+                raise ValueError("content list must not be empty")
             self.content = content
 
     def to_dict(self) -> dict:
@@ -89,6 +105,7 @@ class StopReason(Enum):
     stop_sequence = "stop_sequence"
     tool_use = "tool_use"
     content_filter = "content_filter"
+    unknown = "unknown"
 
 
 @dataclass
@@ -97,6 +114,12 @@ class NormalizedUsage:
     output_tokens: int = 0
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+
+    def __post_init__(self) -> None:
+        for field_name in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens"):
+            value = getattr(self, field_name)
+            if value < 0:
+                raise ValueError(f"NormalizedUsage.{field_name} must be >= 0, got {value}")
 
     def to_dict(self) -> dict:
         return {
