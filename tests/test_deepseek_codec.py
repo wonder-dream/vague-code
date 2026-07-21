@@ -132,9 +132,8 @@ def test_encode_user_multiple_text_blocks_merged():
 
 
 def test_encode_orphaned_tool_result_raises():
-    msg = Message(role="user", content=[ToolResultBlock(tool_use_id="", content="x")])
-    with pytest.raises(ValueError, match="tool_use_id"):
-        encode_request([msg])
+    with pytest.raises(ValueError, match="tool_use_id must not be empty"):
+        ToolResultBlock(tool_use_id="", content="x")
 
 
 def test_encode_tools():
@@ -150,6 +149,34 @@ def test_encode_config_passthrough():
     body = encode_request(messages, config={"model": "deepseek-chat", "temperature": 0.5})
     assert body["temperature"] == 0.5
     assert body["model"] == "deepseek-chat"
+
+
+# ── IR validation (B1) ──────────────────────────────────────────────
+
+
+def test_message_content_none_raises():
+    with pytest.raises(ValueError, match="content must not be None"):
+        Message(role="user", content=None)
+
+
+def test_tool_use_block_input_none_raises():
+    with pytest.raises(ValueError, match="ToolUseBlock.input must be dict"):
+        ToolUseBlock(id="c1", name="read", input=None)
+
+
+def test_tool_result_block_empty_tool_use_id_raises():
+    with pytest.raises(ValueError, match="tool_use_id must not be empty"):
+        ToolResultBlock(tool_use_id="", content="x")
+
+
+def test_normalized_usage_negative_input_tokens_raises():
+    with pytest.raises(ValueError, match="input_tokens"):
+        NormalizedUsage(input_tokens=-1)
+
+
+def test_normalized_usage_negative_output_tokens_raises():
+    with pytest.raises(ValueError, match="output_tokens"):
+        NormalizedUsage(output_tokens=-5)
 
 
 # ── decode (golden transcript) ─────────────────────────────────────────
@@ -180,13 +207,13 @@ def test_decode_stop_reason_mapping():
     assert result.stop_reason == StopReason.max_tokens
 
 
-def test_decode_unknown_finish_reason_falls_back():
+def test_decode_unknown_finish_reason_maps_to_unknown():
     raw = {
         "choices": [{"index": 0, "message": {"role": "assistant", "content": "x"}, "finish_reason": "unknown_xyz"}],
         "usage": {"prompt_tokens": 1, "completion_tokens": 1},
     }
     result = decode_response(raw)
-    assert result.stop_reason == StopReason.stop_sequence
+    assert result.stop_reason == StopReason.unknown
 
 
 def test_decode_no_content():
@@ -220,4 +247,134 @@ def test_decode_malformed_arguments_fallback():
         "usage": {"prompt_tokens": 1, "completion_tokens": 1},
     }
     result = decode_response(raw)
+    assert result.message.content[0].input == {}
+
+
+# ── B3: decode_response structural defense ──────────────────────────────
+
+
+def test_decode_response_none_input_raises():
+    with pytest.raises(ValueError, match="expected dict"):
+        decode_response(None)
+
+
+def test_decode_response_missing_choices_raises():
+    with pytest.raises(ValueError, match="choices"):
+        decode_response({})
+
+
+def test_decode_response_empty_choices_raises():
+    with pytest.raises(ValueError, match="choices"):
+        decode_response({"choices": []})
+
+
+def test_decode_response_choices_elem_not_dict():
+    with pytest.raises(ValueError, match="choice"):
+        decode_response({"choices": ["not_a_dict"]})
+
+
+def test_decode_response_message_is_none():
+    result = decode_response({
+        "choices": [{"message": None, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
+    assert result.stop_reason == StopReason.end_turn
+    assert len(result.message.content) >= 1
+
+
+def test_decode_response_usage_is_none():
+    result = decode_response({
+        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+        "usage": None,
+    })
+    assert result.usage == NormalizedUsage()
+
+
+def test_decode_response_tool_call_missing_id_skipped():
+    result = decode_response({
+        "choices": [{"message": {
+            "role": "assistant",
+            "tool_calls": [{"type": "function", "function": {"name": "f", "arguments": "{}"}}],
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
+    assert len(result.message.content) >= 1
+
+
+def test_decode_response_tool_call_missing_function_skipped():
+    result = decode_response({
+        "choices": [{"message": {
+            "role": "assistant",
+            "tool_calls": [{"id": "c1", "type": "function"}],
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
+    assert len(result.message.content) >= 1
+
+
+def test_encode_user_empty_after_dropping_raises():
+    msg = Message(role="user", content=[ThinkingBlock(text="hmm")])
+    with pytest.raises(ValueError, match="empty after dropping"):
+        encode_request([msg])
+
+
+def test_decode_prompt_tokens_details_not_dict_survives():
+    result = decode_response({
+        "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 5, "completion_tokens": 3, "prompt_tokens_details": "not_a_dict"},
+    })
+    assert result.usage.cache_read_tokens == 0
+
+
+# ── B9: IR validation ──────────────────────────────────────────────────
+
+
+def test_tool_use_block_empty_id_raises():
+    with pytest.raises(ValueError, match="ToolUseBlock.id"):
+        ToolUseBlock(id="", name="read", input={})
+
+
+def test_tool_use_block_empty_name_raises():
+    with pytest.raises(ValueError, match="ToolUseBlock.name"):
+        ToolUseBlock(id="c1", name="", input={})
+
+
+def test_message_empty_content_list_raises():
+    with pytest.raises(ValueError, match="content list must not be empty"):
+        Message(role="user", content=[])
+
+
+# ── B10: codec robustness ──────────────────────────────────────────────
+
+
+def test_encode_config_disallowed_keys_filtered():
+    body = encode_request(
+        [Message(role="user", content="hi")],
+        config={"model": "deepseek-chat", "messages": "hijack", "tools": "evil"},
+    )
+    assert body["model"] == "deepseek-chat"
+    assert len(body["messages"]) == 1
+
+
+def test_decode_tool_call_arguments_as_dict():
+    result = decode_response({
+        "choices": [{"message": {
+            "role": "assistant",
+            "tool_calls": [{"id": "c1", "type": "function",
+                "function": {"name": "read_file", "arguments": {"path": "x.txt"}}}],
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
+    assert result.message.content[0].input == {"path": "x.txt"}
+
+
+def test_decode_tool_call_arguments_not_str_or_dict():
+    result = decode_response({
+        "choices": [{"message": {
+            "role": "assistant",
+            "tool_calls": [{"id": "c1", "type": "function",
+                "function": {"name": "read_file", "arguments": [1, 2, 3]}}],
+        }, "finish_reason": "tool_calls"}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    })
     assert result.message.content[0].input == {}
