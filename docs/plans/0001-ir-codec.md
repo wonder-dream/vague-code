@@ -159,3 +159,7 @@ Message：
 - structured outputs
 - 缓存 / 重试 / 熔断
 - codec 对畸形 IR 的保底降级（v0 fail-fast，后续有真实案例再定义）
+
+
+
+Reviewed by 我，2026-07-20，结论：通过
