@@ -4,3 +4,10 @@ Agent.md
 opencode.json
 discussion.md
 scratch_*.py
+runs/
+xcode.egg-info/
+src/__pycache__/
+src/agent/__pycache__/
+src/agent/codecs/__pycache__/
+tests/__pycache__/
+docs/something maybe need.md

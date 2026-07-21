@@ -10,8 +10,12 @@ dependencies = [
     "anthropic>=0.117.0",
     "openai>=2.46.0",
     "pydantic>=2.13.4",
+    "python-dotenv>=1.1.0",
     "rich>=15.0.0",
 ]
+
+[project.scripts]
+xcode = "src.cli:main"
 
 [dependency-groups]
 dev = [
@@ -26,6 +30,10 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = "src.*"
 ignore_errors = false
+
+[[tool.mypy.overrides]]
+module = "dotenv.*"
+ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
 where = ["."]
