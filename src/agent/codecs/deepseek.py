@@ -3,9 +3,6 @@ from __future__ import annotations
 import json
 from typing import Any, cast
 
-from openai import OpenAI
-from openai.types.chat import ChatCompletion
-
 from src.agent.ir import (
     Block,
     Message,
@@ -18,6 +15,8 @@ from src.agent.ir import (
     ToolSpec,
     ToolUseBlock,
 )
+
+ALLOWED_CONFIG_KEYS = frozenset({"temperature", "max_tokens", "top_p", "stop", "stream", "model", "frequency_penalty", "presence_penalty"})
 
 
 def encode_request(
@@ -38,8 +37,8 @@ def encode_request(
     body: dict[str, Any] = {"messages": wire_messages}
     if tools:
         body["tools"] = [t.to_openai_tool() for t in tools]
-    if config:
-        body.update(config)
+    if isinstance(config, dict):
+        body.update({k: v for k, v in config.items() if k in ALLOWED_CONFIG_KEYS})
     return body
 
 
@@ -102,6 +101,8 @@ def _encode_user(msg: Message) -> list[dict[str, Any]]:
             wire.append({"role": "user", "content": text})
         else:
             raise ValueError(f"unexpected block type in user message segment: {type(first).__name__}")
+    if not wire:
+        raise ValueError("user message content is empty after dropping thinking blocks")
     return wire
 
 
@@ -110,28 +111,68 @@ def _dump_json(obj: Any) -> str:
 
 
 def decode_response(response_dict: dict[str, Any]) -> ModelResponse:
-    choice = response_dict["choices"][0]
-    msg_dict = choice["message"]
+    if not isinstance(response_dict, dict):
+        raise ValueError(f"decode_response expected dict, got {type(response_dict).__name__}")
+
+    choices = response_dict.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise ValueError("response 'choices' missing, empty, or not a list")
+
+    choice = choices[0]
+    if not isinstance(choice, dict):
+        raise ValueError(f"choice[0] is not a dict, got {type(choice).__name__}")
+
+    msg_dict = choice.get("message")
+    if not isinstance(msg_dict, dict):
+        msg_dict = {}
 
     blocks: list[Block] = []
-    if content := msg_dict.get("content"):
-        blocks.append(TextBlock(text=content))
-    if reasoning := msg_dict.get("reasoning_content"):
-        blocks.append(ThinkingBlock(text=reasoning))
-    if tool_calls := msg_dict.get("tool_calls"):
-        for tc in tool_calls:
-            try:
-                parsed = json_loads(args) if (args := tc["function"].get("arguments")) else {}
-            except (json.JSONDecodeError, ValueError):
-                parsed = {}
-            blocks.append(ToolUseBlock(
-                id=tc["id"],
-                name=tc["function"]["name"],
-                input=parsed,
-            ))
+    content_val = msg_dict.get("content")
+    if content_val:
+        blocks.append(TextBlock(text=content_val))
 
-    stop_reason = _decode_stop_reason(choice["finish_reason"])
-    usage = _decode_usage(response_dict.get("usage", {}))
+    reasoning_val = msg_dict.get("reasoning_content")
+    if reasoning_val:
+        blocks.append(ThinkingBlock(text=reasoning_val))
+
+    tool_calls = msg_dict.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            tc_id = tc.get("id", "")
+            if not tc_id:
+                continue
+            func = tc.get("function")
+            if not isinstance(func, dict):
+                continue
+            tc_name = func.get("name", "")
+            if not tc_name:
+                continue
+            args_raw = func.get("arguments", "{}")
+            if isinstance(args_raw, str):
+                try:
+                    parsed = json_loads(args_raw)
+                except json.JSONDecodeError:
+                    parsed = {}
+            elif isinstance(args_raw, dict):
+                parsed = args_raw
+            else:
+                parsed = {}
+            blocks.append(ToolUseBlock(id=tc_id, name=tc_name, input=parsed))
+
+    if not blocks:
+        blocks.append(TextBlock(text=""))
+
+    finish_reason = choice.get("finish_reason")
+    stop_reason = _decode_stop_reason(finish_reason)
+
+    usage_raw = response_dict.get("usage")
+    if isinstance(usage_raw, dict):
+        usage = _decode_usage(usage_raw)
+    else:
+        usage = NormalizedUsage()
+
     return ModelResponse(
         message=Message(role="assistant", content=blocks),
         stop_reason=stop_reason,
@@ -147,13 +188,14 @@ def _decode_stop_reason(finish_reason: str | None) -> StopReason:
         "content_filter": StopReason.content_filter,
     }
     if finish_reason is None:
-        return StopReason.stop_sequence
-    return mapping.get(finish_reason, StopReason.stop_sequence)
+        return StopReason.unknown
+    return mapping.get(finish_reason, StopReason.unknown)
 
 
 def _decode_usage(usage_dict: dict[str, Any]) -> NormalizedUsage:
     cache_read = 0
-    if details := usage_dict.get("prompt_tokens_details"):
+    details = usage_dict.get("prompt_tokens_details")
+    if isinstance(details, dict):
         cache_read = details.get("cached_tokens", 0)
     return NormalizedUsage(
         input_tokens=usage_dict.get("prompt_tokens", 0),
@@ -165,17 +207,3 @@ def _decode_usage(usage_dict: dict[str, Any]) -> NormalizedUsage:
 
 def json_loads(s: str) -> Any:
     return json.loads(s)
-
-
-def complete(
-    client: OpenAI,
-    messages: list[Message],
-    tools: list[ToolSpec] | None = None,
-    config: dict | None = None,
-) -> ModelResponse:
-    body = encode_request(messages, tools, config)
-    model = (config or {}).pop("model", "deepseek-chat") or "deepseek-chat"
-    body["model"] = model
-    raw: ChatCompletion = client.chat.completions.create(**body)
-    raw_dict = raw.model_dump(mode="json")
-    return decode_response(raw_dict)
