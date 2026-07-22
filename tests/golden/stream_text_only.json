@@ -1,0 +1,14 @@
+{
+  "description": "纯文本：两个 content delta + finish chunk + usage chunk",
+  "chunks": [
+    {"choices":[{"index":0,"delta":{"role":"assistant","content":"Hello"},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{"content":" World"},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]},
+    {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3}}
+  ],
+  "expected": [
+    {"stream_type": "text_delta", "delta": "Hello"},
+    {"stream_type": "text_delta", "delta": " World"},
+    {"stream_type": "message_end", "stop_reason": "end_turn", "finish_reason": "stop", "truncated": false, "usage": {"input_tokens": 5, "output_tokens": 3, "cache_read_tokens": 0, "cache_write_tokens": 0}}
+  ]
+}
