@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Literal, Protocol
+from typing import Literal
 
 
 BlockType = Literal["text", "thinking", "tool_use", "tool_result"]
@@ -24,7 +24,6 @@ class TextBlock:
 @dataclass
 class ThinkingBlock:
     text: str
-    signature: str | None = None
     meta: dict = field(default_factory=dict)
 
     @staticmethod
@@ -32,10 +31,7 @@ class ThinkingBlock:
         return "thinking"
 
     def to_dict(self) -> dict:
-        d: dict = {"type": "thinking", "text": self.text}
-        if self.signature is not None:
-            d["signature"] = self.signature
-        return d
+        return {"type": "thinking", "text": self.text}
 
 
 @dataclass
@@ -163,118 +159,3 @@ class ModelResponse:
             "stop_reason": self.stop_reason.value,
             "usage": self.usage.to_dict(),
         }
-
-
-# ── StreamEvent types ───────────────────────────────────────────────────────
-
-@dataclass
-class MessageStart:
-    model: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "message_start", "model": self.model}
-
-@dataclass
-class ThinkingStart:
-    def to_dict(self) -> dict:
-        return {"stream_type": "thinking_start"}
-
-@dataclass
-class ThinkingDelta:
-    delta: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "thinking_delta", "delta": self.delta}
-
-@dataclass
-class ThinkingEnd:
-    signature: str | None
-    def to_dict(self) -> dict:
-        d: dict = {"stream_type": "thinking_end"}
-        if self.signature is not None:
-            d["signature"] = self.signature
-        return d
-
-@dataclass
-class TextDelta:
-    delta: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "text_delta", "delta": self.delta}
-
-@dataclass
-class ToolUseStart:
-    id: str
-    name: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "tool_use_start", "id": self.id, "name": self.name}
-
-@dataclass
-class ArgsDelta:
-    id: str
-    delta: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "args_delta", "id": self.id, "delta": self.delta}
-
-@dataclass
-class ToolUseEnd:
-    id: str
-    def to_dict(self) -> dict:
-        return {"stream_type": "tool_use_end", "id": self.id}
-
-@dataclass
-class MessageEnd:
-    stop_reason: StopReason
-    finish_reason: str | None = None
-    truncated: bool = False
-    usage: NormalizedUsage | None = None
-
-    def to_dict(self) -> dict:
-        return {
-            "stream_type": "message_end",
-            "stop_reason": self.stop_reason.value,
-            "finish_reason": self.finish_reason,
-            "truncated": self.truncated,
-            "usage": self.usage.to_dict() if self.usage else NormalizedUsage().to_dict(),
-        }
-
-StreamEvent = MessageStart | ThinkingStart | ThinkingDelta | ThinkingEnd | TextDelta | ToolUseStart | ArgsDelta | ToolUseEnd | MessageEnd
-
-
-# ── StreamEventVisitor ──────────────────────────────────────────────────────
-
-class StreamEventVisitor(Protocol):
-    def message_start(self, ev: MessageStart) -> None: ...
-    def thinking_start(self, ev: ThinkingStart) -> None: ...
-    def thinking_delta(self, ev: ThinkingDelta) -> None: ...
-    def thinking_end(self, ev: ThinkingEnd) -> None: ...
-    def text_delta(self, ev: TextDelta) -> None: ...
-    def tool_use_start(self, ev: ToolUseStart) -> None: ...
-    def args_delta(self, ev: ArgsDelta) -> None: ...
-    def tool_use_end(self, ev: ToolUseEnd) -> None: ...
-    def message_end(self, ev: MessageEnd) -> None: ...
-
-
-def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None:
-    if isinstance(ev, MessageStart):
-        v.message_start(ev)
-    elif isinstance(ev, ThinkingStart):
-        v.thinking_start(ev)
-    elif isinstance(ev, ThinkingDelta):
-        v.thinking_delta(ev)
-    elif isinstance(ev, ThinkingEnd):
-        v.thinking_end(ev)
-    elif isinstance(ev, TextDelta):
-        v.text_delta(ev)
-    elif isinstance(ev, ToolUseStart):
-        v.tool_use_start(ev)
-    elif isinstance(ev, ArgsDelta):
-        v.args_delta(ev)
-    elif isinstance(ev, ToolUseEnd):
-        v.tool_use_end(ev)
-    elif isinstance(ev, MessageEnd):
-        v.message_end(ev)
-
-
-class NullVisitor:
-    def __getattr__(self, name: str):
-        if name.startswith("message_") or name.startswith("thinking_") or name.startswith("text_") or name.startswith("tool_use_") or name.startswith("args_"):
-            return lambda ev: None
-        raise AttributeError(name)

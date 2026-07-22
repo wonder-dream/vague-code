@@ -71,10 +71,7 @@ def test_single_turn_end_turn():
 
     assert traj.run_id
     types = [e.type for e in traj.events]
-    assert types[0] == "run_start"
-    assert "turn_start" in types
-    assert "llm_response" in types
-    assert types[-1] == "run_end"
+    assert types == ["run_start", "turn_start", "llm_response", "run_end"]
 
     run_end = traj.events[-1]
     assert run_end.payload["reason"] == "end_turn"
@@ -529,7 +526,7 @@ def test_agent_loop_catches_non_api_exceptions(tmp_path):
 
     assert any(e.type == EventType.error for e in traj.events)
     error = [e for e in traj.events if e.type == EventType.error][0]
-    assert error.payload["kind"] == "stream_disconnect"
+    assert error.payload["kind"] == "llm_error"
     assert "ValueError" in error.payload["message"]
     assert traj.events[-1].payload["reason"] == "llm_error"
 
