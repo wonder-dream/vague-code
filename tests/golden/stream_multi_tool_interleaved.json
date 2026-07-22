@@ -1,0 +1,22 @@
+{
+  "description": "评审修复 R1：两 tool index 交错 delta，按首见顺序补 ToolUseEnd",
+  "chunks": [
+    {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"read_file","arguments":""}}]},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_2","type":"function","function":{"name":"grep","arguments":""}}]},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\": \"a.txt\"}"}}]},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"{\"pattern\": \"TODO\", \"path\": \"b.txt\"}"}}]},"finish_reason":null}]},
+    {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]},
+    {"choices":[],"usage":{"prompt_tokens":15,"completion_tokens":10}}
+  ],
+  "expected": [
+    {"stream_type": "tool_use_start", "id": "call_1", "name": "read_file"},
+    {"stream_type": "args_delta", "id": "call_1", "delta": ""},
+    {"stream_type": "tool_use_start", "id": "call_2", "name": "grep"},
+    {"stream_type": "args_delta", "id": "call_2", "delta": ""},
+    {"stream_type": "args_delta", "id": "call_1", "delta": "{\"path\": \"a.txt\"}"},
+    {"stream_type": "args_delta", "id": "call_2", "delta": "{\"pattern\": \"TODO\", \"path\": \"b.txt\"}"},
+    {"stream_type": "tool_use_end", "id": "call_1"},
+    {"stream_type": "tool_use_end", "id": "call_2"},
+    {"stream_type": "message_end", "stop_reason": "tool_use", "finish_reason": "tool_calls", "truncated": false, "usage": {"input_tokens": 15, "output_tokens": 10, "cache_read_tokens": 0, "cache_write_tokens": 0}}
+  ]
+}

@@ -1,19 +1,29 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 from src.agent.ir import (
+    ArgsDelta,
     Block,
     Message,
+    MessageEnd,
     ModelResponse,
     NormalizedUsage,
     StopReason,
+    StreamEvent,
     TextBlock,
+    TextDelta,
     ThinkingBlock,
+    ThinkingDelta,
+    ThinkingEnd,
+    ThinkingStart,
     ToolResultBlock,
     ToolSpec,
     ToolUseBlock,
+    ToolUseEnd,
+    ToolUseStart,
 )
 
 ALLOWED_CONFIG_KEYS = frozenset({"temperature", "max_tokens", "top_p", "stop", "stream", "model", "frequency_penalty", "presence_penalty"})
@@ -207,3 +217,147 @@ def _decode_usage(usage_dict: dict[str, Any]) -> NormalizedUsage:
 
 def json_loads(s: str) -> Any:
     return json.loads(s)
+
+
+# ── Stream decoder ───────────────────────────────────────────────────────────
+
+@dataclass
+class _ToolState:
+    id: str | None = None
+    name: str | None = None
+    started: bool = False
+    pending_args: list[str] = field(default_factory=list)
+
+
+class DeepSeekStreamDecoder:
+    """每流一个解码器，将 OpenAI-compatible SSE chunk 翻译为 StreamEvent 序列。
+
+    状态机覆盖 thinking 边界推断（无显式 chink 时）、tool_call index→id 映射、
+    finish 与 usage 分 chunk 到达的延迟发射。
+    """
+
+    def __init__(self):
+        self._thinking_open = False
+        self._tools: dict[int, _ToolState] = {}
+        self._tool_order: list[int] = []
+        self._pending_finish: str | None = None
+        self._usage = NormalizedUsage()
+        self._usage_received = False
+        self._ended = False
+
+    def decode_chunk(self, chunk: dict) -> list[StreamEvent]:
+        out: list[StreamEvent] = []
+
+        # Step 0 — 防御入口
+        if "error" in chunk:
+            raise ValueError(f"stream error chunk: {chunk['error']}")
+        usage = chunk.get("usage")
+        if isinstance(usage, dict):
+            self._usage = _decode_usage(usage)
+            self._usage_received = True
+        choices = chunk.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return self._maybe_emit_end()
+        choice = choices[0] if isinstance(choices[0], dict) else {}
+        delta = choice.get("delta") or {}
+        finish = choice.get("finish_reason")
+
+        # Step 1 — Thinking 边界
+        rc = delta.get("reasoning_content")
+        if rc:
+            if not self._thinking_open:
+                out.append(ThinkingStart())
+                self._thinking_open = True
+            out.append(ThinkingDelta(delta=rc))
+        if self._thinking_open and not rc and (
+            delta.get("content") or delta.get("tool_calls") or finish
+        ):
+            out.append(ThinkingEnd(signature=None))
+            self._thinking_open = False
+
+        # Step 2 — Text
+        content = delta.get("content")
+        if content:
+            out.append(TextDelta(delta=content))
+
+        # Step 3 — Tool calls（按 index 独立追踪）
+        for tc in delta.get("tool_calls") or []:
+            idx = tc.get("index")
+            if idx is None:
+                raise ValueError("tool_call delta missing index")
+            st = self._tools.setdefault(idx, _ToolState())
+            if idx not in self._tool_order:
+                self._tool_order.append(idx)
+            if tc.get("id"):
+                st.id = tc["id"]
+            fn = tc.get("function") or {}
+            if fn.get("name"):
+                st.name = fn["name"]
+            if not st.started and st.id and st.name:
+                out.append(ToolUseStart(id=st.id, name=st.name))
+                st.started = True
+                for frag in st.pending_args:
+                    out.append(ArgsDelta(id=st.id, delta=frag))
+                st.pending_args.clear()
+            if "arguments" in fn and fn["arguments"] is not None:
+                args_val = fn["arguments"]
+                if st.started and st.id is not None:
+                    out.append(ArgsDelta(id=st.id, delta=args_val))
+                else:
+                    st.pending_args.append(args_val)
+
+        # Step 4 — Finish 收尾：尝试发射（usage 已在同一 chunk 或之前 chunk 到达则立即发射）
+        if finish is not None:
+            if self._thinking_open:
+                out.append(ThinkingEnd(signature=None))
+                self._thinking_open = False
+            self._pending_finish = finish
+            out += self._close_all_tools()
+            out += self._maybe_emit_end()
+
+        return out
+
+    def flush(self) -> list[StreamEvent]:
+        out: list[StreamEvent] = []
+        if self._thinking_open:
+            out.append(ThinkingEnd(signature=None))
+            self._thinking_open = False
+        out += self._close_all_tools()
+        emitted = self._maybe_emit_end()
+        out += emitted
+        if not self._ended:
+            self._ended = True
+            rest = _decode_stop_reason(self._pending_finish) if self._pending_finish else StopReason.unknown
+            out.append(MessageEnd(
+                stop_reason=rest,
+                finish_reason=self._pending_finish,
+                truncated=(self._pending_finish == "length") if self._pending_finish else False,
+                usage=self._usage,
+            ))
+        return out
+
+    # ── internal helpers ──────────────────────────────────────────────────────
+
+    def _maybe_emit_end(self) -> list[StreamEvent]:
+        # 仅在 finish 已就绪且 usage 已到达（或 flush 强制）时发射
+        if self._ended or self._pending_finish is None:
+            return []
+        if not self._usage_received:
+            return []  # 等 usage chunk
+        self._ended = True
+        finish = self._pending_finish
+        return [MessageEnd(
+            stop_reason=_decode_stop_reason(finish),
+            finish_reason=finish,
+            truncated=finish == "length",
+            usage=self._usage,
+        )]
+
+    def _close_all_tools(self) -> list[StreamEvent]:
+        out: list[StreamEvent] = []
+        for idx in self._tool_order:
+            st = self._tools[idx]
+            if st.started and st.id is not None:
+                out.append(ToolUseEnd(id=st.id))
+                st.started = False
+        return out

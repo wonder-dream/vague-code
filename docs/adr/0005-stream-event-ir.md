@@ -1,6 +1,6 @@
 ---
-status: proposed
-date: 2026-07-21
+status: accepted
+date: 2026-07-22
 ---
 
 # 0005: 流式事件统一模型（StreamEvent IR）
@@ -171,12 +171,14 @@ Loop 核心循环始终为 `for event in self._stream_from(...)`。
 
 ### 10. Codec vs Backend 分工
 
-| 层 | 文件 | 新增函数 | 职责 |
-|----|------|----------|------|
-| Codec | `codecs/deepseek.py` | `decode_stream_chunk(chunk_dict) → StreamEvent` | 纯翻译：OpenAI SSE chunk → 单个 StreamEvent |
-| Backend | `backend.py` | `DeepSeekBackend.stream() → Iterator[StreamEvent]` | 调用 OpenAI SDK 流式接口 + 调用 decode_stream_chunk |
+Codec 层提供每流一个解码器对象，持有跨 chunk 必需的状态（thinking 边界推断、tool_call index→id 映射）：
 
-保持 ADR-0002 的原则：codec = 纯翻译无状态，backend = SDK 守门员。
+| 层 | 文件 | 新增 | 职责 |
+|----|------|------|------|
+| Codec | `codecs/deepseek.py` | `DeepSeekStreamDecoder` + `decode_chunk(chunk) → list[StreamEvent]` + `flush()` | 纯翻译：OpenAI SSE chunk → 0..n 个 StreamEvent（单 chunk 可产多事件）；状态局限于单流生命周期 |
+| Backend | `backend.py` | `DeepSeekBackend.stream() → Iterator[StreamEvent]` | 调用 OpenAI SDK 流式接口 + 创建解码器实例 + yield MessageStart + 循环 decode_chunk |
+
+保持 ADR-0002 的原则：codec = 纯翻译无 SDK，backend = SDK 守门员。
 
 ### 11. StreamEvent 不携带 turn / run_id
 
@@ -194,15 +196,83 @@ for event in self._stream_from(backend, messages, tools, config):
 
 Golden transcript 不比对 delta 事件——只比对聚合后的 `ModelResponse.to_dict()`，与现有非流式 golden 一致。厂商格式变更时，codec 的 stream golden 测试会先炸。
 
-### 13. Config 白名单扩展
+### 13. Config：传输层语义分离
 
-`ALLOWED_CONFIG_KEYS` 已有 `stream` 字段，流式 Backend 通过 `config={"model": ..., "stream": True}` 触发。Loop 的 `_stream_from` 自动选择路径——config 含 `stream=True` 时优先调用 backend.stream()，否则走 complete()。
+`ALLOWED_CONFIG_KEYS` 已有 `stream` 字段。传输层语义（stream、未来 retry/timeout 等）收敛于 `TransportConfig` dataclass，嵌套于 `AgentConfig.transport`，与业务配置（model、max_turns）分离。Loop 构造请求体时自 `config.transport.stream` 读取并写入 `config={"model": ..., "stream": flag}`。`to_public_dict()` 经 `asdict` 自动分层，轨迹 payload 里传输语义与业务配置天然分列。
+
+### 14. Loop→CLI 实时契约（RunHandle）
+
+`Agent.start(task, workdir) → RunHandle`，`RunHandle` 实现 `Iterator[StreamEvent]`，CLI 在 `for` 循环中实时拉取事件并渲染。`Agent.run()` 保持完全向后兼容的签名——内部排空 `start()` 后返回 `Trajectory`。
+
+RunHandle 语义：
+- `__iter__()` 驱动完整的 Agent 主循环（规约当前训练消息、LLM 调用、tool 执行、消息 append），每步 yield 当前 StreamEvent
+- 主循环内的聚合、轨迹落盘与 `run()` 完全相同，只是额外 yield 事件供外界消费
+- `trajectory` 属性在迭代完毕后可用，未排空时抛 `RuntimeError`
+- 库用户（评测 harness）调 `run()`，零改动；CLI 调 `start()`，实时渲染
+
+```python
+class RunHandle:
+    def __iter__(self) -> Iterator[StreamEvent]: ...
+    @property
+    def trajectory(self) -> Trajectory: ...  # 仅在迭代完毕后可访问
+
+class Agent:
+    def run(self, task, workdir) -> Trajectory:
+        h = self.start(task, workdir)
+        for _ in h: pass
+        return h.trajectory
+```
+
+### 15. StreamEventVisitor：标准消费接口
+
+为消除 Agent 与渲染逻辑的耦合，定义 Protocol 接口 + `isinstance` 分派函数 + no-op 基类：
+
+```python
+class StreamEventVisitor(Protocol):
+    def message_start(self, ev: MessageStart) -> None: ...
+    def thinking_start(self, ev: ThinkingStart) -> None: ...
+    def thinking_delta(self, ev: ThinkingDelta) -> None: ...
+    def thinking_end(self, ev: ThinkingEnd) -> None: ...
+    def text_delta(self, ev: TextDelta) -> None: ...
+    def tool_use_start(self, ev: ToolUseStart) -> None: ...
+    def args_delta(self, ev: ArgsDelta) -> None: ...
+    def tool_use_end(self, ev: ToolUseEnd) -> None: ...
+    def message_end(self, ev: MessageEnd) -> None: ...
+
+def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None: ...  # isinstance 链，与 §2 风格一致
+
+class NullVisitor:
+    def __getattr__(self, name): return lambda ev: None
+```
+
+CLI 实现 `RichStreamVisitor(NullVisitor)`；评测/调试实现 `RecordingVisitor`；ContextManager 实现 `CompressionTrigger`——全部零分支。
+
+### 16. TransportConfig
+
+传输层配置独立为 dataclass：
+
+```python
+@dataclass
+class TransportConfig:
+    stream: bool = True
+    # ADR-0006 的 retry/timeout 旋钮未来进这里
+
+@dataclass
+class AgentConfig:
+    ...
+    transport: TransportConfig = field(default_factory=TransportConfig)
+```
+
+- stream 默认 True（CLI 默认开流式）；评测消融时显式构造 `TransportConfig(stream=False)`
+- `turn_timeout_s` 暂留 AgentConfig，ADR-0006 时随 retry/timeout 一起迁入
 
 ## Consequences
 
 - 上层所有流式消费（CLI 实时渲染、Loop 工具执行、ContextManager 压缩触发）统一通过 `StreamEvent`，零分支
-- 新增厂商后端只需实现 `decode_stream_chunk`（codec 层）和 `stream()`（backend 层）
+- 新增厂商后端只需实现 `DeepSeekStreamDecoder`（codec 层）和 `stream()`（backend 层）
 - 非流式 Backend（FakeBackend 等）零改动，Loop 内部适配器兜底
+- 引入 `RunHandle` 和 `StreamEventVisitor` 两个新类型，Agent 核心对渲染零感知；`Agent.run()` 的完全向后兼容
+- `TransportConfig` 将传输层语义与业务配置分离，便于消融实验独立控制
 - 引入新的 `Iterator[StreamEvent]` 中间类型，增加了一层映射但消除了上层的厂商分支
 - `ThinkingBlock.signature` 是 IR 的向前兼容变更，不影响现有 DeepSeek codec（默认 None）
 - 完整 golden transcript 含两套：非流式的 `ModelResponse.to_dict()`（已有）+ 流式的 StreamEvent 序列（新增）
