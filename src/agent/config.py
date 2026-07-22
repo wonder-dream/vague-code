@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
 
+
+@dataclass
+class TransportConfig:
+    stream: bool = True
 
 @dataclass
 class AgentConfig:
@@ -13,6 +17,7 @@ class AgentConfig:
     max_turns: int = 20
     turn_timeout_s: float = 120.0
     db_path: str = "runs/runs.db"
+    transport: TransportConfig = field(default_factory=TransportConfig)
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:

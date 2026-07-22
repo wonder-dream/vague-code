@@ -27,6 +27,7 @@ class EventType(str, Enum):
     tool_result = "tool_result"
     error = "error"
     run_end = "run_end"
+    stream_event = "stream_event"
 
 
 @dataclass
