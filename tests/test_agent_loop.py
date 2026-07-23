@@ -930,3 +930,96 @@ def test_retry_max_attempts_zero(monkeypatch):
     assert error.payload["kind"] == "retry_exhausted"
     assert error.payload["attempts"] == 0
     assert backend.call_count == 1
+
+
+# ── Checkpoint & resume ──────────────────────────────────────────────────────
+
+
+def test_from_db_roundtrip(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    traj1 = Agent(config, FakeBackend([_text_response("ok")])).run("x", ".")
+    traj2 = Trajectory.from_db(traj1.run_id, db_path)
+
+    assert traj2.run_id == traj1.run_id
+    assert traj2.config.model == config.model
+    assert len(traj2.events) == len(traj1.events)
+    for e1, e2 in zip(traj1.events, traj2.events):
+        assert e1.type == e2.type
+        assert e1.payload == e2.payload
+
+
+def test_from_db_unknown_run_raises(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    with pytest.raises(ValueError, match="not found"):
+        Trajectory.from_db("nonexistent", db_path)
+
+
+def test_resume_already_finished_returns_immediately(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    agent = Agent(config, FakeBackend([_text_response("ok")]))
+    traj = agent.run("x", ".")
+    result = agent.resume(traj)
+    assert result is traj
+    assert result.events[-1].payload["reason"] == "end_turn"
+
+
+def test_resume_pending_tools(tmp_path):
+    """Simulate crash after checkpoint: events have llm_response(tool_use) but no tool results.
+    Resume should execute pending tools and continue to completion."""
+    db_path = str(tmp_path / "checkpoint.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    # Build a trajectory with a crash-simulated checkpoint state
+    traj = Trajectory(run_id="test_crash", config=config)
+    traj.emit(EventType.run_start, payload={"task": "read file", "workdir": str(tmp_path), "config": config.to_public_dict()})
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    # No tool_call or tool_result events — process crashed here
+    traj.emit(EventType.run_end, payload={"reason": "llm_error"})  # shouldn't happen in practice but we remove for test
+
+    # Remove run_end to simulate in-progress crash state
+    traj.events.pop()
+
+    # Persist the partial state (simulating the checkpoint persist)
+    traj.persist()
+
+    # Recalculate persisted_count — agent.resume will load fresh
+    del traj
+
+    # Create a small file so the tool can read it
+    (tmp_path / "x.txt").write_text("hello", encoding="utf-8")
+
+    agent = Agent(config, FakeBackend([_text_response("done")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("test_crash", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "end_turn"
+    tool_results = [e for e in result.events if e.type == EventType.tool_result]
+    assert len(tool_results) == 1
+    assert "hello" in tool_results[0].payload["content"]
+
+
+def test_checkpoint_persist_does_not_crash(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    backend = FakeBackend([
+        _tool_use_response(("c1", "read_file", {"path": "x.txt"})),
+        _text_response("done"),
+    ])
+    (tmp_path / "x.txt").write_text("content", encoding="utf-8")
+    agent = Agent(config, backend)
+    traj = agent.run("read file", str(tmp_path))
+
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    # Ensure events include tool execution (checkpoint didn't break anything)
+    tool_results = [e for e in traj.events if e.type == EventType.tool_result]
+    assert len(tool_results) == 1

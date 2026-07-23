@@ -15,8 +15,9 @@ from src.cli.renderer import RichStreamVisitor
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="xcode", description="Coding Agent (Xcode)")
-    parser.add_argument("task", help="Task description for the agent")
+    parser.add_argument("task", nargs="?", default="", help="Task description for the agent")
     parser.add_argument("workdir", nargs="?", default=".", help="Workspace root directory")
+    parser.add_argument("--resume", metavar="RUN_ID", help="Resume a previous run by run ID")
     parser.add_argument("--model", default="deepseek-v4-flash", help="Model name")
     parser.add_argument("--max-turns", type=int, default=20, help="Maximum turns")
     parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
@@ -72,10 +73,20 @@ def main(argv: list[str] | None = None) -> None:
         agent = Agent(config, backend)
         console = Console()
         visitor = RichStreamVisitor(console, verbose=args.verbose)
-        handle = agent.start(task=args.task, workdir=args.workdir)
-        for ev in handle:
-            dispatch_event(ev, visitor)
-        traj = handle.trajectory
+
+        if args.resume:
+            from src.agent.trajectory import Trajectory
+            traj = Trajectory.from_db(args.resume, config.db_path)
+            traj = agent.resume(traj)
+            reason = "resumed"
+        else:
+            if not args.task:
+                parser.error("task is required unless --resume is used")
+            handle = agent.start(task=args.task, workdir=args.workdir)
+            for ev in handle:
+                dispatch_event(ev, visitor)
+            traj = handle.trajectory
+
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
         sys.exit(1)

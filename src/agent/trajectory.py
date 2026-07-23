@@ -109,6 +109,40 @@ class Trajectory:
     def __post_init__(self):
         self._persisted_count = 0
 
+    @classmethod
+    def from_db(cls, run_id: str, db_path: str) -> Trajectory:
+        conn = sqlite3.connect(db_path)
+        try:
+            try:
+                row = conn.execute(
+                    "SELECT config_json, status FROM runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+            except sqlite3.OperationalError:
+                raise ValueError(f"Run {run_id} not found in {db_path}")
+            if row is None:
+                raise ValueError(f"Run {run_id} not found in {db_path}")
+            config_data = json.loads(row[0])
+            transport_data = config_data.pop("transport", {})
+            from src.agent.config import TransportConfig
+            config = AgentConfig(**config_data)
+            config.transport = TransportConfig(**transport_data)
+            traj = cls(run_id=run_id, config=config)
+            for row in conn.execute(
+                "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",
+                (run_id,),
+            ):
+                traj.events.append(Event(
+                    run_id=run_id,
+                    turn=row[0],
+                    ts=row[1],
+                    type=EventType(row[2]),
+                    payload=json.loads(row[3]),
+                ))
+            traj._persisted_count = len(traj.events)
+            return traj
+        finally:
+            conn.close()
+
     def emit(self, type: EventType, turn: int | None = None, payload: dict | None = None, *, ts: float | None = None) -> Event:
         ev = Event(
             run_id=self.run_id,
