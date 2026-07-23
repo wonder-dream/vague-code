@@ -6,6 +6,7 @@ from src.agent.ir import (
     MessageEnd,
     MessageStart,
     NullVisitor,
+    RetryNotice,
     TextDelta,
     ThinkingDelta,
     ToolUseStart,
@@ -33,6 +34,9 @@ class RichStreamVisitor(NullVisitor):
 
     def tool_use_start(self, ev: ToolUseStart) -> None:
         self._console.print(f"\n[tool] {ev.name}")
+
+    def retry_notice(self, ev: RetryNotice) -> None:
+        self._console.print(f"\n[yellow]⚠ 请求失败（{ev.reason}），{ev.delay_s:.1f}s 后重试（第 {ev.attempt} 次）[/yellow]")
 
     def message_end(self, ev: MessageEnd) -> None:
         self._console.print()

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
-
-from openai import APIError, APITimeoutError
 
 from src.agent.backend import ModelBackend
 from src.agent.config import AgentConfig
@@ -18,7 +17,9 @@ from src.agent.ir import (
     MessageStart,
     ModelResponse,
     NormalizedUsage,
+    RetryNotice,
     StopReason,
+    StreamDisconnect,
     StreamEvent,
     TextBlock,
     TextDelta,
@@ -31,6 +32,12 @@ from src.agent.ir import (
     ToolUseBlock,
     ToolUseEnd,
     ToolUseStart,
+)
+from src.agent.retry import (
+    RetryPolicy,
+    classify_llm_error,
+    estimate_input_tokens,
+    response_signature,
 )
 from src.agent.tools import DEFAULT_TOOLS, Tool
 from src.agent.trajectory import EventType, Trajectory
@@ -175,39 +182,68 @@ class Agent:
         def _gen() -> Iterator[StreamEvent]:
             nonlocal turn, messages
             try:
+                policy = RetryPolicy.from_config(self.config.transport)
                 while turn < self.config.max_turns:
                     traj.emit(EventType.turn_start, turn=turn)
-
                     call_config = {"model": self.config.model, "stream": self.config.transport.stream}
-                    aggregator = _StreamAggregator()
-                    message_end: MessageEnd | None = None
 
-                    try:
-                        for ev in self._stream_from(messages, self._tool_specs, call_config):
-                            aggregator.feed(ev)
-                            traj.emit(EventType.stream_event, turn=turn, payload=ev.to_dict())
-                            yield ev
-                            if isinstance(ev, MessageEnd):
-                                message_end = ev
-                    except APITimeoutError:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "llm_timeout", "message": "LLM call timed out during stream"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_timeout"})
-                        return
-                    except APIError as e:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "llm_error", "message": str(e)})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
-                    except Exception as e:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "stream_disconnect", "message": f"{type(e).__name__}: {e}"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
+                    retry_index = 0
+                    prev_one_fingerprint: dict | None = None
+                    resp: ModelResponse | None = None
 
-                    if message_end is None:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "no_message_end", "message": "Stream ended without MessageEnd"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
+                    while True:
+                        aggregator = _StreamAggregator()
+                        message_end: MessageEnd | None = None
+                        buffered: list[tuple[float, StreamEvent]] = []
 
-                    resp = aggregator.result(message_end)
+                        try:
+                            for ev in self._stream_from(messages, self._tool_specs, call_config):
+                                buffered.append((time.time(), ev))
+                                aggregator.feed(ev)
+                                yield ev
+                                if isinstance(ev, MessageEnd):
+                                    message_end = ev
+                            if message_end is None:
+                                raise StreamDisconnect("Stream ended without MessageEnd")
+                            resp = aggregator.result(message_end)
+                        except Exception as e:
+                            decision = classify_llm_error(e)
+                            if not decision.retryable or not policy.enabled or retry_index >= policy.max_attempts:
+                                if decision.retryable and policy.enabled:
+                                    traj.emit(EventType.error, turn=turn, payload={
+                                        "kind": "retry_exhausted",
+                                        "attempts": retry_index,
+                                        "last_error_kind": decision.error_kind,
+                                        "message": str(e),
+                                    })
+                                else:
+                                    traj.emit(EventType.error, turn=turn, payload={"kind": decision.error_kind, "message": str(e)})
+                                traj.emit(EventType.run_end, payload={"reason": decision.terminal_reason})
+                                return
+
+                            delay = policy.delay(retry_index)
+                            traj.emit(EventType.retry, turn=turn, payload={
+                                "attempt": retry_index + 1,
+                                "delay_s": delay,
+                                "reason": decision.reason,
+                                "exception": type(e).__name__,
+                                "estimated_input_tokens": estimate_input_tokens(messages, self._tool_specs),
+                            })
+                            yield RetryNotice(attempt=retry_index + 1, delay_s=delay, reason=decision.reason)
+                            time.sleep(delay)
+                            retry_index += 1
+                            continue
+
+                        for ts, ev in buffered:
+                            traj.emit(EventType.stream_event, turn=turn, payload=ev.to_dict(), ts=ts)
+                        sig = response_signature(resp)
+                        if prev_one_fingerprint is not None and sig != prev_one_fingerprint:
+                            traj.emit(EventType.retry_divergence, turn=turn, payload={
+                                "attempt": retry_index + 1,
+                                "previous": prev_one_fingerprint,
+                                "current": sig,
+                            })
+                        break
 
                     traj.emit(EventType.llm_response, turn=turn, payload={
                         "stop_reason": resp.stop_reason.value,

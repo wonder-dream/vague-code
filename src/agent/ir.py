@@ -235,7 +235,17 @@ class MessageEnd:
             "usage": self.usage.to_dict() if self.usage else NormalizedUsage().to_dict(),
         }
 
-StreamEvent = MessageStart | ThinkingStart | ThinkingDelta | ThinkingEnd | TextDelta | ToolUseStart | ArgsDelta | ToolUseEnd | MessageEnd
+@dataclass
+class RetryNotice:
+    attempt: int
+    delay_s: float
+    reason: str
+
+    def to_dict(self) -> dict:
+        return {"stream_type": "retry_notice", "attempt": self.attempt, "delay_s": self.delay_s, "reason": self.reason}
+
+
+StreamEvent = MessageStart | ThinkingStart | ThinkingDelta | ThinkingEnd | TextDelta | ToolUseStart | ArgsDelta | ToolUseEnd | MessageEnd | RetryNotice
 
 
 class StreamDisconnect(Exception):
@@ -254,6 +264,7 @@ class StreamEventVisitor(Protocol):
     def args_delta(self, ev: ArgsDelta) -> None: ...
     def tool_use_end(self, ev: ToolUseEnd) -> None: ...
     def message_end(self, ev: MessageEnd) -> None: ...
+    def retry_notice(self, ev: RetryNotice) -> None: ...
 
 
 def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None:
@@ -275,10 +286,12 @@ def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None:
         v.tool_use_end(ev)
     elif isinstance(ev, MessageEnd):
         v.message_end(ev)
+    elif isinstance(ev, RetryNotice):
+        v.retry_notice(ev)
 
 
 class NullVisitor:
     def __getattr__(self, name: str):
-        if name.startswith("message_") or name.startswith("thinking_") or name.startswith("text_") or name.startswith("tool_use_") or name.startswith("args_"):
+        if name.startswith("message_") or name.startswith("thinking_") or name.startswith("text_") or name.startswith("tool_use_") or name.startswith("args_") or name.startswith("retry_"):
             return lambda ev: None
         raise AttributeError(name)

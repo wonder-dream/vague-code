@@ -6,6 +6,7 @@ from src.agent.ir import (
     MessageStart,
     NormalizedUsage,
     NullVisitor,
+    RetryNotice,
     StopReason,
     TextDelta,
     ThinkingBlock,
@@ -73,6 +74,10 @@ class TestStreamEventToDict:
         d = MessageEnd(stop_reason=StopReason.unknown).to_dict()
         assert d["usage"]["input_tokens"] == 0
 
+    def test_retry_notice(self):
+        d = RetryNotice(attempt=2, delay_s=4.0, reason="rate_limit").to_dict()
+        assert d == {"stream_type": "retry_notice", "attempt": 2, "delay_s": 4.0, "reason": "rate_limit"}
+
 
 class TestThinkingBlockSignature:
     def test_signature_default_none(self):
@@ -105,6 +110,7 @@ class RecordingVisitor:
     def args_delta(self, ev):       self.calls.append(("args_delta", ev))
     def tool_use_end(self, ev):     self.calls.append(("tool_use_end", ev))
     def message_end(self, ev):      self.calls.append(("message_end", ev))
+    def retry_notice(self, ev):     self.calls.append(("retry_notice", ev))
 
 
 class TestDispatchEvent:
@@ -119,11 +125,13 @@ class TestDispatchEvent:
         dispatch_event(ArgsDelta(id="1", delta="{}"), v)
         dispatch_event(ToolUseEnd(id="1"), v)
         dispatch_event(MessageEnd(stop_reason=StopReason.end_turn), v)
-        assert len(v.calls) == 9
+        dispatch_event(RetryNotice(attempt=1, delay_s=2.0, reason="timeout"), v)
+        assert len(v.calls) == 10
         names = [c[0] for c in v.calls]
         assert names == [
             "message_start", "thinking_start", "thinking_delta", "thinking_end",
             "text_delta", "tool_use_start", "args_delta", "tool_use_end", "message_end",
+            "retry_notice",
         ]
 
 

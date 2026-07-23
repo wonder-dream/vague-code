@@ -10,10 +10,13 @@ from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
+    MessageEnd,
+    MessageStart,
     ModelResponse,
     NormalizedUsage,
     StopReason,
     TextBlock,
+    TextDelta,
     ToolSpec,
     ToolUseBlock,
 )
@@ -529,8 +532,8 @@ def test_agent_loop_catches_non_api_exceptions(tmp_path):
 
     assert any(e.type == EventType.error for e in traj.events)
     error = [e for e in traj.events if e.type == EventType.error][0]
-    assert error.payload["kind"] == "stream_disconnect"
-    assert "ValueError" in error.payload["message"]
+    assert error.payload["kind"] == "codec_error"
+    assert error.payload["message"] == "codec exploded"
     assert traj.events[-1].payload["reason"] == "llm_error"
 
 
@@ -760,3 +763,170 @@ def test_event_to_row_handles_unserializable_payload():
     row = ev.to_row()
     d = json.loads(row[4])
     assert isinstance(d["fn"], str)
+
+
+# ── Retry behavior ──────────────────────────────────────────────────────────
+
+
+def _rate_limit_error() -> Exception:
+    import httpx
+    from openai import RateLimitError
+    resp = httpx.Response(429, request=httpx.Request("POST", "https://api.example.com/v1"))
+    return RateLimitError("rate limit", response=resp, body=None)
+
+
+def test_retry_success(monkeypatch):
+    backend = FakeBackend([_rate_limit_error(), _text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    retry_events = [e for e in traj.events if e.type == EventType.retry]
+    assert len(retry_events) == 1
+    assert retry_events[0].payload["reason"] == "rate_limit"
+    assert retry_events[0].payload["attempt"] == 1
+
+    error_events = [e for e in traj.events if e.type == EventType.error]
+    assert len(error_events) == 0
+
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    assert backend.call_count == 2
+
+    stream_events = [e for e in traj.events if e.type == EventType.stream_event]
+    # only successful attempt's events are written (MessageStart + TextDelta + MessageEnd)
+    assert len(stream_events) == 3
+
+
+def test_retry_disabled(monkeypatch):
+    backend = FakeBackend([_rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    assert any(e.type == EventType.retry for e in traj.events) is False
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "rate_limit"
+    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert backend.call_count == 1
+
+
+def test_retry_exhausted(monkeypatch):
+    backend = FakeBackend([_rate_limit_error(), _rate_limit_error(), _rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_max_attempts=2))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    retry_events = [e for e in traj.events if e.type == EventType.retry]
+    assert len(retry_events) == 2
+
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "retry_exhausted"
+    assert error.payload["attempts"] == 2
+    assert error.payload["last_error_kind"] == "rate_limit"
+    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert backend.call_count == 3
+
+
+def test_retry_non_retryable(monkeypatch):
+    import httpx
+    from openai import BadRequestError
+    req = httpx.Request("POST", "https://api.example.com/v1")
+    resp = httpx.Response(400, request=req)
+    err = BadRequestError("bad request", response=resp, body=None)
+    backend = FakeBackend([err])
+    config = AgentConfig(max_turns=5)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    assert any(e.type == EventType.retry for e in traj.events) is False
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "llm_error"
+    assert backend.call_count == 1
+
+
+def test_retry_with_retry_notice_in_stream(monkeypatch):
+    """RunHandle 产生的实时事件序列包含 RetryNotice, trajectory 无 RetryNotice 但含 retry"""
+    import random
+
+    class _StreamRetryBackend:
+        def __init__(self):
+            self.call_count = 0
+        def complete(self, messages, tools=None, config=None):
+            self.call_count += 1
+            raise AssertionError("should not be called")
+        def stream(self, messages, tools=None, config=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                # first stream: yield MessageStart then fail
+                yield MessageStart(model="test")
+                yield TextDelta(delta="partial")
+                import httpx
+                from openai import APIConnectionError
+                req = httpx.Request("POST", "https://api.example.com/v1")
+                raise APIConnectionError(message="stream dropped", request=req)
+            # second stream: succeed
+            yield MessageStart(model="test")
+            yield TextDelta(delta="done")
+            yield MessageEnd(stop_reason=StopReason.end_turn, usage=NormalizedUsage(2, 1))
+
+    backend = _StreamRetryBackend()
+    config = AgentConfig(max_turns=5, transport=TransportConfig(stream=True))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    handle = agent.start("x", ".")
+
+    collected_types: list[str] = []
+    for ev in handle:
+        collected_types.append(type(ev).__name__)
+
+    traj = handle.trajectory
+
+    # RunHandle should contain RetryNotice between partials and final
+    assert "RetryNotice" in collected_types, f"got event types: {collected_types}"
+    retry_idx = collected_types.index("RetryNotice")
+    assert retry_idx > 0  # appears after first attempt's deltas
+    assert retry_idx < len(collected_types) - 1  # not last
+
+    # trajectory should have retry event but NO RetryNotice
+    assert any(e.type == EventType.retry for e in traj.events)
+    assert not any(e.type == EventType.stream_event and e.payload.get("stream_type") == "retry_notice" for e in traj.events)
+    assert len([e for e in traj.events if e.type == EventType.llm_response]) == 1
+    assert traj.events[-1].payload["reason"] == "end_turn"
+
+    stream_events_in_traj = [e for e in traj.events if e.type == EventType.stream_event]
+    assert len(stream_events_in_traj) == 3  # MessageStart + TextDelta + MessageEnd
+
+
+def test_trajectory_emit_with_ts():
+    traj = Trajectory(run_id="test", config=AgentConfig())
+    traj.emit(EventType.run_start, payload={"task": "hi"}, ts=100.0)
+    assert traj.events[0].ts == 100.0
+
+
+def test_retry_max_attempts_zero(monkeypatch):
+    """retry_max_attempts=0 且 retry_enabled=True → 首次异常即 retry_exhausted"""
+    import random
+    backend = FakeBackend([_rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_max_attempts=0))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "retry_exhausted"
+    assert error.payload["attempts"] == 0
+    assert backend.call_count == 1

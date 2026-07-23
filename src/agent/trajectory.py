@@ -109,11 +109,11 @@ class Trajectory:
     def __post_init__(self):
         self._persisted_count = 0
 
-    def emit(self, type: EventType, turn: int | None = None, payload: dict | None = None) -> Event:
+    def emit(self, type: EventType, turn: int | None = None, payload: dict | None = None, *, ts: float | None = None) -> Event:
         ev = Event(
             run_id=self.run_id,
             turn=turn,
-            ts=time.time(),
+            ts=ts if ts is not None else time.time(),
             type=type,
             payload=dict(payload or {}),
         )
