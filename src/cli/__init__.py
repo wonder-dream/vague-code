@@ -26,6 +26,19 @@ def main(argv: list[str] | None = None) -> None:
                             help="Enable streaming output (default)")
     stream_grp.add_argument("--no-stream", action="store_false", dest="stream",
                             help="Disable streaming output")
+    retry_grp = parser.add_mutually_exclusive_group()
+    retry_grp.add_argument("--retry", action="store_true", dest="retry", default=True,
+                           help="Enable retry on transient errors (default)")
+    retry_grp.add_argument("--no-retry", action="store_false", dest="retry",
+                           help="Disable retry")
+    parser.add_argument("--retry-max-attempts", type=int, default=5,
+                        help="Maximum number of retry attempts")
+    parser.add_argument("--retry-base-s", type=float, default=2.0,
+                        help="Base delay for exponential backoff (seconds)")
+    parser.add_argument("--retry-max-delay-s", type=float, default=120.0,
+                        help="Maximum delay between retries (seconds)")
+    parser.add_argument("--timeout-s", type=float, default=120.0,
+                        help="Per-turn LLM call timeout (seconds)")
     parser.add_argument("--verbose", action="store_true", help="Show model info")
 
     args = parser.parse_args(argv)
@@ -40,13 +53,20 @@ def main(argv: list[str] | None = None) -> None:
             model=args.model,
             max_turns=args.max_turns,
             db_path=args.db_path,
-            transport=TransportConfig(stream=args.stream),
+            transport=TransportConfig(
+                stream=args.stream,
+                timeout_s=args.timeout_s,
+                retry_enabled=args.retry,
+                retry_max_attempts=args.retry_max_attempts,
+                retry_base_s=args.retry_base_s,
+                retry_max_delay_s=args.retry_max_delay_s,
+            ),
         )
 
         backend = create_deepseek_backend(
             api_key=api_key,
             base_url="https://api.deepseek.com",
-            timeout_s=config.turn_timeout_s,
+            timeout_s=config.transport.timeout_s,
         )
 
         agent = Agent(config, backend)

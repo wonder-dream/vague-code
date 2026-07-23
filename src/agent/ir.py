@@ -238,6 +238,10 @@ class MessageEnd:
 StreamEvent = MessageStart | ThinkingStart | ThinkingDelta | ThinkingEnd | TextDelta | ToolUseStart | ArgsDelta | ToolUseEnd | MessageEnd
 
 
+class StreamDisconnect(Exception):
+    """Raised when the LLM stream ends abnormally (disconnect, no MessageEnd, etc.)."""
+
+
 # ── StreamEventVisitor ──────────────────────────────────────────────────────
 
 class StreamEventVisitor(Protocol):

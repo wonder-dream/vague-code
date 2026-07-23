@@ -28,6 +28,8 @@ class EventType(str, Enum):
     error = "error"
     run_end = "run_end"
     stream_event = "stream_event"
+    retry = "retry"
+    retry_divergence = "retry_divergence"
 
 
 @dataclass

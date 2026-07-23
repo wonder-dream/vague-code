@@ -42,7 +42,7 @@ class DeepSeekBackend:
         base_url: str = "https://api.deepseek.com",
         timeout_s: float = 120.0,
     ):
-        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_s)
+        self._client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout_s, max_retries=2)
 
     def complete(
         self,

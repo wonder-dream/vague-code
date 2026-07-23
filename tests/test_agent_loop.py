@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.config import AgentConfig
+from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
@@ -145,14 +145,14 @@ def test_max_turns_negative_raises():
         AgentConfig(max_turns=-1)
 
 
-def test_config_zero_timeout_raises():
-    with pytest.raises(ValueError, match="turn_timeout_s"):
-        AgentConfig(turn_timeout_s=0)
+def test_transport_zero_timeout_raises():
+    with pytest.raises(ValueError, match="timeout_s"):
+        TransportConfig(timeout_s=0)
 
 
-def test_config_negative_timeout_raises():
-    with pytest.raises(ValueError, match="turn_timeout_s"):
-        AgentConfig(turn_timeout_s=-5)
+def test_transport_negative_timeout_raises():
+    with pytest.raises(ValueError, match="timeout_s"):
+        TransportConfig(timeout_s=-5)
 
 
 def test_config_empty_model_raises():
@@ -242,7 +242,7 @@ class _FakeTimeoutBackend:
 
 def test_backend_timeout():
     backend = _FakeTimeoutBackend()
-    config = AgentConfig(max_turns=5)
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, backend)
     traj = agent.run("x", ".")
 
@@ -265,7 +265,7 @@ class _FakeAPIErrorBackend:
 
 def test_backend_api_error():
     backend = _FakeAPIErrorBackend()
-    config = AgentConfig(max_turns=5)
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, backend)
     traj = agent.run("x", ".")
 
@@ -523,7 +523,7 @@ def test_agent_loop_catches_non_api_exceptions(tmp_path):
         def complete(self, messages, tools=None, config=None):
             raise ValueError("codec exploded")
 
-    config = AgentConfig(max_turns=5, db_path=str(tmp_path / "t.db"))
+    config = AgentConfig(max_turns=5, db_path=str(tmp_path / "t.db"), transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, _ValueErrorBackend())
     traj = agent.run("x", ".")
 
