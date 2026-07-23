@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from dotenv import dotenv_values
 from rich.console import Console
@@ -96,8 +97,12 @@ def main(argv: list[str] | None = None) -> None:
     print(f"\n— Run {traj.run_id} finished, reason: {reason}", file=sys.stderr)
 
     if args.export_jsonl:
-        traj.export_jsonl(args.export_jsonl)
-        print(f"  Trajectory exported: {args.export_jsonl}", file=sys.stderr)
+        export_path = Path(args.export_jsonl)
+        if export_path.is_dir():
+            print(f"Error: --export-jsonl path is a directory: '{export_path}'", file=sys.stderr)
+            sys.exit(1)
+        traj.export_jsonl(str(export_path))
+        print(f"  Trajectory exported: {export_path}", file=sys.stderr)
 
 
 def _resolve_api_key() -> str | None:
