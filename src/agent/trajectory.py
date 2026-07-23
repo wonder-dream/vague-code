@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, fields as dc_fields
 from enum import Enum
 from pathlib import Path
 from typing import cast
 
-from src.agent.config import AgentConfig
+from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
@@ -123,9 +124,21 @@ class Trajectory:
                 raise ValueError(f"Run {run_id} not found in {db_path}")
             config_data = json.loads(row[0])
             transport_data = config_data.pop("transport", {})
-            from src.agent.config import TransportConfig
-            config = AgentConfig(**config_data)
-            config.transport = TransportConfig(**transport_data)
+
+            agent_keys = {f.name for f in dc_fields(AgentConfig) if f.name != "transport"}
+            filtered = {k: v for k, v in config_data.items() if k in agent_keys}
+            skipped = set(config_data) - agent_keys
+            if skipped:
+                warnings.warn(f"from_db: ignoring unknown AgentConfig fields: {', '.join(sorted(skipped))}", stacklevel=2)
+
+            transport_keys = {f.name for f in dc_fields(TransportConfig)}
+            filtered_t = {k: v for k, v in transport_data.items() if k in transport_keys}
+            skipped_t = set(transport_data) - transport_keys
+            if skipped_t:
+                warnings.warn(f"from_db: ignoring unknown TransportConfig fields: {', '.join(sorted(skipped_t))}", stacklevel=2)
+
+            config = AgentConfig(**filtered)
+            config.transport = TransportConfig(**filtered_t)
             traj = cls(run_id=run_id, config=config)
             for row in conn.execute(
                 "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",

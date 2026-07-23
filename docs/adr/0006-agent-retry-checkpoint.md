@@ -222,3 +222,9 @@ def _attempt_with_retry(self, messages, tools, config) -> ModelResponse | Iterat
 
 `error(kind=retry_exhausted)` 的 payload 携带 `last_error_kind`。
 理由：轨迹是评测唯一数据源，失败分类信息不丢失。
+
+### 修正案 3：工具执行 at-least-once 语义（已知限制）
+
+检查点设在工具执行之前（§7），因此若进程在工具执行期间崩溃，该次崩溃前已执行的工具会因回滚到检查点而被重做。
+这对有副作用（写文件、bash 命令）的工具意味着可能执行两次，属于 at-least-once 语义。
+v0 不接受此限制的工程化缓解；这是 Temporal、Airflow 等生产系统的常见议题，面试时可展开讨论。

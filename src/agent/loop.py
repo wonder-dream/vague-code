@@ -167,6 +167,7 @@ class Agent:
             "task": task,
             "workdir": workdir,
             "config": self.config.to_public_dict(),
+            "tools": sorted(self._tool_registry.keys()),
         })
 
         try:
@@ -314,6 +315,8 @@ class Agent:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
 
+    TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "content_filter", "unknown"}
+
     def resume(self, traj: Trajectory) -> Trajectory:
         self._validate_consistent(traj)
 
@@ -328,13 +331,27 @@ class Agent:
 
         bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
         messages = traj.to_messages()
-        turn = self._count_turns(traj)
 
-        had_pending = self._execute_pending_tools(traj, messages, turn, bound_tools)
-        if had_pending:
-            turn += 1
+        last_llm = next((e for e in reversed(traj.events) if e.type == EventType.llm_response), None)
+        if last_llm is None:
+            next_turn = 0
+        else:
+            sr = last_llm.payload.get("stop_reason")
+            T = last_llm.turn or 0
+            if sr in self.TERMINAL_STOP_REASONS:
+                reason = "end_turn" if sr in ("end_turn", "stop_sequence") else sr
+                traj.emit(EventType.run_end, payload={"reason": reason})
+                self._persist(traj)
+                return traj
+            if T + 1 >= self.config.max_turns:
+                n = sum(1 for b in last_llm.payload.get("blocks", []) if b.get("type") == "tool_use")
+                traj.emit(EventType.run_end, payload={"reason": "max_turns", "pending_tool_calls": n})
+                self._persist(traj)
+                return traj
+            self._execute_pending_tools(traj, messages, T, bound_tools)
+            next_turn = T + 1
 
-        gen = self._run_gen(traj, messages, [turn], bound_tools)
+        gen = self._run_gen(traj, messages, [next_turn], bound_tools)
         for _ in gen:
             pass
         return traj
@@ -346,14 +363,17 @@ class Agent:
                 if saved.get("model") and saved["model"] != self.config.model:
                     import warnings
                     warnings.warn(f"Resuming with model {self.config.model}, original was {saved['model']}")
+                stored_tools = e.payload.get("tools")
+                if stored_tools is not None:
+                    current_tools = sorted(self._tool_registry.keys())
+                    if stored_tools != current_tools:
+                        raise ValueError(
+                            f"Tool registry mismatch on resume: stored={stored_tools}, current={current_tools}"
+                        )
+                else:
+                    import warnings
+                    warnings.warn("Resuming run without 'tools' field in run_start — skipping consistency check")
                 return
-
-    def _count_turns(self, traj: Trajectory) -> int:
-        turns = set()
-        for e in traj.events:
-            if e.turn is not None:
-                turns.add(e.turn)
-        return max(turns) + 1 if turns else 0
 
     def _execute_pending_tools(
         self,

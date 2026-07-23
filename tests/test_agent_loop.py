@@ -971,28 +971,20 @@ def test_resume_pending_tools(tmp_path):
     db_path = str(tmp_path / "checkpoint.db")
     config = AgentConfig(max_turns=5, db_path=db_path)
 
-    # Build a trajectory with a crash-simulated checkpoint state
     traj = Trajectory(run_id="test_crash", config=config)
-    traj.emit(EventType.run_start, payload={"task": "read file", "workdir": str(tmp_path), "config": config.to_public_dict()})
+    traj.emit(EventType.run_start, payload={
+        "task": "read file", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
     traj.emit(EventType.turn_start, turn=0)
     traj.emit(EventType.llm_response, turn=0, payload={
         "stop_reason": "tool_use",
         "usage": {"input_tokens": 5, "output_tokens": 2},
         "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
     })
-    # No tool_call or tool_result events — process crashed here
-    traj.emit(EventType.run_end, payload={"reason": "llm_error"})  # shouldn't happen in practice but we remove for test
-
-    # Remove run_end to simulate in-progress crash state
-    traj.events.pop()
-
-    # Persist the partial state (simulating the checkpoint persist)
     traj.persist()
-
-    # Recalculate persisted_count — agent.resume will load fresh
     del traj
 
-    # Create a small file so the tool can read it
     (tmp_path / "x.txt").write_text("hello", encoding="utf-8")
 
     agent = Agent(config, FakeBackend([_text_response("done")]), tools=DEFAULT_TOOLS)
@@ -1003,6 +995,10 @@ def test_resume_pending_tools(tmp_path):
     tool_results = [e for e in result.events if e.type == EventType.tool_result]
     assert len(tool_results) == 1
     assert "hello" in tool_results[0].payload["content"]
+    # Turn attribution must match the llm_response's turn (P0 regression guard)
+    tool_calls = [e for e in result.events if e.type == EventType.tool_call]
+    assert all(e.turn == 0 for e in tool_calls), f"tool_call turn not 0: {[(e.turn, e.payload) for e in tool_calls]}"
+    assert all(e.turn == 0 for e in tool_results), f"tool_result turn not 0: {[(e.turn, e.payload) for e in tool_results]}"
 
 
 def test_checkpoint_persist_does_not_crash(monkeypatch, tmp_path):
@@ -1023,3 +1019,159 @@ def test_checkpoint_persist_does_not_crash(monkeypatch, tmp_path):
     # Ensure events include tool execution (checkpoint didn't break anything)
     tool_results = [e for e in traj.events if e.type == EventType.tool_result]
     assert len(tool_results) == 1
+
+
+def test_resume_max_turns_2_not_dead(tmp_path):
+    """P0 regression: max_turns=2, crash at T=0 (tool_use with no tools done).
+    Resume must still call LLM and reach end_turn, not run_end(max_turns)."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=2, db_path=db_path)
+
+    traj = Trajectory(run_id="r2", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "read and answer", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    traj.persist()
+    del traj
+
+    (tmp_path / "x.txt").write_text("content", encoding="utf-8")
+
+    agent = Agent(config, FakeBackend([_text_response("answer")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("r2", db_path)
+    result = agent.resume(loaded)
+
+    # Must reach end_turn, not max_turns (which would mean LLM never called again)
+    assert result.events[-1].payload["reason"] == "end_turn"
+    # Two llm_responses: turn 0 (crashed) + turn 1 (resumed)
+    llms = [e for e in result.events if e.type == EventType.llm_response]
+    assert len(llms) == 2, f"Expected 2 llm_responses, got {len(llms)} turns: {[e.turn for e in llms]}"
+    assert llms[1].turn == 1
+
+
+def test_resume_defensive_terminal_replay(tmp_path):
+    """Defensive: hand-crafted llm_response(end_turn) without run_end → no extra LLM call."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_terminal", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "hi", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": [],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+        "blocks": [{"type": "text", "text": "hello"}],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([_text_response("should never be called")]), tools={})
+    loaded = Trajectory.from_db("r_terminal", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "end_turn"
+    llms = [e for e in result.events if e.type == EventType.llm_response]
+    assert len(llms) == 1, f"Expected 1 llm_response, got {len(llms)}"
+
+
+def test_resume_defensive_meltdown_replay(tmp_path):
+    """Defensive: hand-crafted tool_use tail with max_turns=T+1 → run_end(max_turns), tools not executed."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=1, db_path=db_path)
+
+    traj = Trajectory(run_id="r_melt", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "do stuff", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([_text_response("should never be called")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("r_melt", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "max_turns"
+    assert result.events[-1].payload.get("pending_tool_calls") == 1
+    assert any(e.type == EventType.tool_call for e in result.events) is False
+
+
+def test_from_db_unknown_fields(tmp_path):
+    """from_db with fields not known to current AgentConfig/TransportConfig loads with warning."""
+    import warnings
+    db_path = str(tmp_path / "t.db")
+    import sqlite3
+    import json
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, config_json TEXT, status TEXT)")
+    config_with_extra = {
+        "model": "deepseek-v4-flash", "max_turns": 3,
+        "db_path": db_path, "transport": {"stream": True, "unknown_field": 42},
+        "turn_timeout_s": 120.0,
+    }
+    conn.execute("INSERT INTO runs VALUES (?, ?, ?)", ("r1", json.dumps(config_with_extra), "in_progress"))
+    conn.execute("CREATE TABLE events (run_id TEXT, turn INTEGER, ts REAL, type TEXT, payload TEXT)")
+    conn.commit()
+    conn.close()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        traj = Trajectory.from_db("r1", db_path)
+        assert any("AgentConfig fields: turn_timeout_s" in str(m.message) for m in w), [str(m.message) for m in w]
+        assert any("TransportConfig fields: unknown_field" in str(m.message) for m in w), [str(m.message) for m in w]
+    assert len(traj.events) == 0
+
+
+def test_tools_mismatch_error(tmp_path):
+    """Resume with different tool registry → ValueError."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_mismatch", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "x", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file", "write_file"],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([]), tools={})  # empty registry
+    loaded = Trajectory.from_db("r_mismatch", db_path)
+    with pytest.raises(ValueError, match="Tool registry mismatch"):
+        agent.resume(loaded)
+
+
+def test_tools_field_missing_warning(tmp_path):
+    """Old run_start without 'tools' field → warning, proceeds."""
+    import warnings
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_old", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "x", "workdir": str(tmp_path), "config": config.to_public_dict(),
+    })
+    traj.persist()
+    del traj
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        agent = Agent(config, FakeBackend([]))
+        loaded = Trajectory.from_db("r_old", db_path)
+        agent.resume(loaded)
+        assert any("without 'tools' field" in str(m.message) for m in w), [str(m.message) for m in w]
