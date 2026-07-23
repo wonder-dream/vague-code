@@ -242,7 +242,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from src.cli import main
-        main(["say hi", "."])
+        main(["say hi", ".", "--verbose"])
 
         err = capsys.readouterr().err
         assert "finished, reason: end_turn" in err
@@ -275,11 +275,22 @@ class TestCliMockPipeline:
         monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from src.cli import main
-        main(["hi", ".", "--no-stream"])
+        main(["hi", ".", "--no-stream", "--verbose"])
 
         result = capsys.readouterr()
         # Should complete successfully without streaming output
         assert "finished, reason: end_turn" in result.err
+
+    def test_normal_output_no_metadata(self, monkeypatch, capsys):
+        """Without --verbose, the `Run X finished` line should NOT appear."""
+        monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+
+        from src.cli import main
+        main(["hi", "."])
+
+        result = capsys.readouterr()
+        assert "finished, reason:" not in result.err
+        assert "finished, reason:" not in result.out
 
     def test_verbose_output(self, monkeypatch, capsys):
         monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
@@ -296,7 +307,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from src.cli import main
-        main(["hi", "."])
+        main(["hi", ".", "--verbose"])
 
         err = capsys.readouterr().err
         assert "finished, reason: end_turn" in err
@@ -320,7 +331,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from src.cli import main
-        main(["hi", ".", "--no-retry"])
+        main(["hi", ".", "--no-retry", "--verbose"])
         result = capsys.readouterr()
         # Agent completes with error, no SystemExit
         assert "finished, reason: llm_error" in result.err
@@ -335,7 +346,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: backend)
 
         from src.cli import main
-        main(["hi", "."])
+        main(["hi", ".", "--verbose"])
         result = capsys.readouterr()
         # Non-retryable: Agent completes with error, no SystemExit
         assert "finished, reason: llm_error" in result.err
@@ -347,7 +358,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from src.cli import main
-        main(["hi", "."])
+        main(["hi", ".", "--verbose"])
         result = capsys.readouterr()
         # Exhausted: completes with error, shows retry notices on stdout
         assert "finished, reason: llm_error" in result.err
@@ -389,7 +400,7 @@ class TestCliResume:
                             lambda *a, **kw: _FakeBackend([_text_response("done")]))
 
         from src.cli import main
-        main(["--resume", run_id, "--db-path", db_path])
+        main(["--resume", run_id, "--db-path", db_path, "--verbose"])
 
         err = capsys.readouterr().err
         assert "finished, reason: end_turn" in err
@@ -401,7 +412,7 @@ class TestCliResume:
         jsonl_path = tmp_path / "resume.jsonl"
 
         from src.cli import main
-        main(["--resume", run_id, "--db-path", db_path, "--export-jsonl", str(jsonl_path)])
+        main(["--resume", run_id, "--db-path", db_path, "--export-jsonl", str(jsonl_path), "--verbose"])
 
         assert jsonl_path.exists()
         err = capsys.readouterr().err
@@ -410,7 +421,6 @@ class TestCliResume:
     def test_resume_finished_run(self, monkeypatch, capsys, tmp_path):
         db_path = str(tmp_path / "t.db")
         config = AgentConfig(max_turns=5, db_path=db_path)
-        # Create a completed run
         from src.agent.loop import Agent
         agent = Agent(config, _FakeBackend([_text_response("ok")]))
         traj = agent.run("x", ".")
@@ -419,7 +429,7 @@ class TestCliResume:
         monkeypatch.setattr("src.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([]))
 
         from src.cli import main
-        main(["--resume", run_id, "--db-path", db_path])
+        main(["--resume", run_id, "--db-path", db_path, "--verbose"])
 
         err = capsys.readouterr().err
         assert "finished, reason: end_turn" in err

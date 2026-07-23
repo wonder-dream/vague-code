@@ -92,9 +92,10 @@ def main(argv: list[str] | None = None) -> None:
         print(f"Fatal error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    run_end = [e for e in traj.events if e.type == "run_end"]
-    reason = run_end[0].payload.get("reason", "?") if run_end else "?"
-    print(f"\n— Run {traj.run_id} finished, reason: {reason}", file=sys.stderr)
+    if args.verbose:
+        run_end = [e for e in traj.events if e.type == "run_end"]
+        reason = run_end[0].payload.get("reason", "?") if run_end else "?"
+        print(f"Run {traj.run_id} finished, reason: {reason}", file=sys.stderr)
 
     if args.export_jsonl:
         export_path = Path(args.export_jsonl)
