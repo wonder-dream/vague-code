@@ -8,8 +8,11 @@ import re
 
 from src.agent.ir import ToolSpec
 
+DEFAULT_MAX_OVERWRITE = False
 MAX_READ_BYTES = 10 * 1024 * 1024
-
+MAX_OUTPUT = 50 * 1024
+MAX_GLOB_RESULTS = 1000
+MAX_GREP_RESULTS = 500
 
 @dataclass
 class Tool:
@@ -63,6 +66,9 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
             raise PermissionError(f"Path traversal detected: {path_str}")
+        overwrite = input.get("overwrite", False)
+        if target.exists() and not overwrite:
+            raise FileExistsError(f"File already exists: {path_str}. Set overwrite=true to replace it.")
         content = input.get("content", "")
         if content is None:
             raise ValueError("content must be a non-empty string, got null")
@@ -74,7 +80,6 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
 
 def _glob_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
-    MAX_GLOB_RESULTS = 1000
 
     def handler(input: dict) -> str:
         pattern = input.get("pattern", "")
@@ -132,7 +137,6 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
 
 def _grep_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
-    MAX_GREP_RESULTS = 500
 
     def handler(input: dict) -> str:
         pattern = input.get("pattern")
@@ -174,7 +178,6 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
 
 def _bash_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
-    MAX_OUTPUT = 50 * 1024
     def handler(input: dict) -> str:
         command = input.get("command", "")
         if command is None:
@@ -229,6 +232,7 @@ WRITE_FILE_SPEC = ToolSpec(
         "properties": {
             "path": {"type": "string", "description": "File path relative to workspace root"},
             "content": {"type": "string", "description": "Content to write to the file"},
+            "overwrite": {"type": "boolean", "description": "Set to true to overwrite an existing file (default: false)"},
         },
         "required": ["path", "content"],
     },
