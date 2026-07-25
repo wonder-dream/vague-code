@@ -38,11 +38,12 @@ def _read_file_factory(workdir: str) -> Callable[[dict], str]:
             raise FileNotFoundError(f"File not found: {path_str}")
         file_size = target.stat().st_size
         if file_size > MAX_READ_BYTES:
-            content = target.read_text(encoding="utf-8-sig")[:MAX_READ_BYTES]
+            raw = target.read_bytes()[:MAX_READ_BYTES]
+            content = raw.decode("utf-8-sig", errors="replace")
             return (
-                content
-                + f"\n\n[... output truncated at {MAX_READ_BYTES:_} bytes, "
-                + f"total file size: {file_size:_} bytes]"
+                    content
+                    + f"\n\n[... output truncated at {MAX_READ_BYTES:_} bytes, "
+                    + f"total file size: {file_size:_} bytes]"
             )
         return target.read_text(encoding="utf-8-sig")
 
@@ -68,11 +69,12 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
-        return f"Wrote {len(content)} bytes to {path_str}"
+        return f"Wrote {len(content.encode("utf-8"))} bytes to {path_str}"
     return handler
 
 def _glob_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
+    MAX_GLOB_RESULTS = 1000
 
     def handler(input: dict) -> str:
         pattern = input.get("pattern", "")
@@ -83,7 +85,11 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
         target = root.glob(pattern)
         result = []
         for path in target:
-            result.append(str(path))
+            result.append(str(path.relative_to(root)))
+
+        if len(result) > MAX_GLOB_RESULTS:
+            result = result[:MAX_GLOB_RESULTS]
+            result.append(f"... {MAX_GLOB_RESULTS} results shown, output truncated")
 
         return '\n'.join(result)
     return handler
@@ -121,11 +127,12 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
         else:
             new_content = content.replace(old_str, new_str, 1)
         target.write_text(new_content, encoding="utf-8")
-        return f"Wrote {len(new_content)} bytes to {path_str}"
+        return f"Wrote {len(new_content.encode("utf-8"))} bytes to {path_str}"
     return handler
 
 def _grep_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
+    MAX_GREP_RESULTS = 500
 
     def handler(input: dict) -> str:
         pattern = input.get("pattern")
@@ -152,9 +159,16 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
                     content = file.read_text(encoding="utf-8")
                 except UnicodeDecodeError:
                     continue
+                try:
+                    compiled = re.compile(pattern)
+                except re.error:
+                    continue
                 for i, line in enumerate(content.splitlines(), start=1):
-                    if pattern in line:
+                    if compiled.search(line):
                         result.append(f"{file}:{i}: {line}")
+        if len(result) > MAX_GREP_RESULTS:
+            result = result[:MAX_GREP_RESULTS]
+            result.append(f"... {MAX_GREP_RESULTS} results shown, output truncated")
         return "\n".join(result)
     return handler
 
@@ -187,12 +201,12 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
             stdout = result.stdout
             stderr = result.stderr
         except subprocess.TimeoutExpired:
-            return "Error: command timed out after 30 seconds"
+            raise RuntimeError("command timed out after 30 seconds")
         if len(stdout) > MAX_OUTPUT:
             stdout = stdout[:MAX_OUTPUT] + f"\n\n[... stdout truncated at {MAX_OUTPUT:_} bytes]"
         if len(stderr) > MAX_OUTPUT:
             stderr = stderr[:MAX_OUTPUT] + f"\n\n[... stderr truncated at {MAX_OUTPUT:_} bytes]"
-        return f"stdout:\n{stdout}\nstderr:\n{stderr}"
+        return f"exit code: {result.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     return handler
 
 READ_FILE_SPEC = ToolSpec(
