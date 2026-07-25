@@ -6,14 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.config import AgentConfig
+from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
+    MessageEnd,
+    MessageStart,
     ModelResponse,
     NormalizedUsage,
     StopReason,
     TextBlock,
+    TextDelta,
     ToolSpec,
     ToolUseBlock,
 )
@@ -145,14 +148,14 @@ def test_max_turns_negative_raises():
         AgentConfig(max_turns=-1)
 
 
-def test_config_zero_timeout_raises():
-    with pytest.raises(ValueError, match="turn_timeout_s"):
-        AgentConfig(turn_timeout_s=0)
+def test_transport_zero_timeout_raises():
+    with pytest.raises(ValueError, match="timeout_s"):
+        TransportConfig(timeout_s=0)
 
 
-def test_config_negative_timeout_raises():
-    with pytest.raises(ValueError, match="turn_timeout_s"):
-        AgentConfig(turn_timeout_s=-5)
+def test_transport_negative_timeout_raises():
+    with pytest.raises(ValueError, match="timeout_s"):
+        TransportConfig(timeout_s=-5)
 
 
 def test_config_empty_model_raises():
@@ -242,7 +245,7 @@ class _FakeTimeoutBackend:
 
 def test_backend_timeout():
     backend = _FakeTimeoutBackend()
-    config = AgentConfig(max_turns=5)
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, backend)
     traj = agent.run("x", ".")
 
@@ -265,7 +268,7 @@ class _FakeAPIErrorBackend:
 
 def test_backend_api_error():
     backend = _FakeAPIErrorBackend()
-    config = AgentConfig(max_turns=5)
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, backend)
     traj = agent.run("x", ".")
 
@@ -523,14 +526,14 @@ def test_agent_loop_catches_non_api_exceptions(tmp_path):
         def complete(self, messages, tools=None, config=None):
             raise ValueError("codec exploded")
 
-    config = AgentConfig(max_turns=5, db_path=str(tmp_path / "t.db"))
+    config = AgentConfig(max_turns=5, db_path=str(tmp_path / "t.db"), transport=TransportConfig(retry_enabled=False))
     agent = Agent(config, _ValueErrorBackend())
     traj = agent.run("x", ".")
 
     assert any(e.type == EventType.error for e in traj.events)
     error = [e for e in traj.events if e.type == EventType.error][0]
-    assert error.payload["kind"] == "stream_disconnect"
-    assert "ValueError" in error.payload["message"]
+    assert error.payload["kind"] == "codec_error"
+    assert error.payload["message"] == "codec exploded"
     assert traj.events[-1].payload["reason"] == "llm_error"
 
 
@@ -760,3 +763,415 @@ def test_event_to_row_handles_unserializable_payload():
     row = ev.to_row()
     d = json.loads(row[4])
     assert isinstance(d["fn"], str)
+
+
+# ── Retry behavior ──────────────────────────────────────────────────────────
+
+
+def _rate_limit_error() -> Exception:
+    import httpx
+    from openai import RateLimitError
+    resp = httpx.Response(429, request=httpx.Request("POST", "https://api.example.com/v1"))
+    return RateLimitError("rate limit", response=resp, body=None)
+
+
+def test_retry_success(monkeypatch):
+    backend = FakeBackend([_rate_limit_error(), _text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    retry_events = [e for e in traj.events if e.type == EventType.retry]
+    assert len(retry_events) == 1
+    assert retry_events[0].payload["reason"] == "rate_limit"
+    assert retry_events[0].payload["attempt"] == 1
+
+    error_events = [e for e in traj.events if e.type == EventType.error]
+    assert len(error_events) == 0
+
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    assert backend.call_count == 2
+
+    stream_events = [e for e in traj.events if e.type == EventType.stream_event]
+    # only successful attempt's events are written (MessageStart + TextDelta + MessageEnd)
+    assert len(stream_events) == 3
+
+
+def test_retry_disabled(monkeypatch):
+    backend = FakeBackend([_rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_enabled=False))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    assert any(e.type == EventType.retry for e in traj.events) is False
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "rate_limit"
+    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert backend.call_count == 1
+
+
+def test_retry_exhausted(monkeypatch):
+    backend = FakeBackend([_rate_limit_error(), _rate_limit_error(), _rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_max_attempts=2))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    retry_events = [e for e in traj.events if e.type == EventType.retry]
+    assert len(retry_events) == 2
+
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "retry_exhausted"
+    assert error.payload["attempts"] == 2
+    assert error.payload["last_error_kind"] == "rate_limit"
+    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert backend.call_count == 3
+
+
+def test_retry_non_retryable(monkeypatch):
+    import httpx
+    from openai import BadRequestError
+    req = httpx.Request("POST", "https://api.example.com/v1")
+    resp = httpx.Response(400, request=req)
+    err = BadRequestError("bad request", response=resp, body=None)
+    backend = FakeBackend([err])
+    config = AgentConfig(max_turns=5)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    assert any(e.type == EventType.retry for e in traj.events) is False
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "llm_error"
+    assert backend.call_count == 1
+
+
+def test_retry_with_retry_notice_in_stream(monkeypatch):
+    """RunHandle 产生的实时事件序列包含 RetryNotice, trajectory 无 RetryNotice 但含 retry"""
+    import random
+
+    class _StreamRetryBackend:
+        def __init__(self):
+            self.call_count = 0
+        def complete(self, messages, tools=None, config=None):
+            self.call_count += 1
+            raise AssertionError("should not be called")
+        def stream(self, messages, tools=None, config=None):
+            self.call_count += 1
+            if self.call_count == 1:
+                # first stream: yield MessageStart then fail
+                yield MessageStart(model="test")
+                yield TextDelta(delta="partial")
+                import httpx
+                from openai import APIConnectionError
+                req = httpx.Request("POST", "https://api.example.com/v1")
+                raise APIConnectionError(message="stream dropped", request=req)
+            # second stream: succeed
+            yield MessageStart(model="test")
+            yield TextDelta(delta="done")
+            yield MessageEnd(stop_reason=StopReason.end_turn, usage=NormalizedUsage(2, 1))
+
+    backend = _StreamRetryBackend()
+    config = AgentConfig(max_turns=5, transport=TransportConfig(stream=True))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    handle = agent.start("x", ".")
+
+    collected_types: list[str] = []
+    for ev in handle:
+        collected_types.append(type(ev).__name__)
+
+    traj = handle.trajectory
+
+    # RunHandle should contain RetryNotice between partials and final
+    assert "RetryNotice" in collected_types, f"got event types: {collected_types}"
+    retry_idx = collected_types.index("RetryNotice")
+    assert retry_idx > 0  # appears after first attempt's deltas
+    assert retry_idx < len(collected_types) - 1  # not last
+
+    # trajectory should have retry event but NO RetryNotice
+    assert any(e.type == EventType.retry for e in traj.events)
+    assert not any(e.type == EventType.stream_event and e.payload.get("stream_type") == "retry_notice" for e in traj.events)
+    assert len([e for e in traj.events if e.type == EventType.llm_response]) == 1
+    assert traj.events[-1].payload["reason"] == "end_turn"
+
+    stream_events_in_traj = [e for e in traj.events if e.type == EventType.stream_event]
+    assert len(stream_events_in_traj) == 3  # MessageStart + TextDelta + MessageEnd
+
+
+def test_trajectory_emit_with_ts():
+    traj = Trajectory(run_id="test", config=AgentConfig())
+    traj.emit(EventType.run_start, payload={"task": "hi"}, ts=100.0)
+    assert traj.events[0].ts == 100.0
+
+
+def test_retry_max_attempts_zero(monkeypatch):
+    """retry_max_attempts=0 且 retry_enabled=True → 首次异常即 retry_exhausted"""
+    import random
+    backend = FakeBackend([_rate_limit_error()])
+    config = AgentConfig(max_turns=5, transport=TransportConfig(retry_max_attempts=0))
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    agent = Agent(config, backend)
+    traj = agent.run("x", ".")
+
+    error = [e for e in traj.events if e.type == EventType.error][0]
+    assert error.payload["kind"] == "retry_exhausted"
+    assert error.payload["attempts"] == 0
+    assert backend.call_count == 1
+
+
+# ── Checkpoint & resume ──────────────────────────────────────────────────────
+
+
+def test_from_db_roundtrip(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    traj1 = Agent(config, FakeBackend([_text_response("ok")])).run("x", ".")
+    traj2 = Trajectory.from_db(traj1.run_id, db_path)
+
+    assert traj2.run_id == traj1.run_id
+    assert traj2.config.model == config.model
+    assert len(traj2.events) == len(traj1.events)
+    for e1, e2 in zip(traj1.events, traj2.events):
+        assert e1.type == e2.type
+        assert e1.payload == e2.payload
+
+
+def test_from_db_unknown_run_raises(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    with pytest.raises(ValueError, match="not found"):
+        Trajectory.from_db("nonexistent", db_path)
+
+
+def test_resume_already_finished_returns_immediately(tmp_path):
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    agent = Agent(config, FakeBackend([_text_response("ok")]))
+    traj = agent.run("x", ".")
+    result = agent.resume(traj)
+    assert result is traj
+    assert result.events[-1].payload["reason"] == "end_turn"
+
+
+def test_resume_pending_tools(tmp_path):
+    """Simulate crash after checkpoint: events have llm_response(tool_use) but no tool results.
+    Resume should execute pending tools and continue to completion."""
+    db_path = str(tmp_path / "checkpoint.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="test_crash", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "read file", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    traj.persist()
+    del traj
+
+    (tmp_path / "x.txt").write_text("hello", encoding="utf-8")
+
+    agent = Agent(config, FakeBackend([_text_response("done")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("test_crash", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "end_turn"
+    tool_results = [e for e in result.events if e.type == EventType.tool_result]
+    assert len(tool_results) == 1
+    assert "hello" in tool_results[0].payload["content"]
+    # Turn attribution must match the llm_response's turn (P0 regression guard)
+    tool_calls = [e for e in result.events if e.type == EventType.tool_call]
+    assert all(e.turn == 0 for e in tool_calls), f"tool_call turn not 0: {[(e.turn, e.payload) for e in tool_calls]}"
+    assert all(e.turn == 0 for e in tool_results), f"tool_result turn not 0: {[(e.turn, e.payload) for e in tool_results]}"
+
+
+def test_checkpoint_persist_does_not_crash(monkeypatch, tmp_path):
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+    monkeypatch.setattr("time.sleep", lambda _: None)
+    import random
+    monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
+    backend = FakeBackend([
+        _tool_use_response(("c1", "read_file", {"path": "x.txt"})),
+        _text_response("done"),
+    ])
+    (tmp_path / "x.txt").write_text("content", encoding="utf-8")
+    agent = Agent(config, backend)
+    traj = agent.run("read file", str(tmp_path))
+
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    # Ensure events include tool execution (checkpoint didn't break anything)
+    tool_results = [e for e in traj.events if e.type == EventType.tool_result]
+    assert len(tool_results) == 1
+
+
+def test_resume_max_turns_2_not_dead(tmp_path):
+    """P0 regression: max_turns=2, crash at T=0 (tool_use with no tools done).
+    Resume must still call LLM and reach end_turn, not run_end(max_turns)."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=2, db_path=db_path)
+
+    traj = Trajectory(run_id="r2", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "read and answer", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    traj.persist()
+    del traj
+
+    (tmp_path / "x.txt").write_text("content", encoding="utf-8")
+
+    agent = Agent(config, FakeBackend([_text_response("answer")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("r2", db_path)
+    result = agent.resume(loaded)
+
+    # Must reach end_turn, not max_turns (which would mean LLM never called again)
+    assert result.events[-1].payload["reason"] == "end_turn"
+    # Two llm_responses: turn 0 (crashed) + turn 1 (resumed)
+    llms = [e for e in result.events if e.type == EventType.llm_response]
+    assert len(llms) == 2, f"Expected 2 llm_responses, got {len(llms)} turns: {[e.turn for e in llms]}"
+    assert llms[1].turn == 1
+
+
+def test_resume_defensive_terminal_replay(tmp_path):
+    """Defensive: hand-crafted llm_response(end_turn) without run_end → no extra LLM call."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_terminal", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "hi", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": [],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "end_turn",
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+        "blocks": [{"type": "text", "text": "hello"}],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([_text_response("should never be called")]), tools={})
+    loaded = Trajectory.from_db("r_terminal", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "end_turn"
+    llms = [e for e in result.events if e.type == EventType.llm_response]
+    assert len(llms) == 1, f"Expected 1 llm_response, got {len(llms)}"
+
+
+def test_resume_defensive_meltdown_replay(tmp_path):
+    """Defensive: hand-crafted tool_use tail with max_turns=T+1 → run_end(max_turns), tools not executed."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=1, db_path=db_path)
+
+    traj = Trajectory(run_id="r_melt", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "do stuff", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file"],
+    })
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "stop_reason": "tool_use",
+        "usage": {"input_tokens": 5, "output_tokens": 2},
+        "blocks": [{"type": "tool_use", "id": "c1", "name": "read_file", "input": {"path": "x.txt"}}],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([_text_response("should never be called")]), tools=DEFAULT_TOOLS)
+    loaded = Trajectory.from_db("r_melt", db_path)
+    result = agent.resume(loaded)
+
+    assert result.events[-1].payload["reason"] == "max_turns"
+    assert result.events[-1].payload.get("pending_tool_calls") == 1
+    assert any(e.type == EventType.tool_call for e in result.events) is False
+
+
+def test_from_db_unknown_fields(tmp_path):
+    """from_db with fields not known to current AgentConfig/TransportConfig loads with warning."""
+    import warnings
+    db_path = str(tmp_path / "t.db")
+    import sqlite3
+    import json
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY, config_json TEXT, status TEXT)")
+    config_with_extra = {
+        "model": "deepseek-v4-flash", "max_turns": 3,
+        "db_path": db_path, "transport": {"stream": True, "unknown_field": 42},
+        "turn_timeout_s": 120.0,
+    }
+    conn.execute("INSERT INTO runs VALUES (?, ?, ?)", ("r1", json.dumps(config_with_extra), "in_progress"))
+    conn.execute("CREATE TABLE events (run_id TEXT, turn INTEGER, ts REAL, type TEXT, payload TEXT)")
+    conn.commit()
+    conn.close()
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        traj = Trajectory.from_db("r1", db_path)
+        assert any("AgentConfig fields: turn_timeout_s" in str(m.message) for m in w), [str(m.message) for m in w]
+        assert any("TransportConfig fields: unknown_field" in str(m.message) for m in w), [str(m.message) for m in w]
+    assert len(traj.events) == 0
+
+
+def test_tools_mismatch_error(tmp_path):
+    """Resume with different tool registry → ValueError."""
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_mismatch", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "x", "workdir": str(tmp_path),
+        "config": config.to_public_dict(), "tools": ["read_file", "write_file"],
+    })
+    traj.persist()
+    del traj
+
+    agent = Agent(config, FakeBackend([]), tools={})  # empty registry
+    loaded = Trajectory.from_db("r_mismatch", db_path)
+    with pytest.raises(ValueError, match="Tool registry mismatch"):
+        agent.resume(loaded)
+
+
+def test_tools_field_missing_warning(tmp_path):
+    """Old run_start without 'tools' field → warning, proceeds."""
+    import warnings
+    db_path = str(tmp_path / "t.db")
+    config = AgentConfig(max_turns=5, db_path=db_path)
+
+    traj = Trajectory(run_id="r_old", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "x", "workdir": str(tmp_path), "config": config.to_public_dict(),
+    })
+    traj.persist()
+    del traj
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        agent = Agent(config, FakeBackend([]))
+        loaded = Trajectory.from_db("r_old", db_path)
+        agent.resume(loaded)
+        assert any("without 'tools' field" in str(m.message) for m in w), [str(m.message) for m in w]

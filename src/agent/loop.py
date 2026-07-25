@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
-
-from openai import APIError, APITimeoutError
+from typing import Callable
 
 from src.agent.backend import ModelBackend
 from src.agent.config import AgentConfig
@@ -18,7 +18,9 @@ from src.agent.ir import (
     MessageStart,
     ModelResponse,
     NormalizedUsage,
+    RetryNotice,
     StopReason,
+    StreamDisconnect,
     StreamEvent,
     TextBlock,
     TextDelta,
@@ -31,6 +33,12 @@ from src.agent.ir import (
     ToolUseBlock,
     ToolUseEnd,
     ToolUseStart,
+)
+from src.agent.retry import (
+    RetryPolicy,
+    classify_llm_error,
+    estimate_input_tokens,
+    response_signature,
 )
 from src.agent.tools import DEFAULT_TOOLS, Tool
 from src.agent.trajectory import EventType, Trajectory
@@ -159,6 +167,7 @@ class Agent:
             "task": task,
             "workdir": workdir,
             "config": self.config.to_public_dict(),
+            "tools": sorted(self._tool_registry.keys()),
         })
 
         try:
@@ -170,118 +179,243 @@ class Agent:
             return RunHandle(iter([]), traj)
 
         messages: list[Message] = [Message(role="user", content=task)]
-        turn = 0
+        gen = self._run_gen(traj, messages, [0], bound_tools)
+        return RunHandle(gen, traj)
 
-        def _gen() -> Iterator[StreamEvent]:
-            nonlocal turn, messages
-            try:
-                while turn < self.config.max_turns:
-                    traj.emit(EventType.turn_start, turn=turn)
+    def _run_gen(
+        self,
+        traj: Trajectory,
+        messages: list[Message],
+        turn_box: list[int],
+        bound_tools: dict[str, Callable[[dict], str]],
+    ) -> Iterator[StreamEvent]:
+        try:
+            policy = RetryPolicy.from_config(self.config.transport)
+            while turn_box[0] < self.config.max_turns:
+                turn = turn_box[0]
+                traj.emit(EventType.turn_start, turn=turn)
+                call_config = {"model": self.config.model, "stream": self.config.transport.stream}
 
-                    call_config = {"model": self.config.model, "stream": self.config.transport.stream}
+                retry_index = 0
+                prev_one_fingerprint: dict | None = None
+                resp: ModelResponse | None = None
+
+                while True:
                     aggregator = _StreamAggregator()
                     message_end: MessageEnd | None = None
+                    buffered: list[tuple[float, StreamEvent]] = []
 
                     try:
                         for ev in self._stream_from(messages, self._tool_specs, call_config):
+                            buffered.append((time.time(), ev))
                             aggregator.feed(ev)
-                            traj.emit(EventType.stream_event, turn=turn, payload=ev.to_dict())
                             yield ev
                             if isinstance(ev, MessageEnd):
                                 message_end = ev
-                    except APITimeoutError:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "llm_timeout", "message": "LLM call timed out during stream"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_timeout"})
-                        return
-                    except APIError as e:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "llm_error", "message": str(e)})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
+                        if message_end is None:
+                            raise StreamDisconnect("Stream ended without MessageEnd")
+                        resp = aggregator.result(message_end)
                     except Exception as e:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "stream_disconnect", "message": f"{type(e).__name__}: {e}"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
-
-                    if message_end is None:
-                        traj.emit(EventType.error, turn=turn, payload={"kind": "no_message_end", "message": "Stream ended without MessageEnd"})
-                        traj.emit(EventType.run_end, payload={"reason": "llm_error"})
-                        return
-
-                    resp = aggregator.result(message_end)
-
-                    traj.emit(EventType.llm_response, turn=turn, payload={
-                        "stop_reason": resp.stop_reason.value,
-                        "usage": resp.usage.to_dict(),
-                        "blocks": [b.to_dict() for b in resp.message.content],
-                    })
-
-                    if resp.stop_reason in (StopReason.end_turn, StopReason.stop_sequence):
-                        traj.emit(EventType.run_end, payload={"reason": "end_turn"})
-                        return
-
-                    if resp.stop_reason in (StopReason.max_tokens, StopReason.content_filter, StopReason.unknown):
-                        traj.emit(EventType.run_end, payload={"reason": resp.stop_reason.value})
-                        return
-
-                    if resp.stop_reason == StopReason.tool_use:
-                        tool_uses = [b for b in resp.message.content if isinstance(b, ToolUseBlock)]
-                        if not tool_uses:
-                            traj.emit(EventType.error, turn=turn, payload={"kind": "empty_tool_use", "message": "Model returned tool_use with no ToolUseBlock"})
-                            traj.emit(EventType.run_end, payload={"reason": "empty_tool_use"})
-                            return
-                        if turn + 1 >= self.config.max_turns:
-                            traj.emit(EventType.run_end, payload={
-                                "reason": "max_turns",
-                                "pending_tool_calls": len(tool_uses),
-                            })
+                        decision = classify_llm_error(e)
+                        if not decision.retryable or not policy.enabled or retry_index >= policy.max_attempts:
+                            if decision.retryable and policy.enabled:
+                                traj.emit(EventType.error, turn=turn, payload={
+                                    "kind": "retry_exhausted",
+                                    "attempts": retry_index,
+                                    "last_error_kind": decision.error_kind,
+                                    "message": str(e),
+                                })
+                            else:
+                                traj.emit(EventType.error, turn=turn, payload={"kind": decision.error_kind, "message": str(e)})
+                            traj.emit(EventType.run_end, payload={"reason": decision.terminal_reason})
                             return
 
-                        messages.append(resp.message)
-                        tool_results: list[Block] = []
-                        for block in tool_uses:
-                            traj.emit(EventType.tool_call, turn=turn, payload={
-                                "id": block.id,
-                                "name": block.name,
-                                "input": block.input,
-                            })
-                            handler = bound_tools.get(block.name)
-                            if handler is None:
-                                error_msg = f"Unknown tool: {block.name}"
-                                traj.emit(EventType.tool_result, turn=turn, payload={
-                                    "tool_use_id": block.id,
-                                    "content": error_msg,
-                                    "is_error": True,
-                                })
-                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
-                                continue
-                            try:
-                                content = handler(block.input)
-                                traj.emit(EventType.tool_result, turn=turn, payload={
-                                    "tool_use_id": block.id,
-                                    "content": content,
-                                    "is_error": False,
-                                })
-                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
-                            except Exception as e:
-                                error_msg = f"{type(e).__name__}: {e}"
-                                traj.emit(EventType.tool_result, turn=turn, payload={
-                                    "tool_use_id": block.id,
-                                    "content": error_msg,
-                                    "is_error": True,
-                                })
-                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                        delay = policy.delay(retry_index)
+                        traj.emit(EventType.retry, turn=turn, payload={
+                            "attempt": retry_index + 1,
+                            "delay_s": delay,
+                            "reason": decision.reason,
+                            "exception": type(e).__name__,
+                            "estimated_input_tokens": estimate_input_tokens(messages, self._tool_specs),
+                        })
+                        yield RetryNotice(attempt=retry_index + 1, delay_s=delay, reason=decision.reason)
+                        time.sleep(delay)
+                        retry_index += 1
+                        continue
 
-                        messages.append(Message(role="user", content=tool_results))
-                        turn += 1
+                    for ts, ev in buffered:
+                        traj.emit(EventType.stream_event, turn=turn, payload=ev.to_dict(), ts=ts)
+                    sig = response_signature(resp)
+                    if prev_one_fingerprint is not None and sig != prev_one_fingerprint:
+                        traj.emit(EventType.retry_divergence, turn=turn, payload={
+                            "attempt": retry_index + 1,
+                            "previous": prev_one_fingerprint,
+                            "current": sig,
+                        })
+                    break
 
-                # max_turns reached without stop
-                traj.emit(EventType.run_end, payload={"reason": "max_turns"})
+                traj.emit(EventType.llm_response, turn=turn, payload={
+                    "stop_reason": resp.stop_reason.value,
+                    "usage": resp.usage.to_dict(),
+                    "blocks": [b.to_dict() for b in resp.message.content],
+                })
 
-            finally:
+                if resp.stop_reason in (StopReason.end_turn, StopReason.stop_sequence):
+                    traj.emit(EventType.run_end, payload={"reason": "end_turn"})
+                    return
+
+                if resp.stop_reason in (StopReason.max_tokens, StopReason.content_filter, StopReason.unknown):
+                    traj.emit(EventType.run_end, payload={"reason": resp.stop_reason.value})
+                    return
+
+                if resp.stop_reason == StopReason.tool_use:
+                    tool_uses = [b for b in resp.message.content if isinstance(b, ToolUseBlock)]
+                    if not tool_uses:
+                        traj.emit(EventType.error, turn=turn, payload={"kind": "empty_tool_use", "message": "Model returned tool_use with no ToolUseBlock"})
+                        traj.emit(EventType.run_end, payload={"reason": "empty_tool_use"})
+                        return
+                    if turn + 1 >= self.config.max_turns:
+                        traj.emit(EventType.run_end, payload={
+                            "reason": "max_turns",
+                            "pending_tool_calls": len(tool_uses),
+                        })
+                        return
+
+                    messages.append(resp.message)
+                    self._checkpoint(traj)
+                    tool_results: list[Block] = []
+                    for block in tool_uses:
+                        traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
+                        handler = bound_tools.get(block.name)
+                        if handler is None:
+                            error_msg = f"Unknown tool: {block.name}"
+                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
+                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                            continue
+                        try:
+                            content = handler(block.input)
+                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
+                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+                        except Exception as e:
+                            error_msg = f"{type(e).__name__}: {e}"
+                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
+                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+
+                    messages.append(Message(role="user", content=tool_results))
+                    turn_box[0] += 1
+
+            traj.emit(EventType.run_end, payload={"reason": "max_turns"})
+        finally:
+            self._persist(traj)
+
+    def _checkpoint(self, traj: Trajectory) -> None:
+        try:
+            traj.persist()
+        except Exception:
+            import warnings
+            warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "content_filter", "unknown"}
+
+    def resume(self, traj: Trajectory) -> Trajectory:
+        self._validate_consistent(traj)
+
+        if any(e.type == EventType.run_end for e in traj.events):
+            return traj
+
+        workdir = ""
+        for e in traj.events:
+            if e.type == EventType.run_start:
+                workdir = e.payload.get("workdir", "")
+                break
+
+        bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
+        messages = traj.to_messages()
+
+        last_llm = next((e for e in reversed(traj.events) if e.type == EventType.llm_response), None)
+        if last_llm is None:
+            next_turn = 0
+        else:
+            sr = last_llm.payload.get("stop_reason")
+            T = last_llm.turn or 0
+            if sr in self.TERMINAL_STOP_REASONS:
+                reason = "end_turn" if sr in ("end_turn", "stop_sequence") else sr
+                traj.emit(EventType.run_end, payload={"reason": reason})
                 self._persist(traj)
+                return traj
+            if T + 1 >= self.config.max_turns:
+                n = sum(1 for b in last_llm.payload.get("blocks", []) if b.get("type") == "tool_use")
+                traj.emit(EventType.run_end, payload={"reason": "max_turns", "pending_tool_calls": n})
+                self._persist(traj)
+                return traj
+            self._execute_pending_tools(traj, messages, T, bound_tools)
+            next_turn = T + 1
 
-        gen = _gen()
-        return RunHandle(gen, traj)
+        gen = self._run_gen(traj, messages, [next_turn], bound_tools)
+        for _ in gen:
+            pass
+        return traj
+
+    def _validate_consistent(self, traj: Trajectory) -> None:
+        for e in traj.events:
+            if e.type == EventType.run_start:
+                saved = e.payload.get("config", {})
+                if saved.get("model") and saved["model"] != self.config.model:
+                    import warnings
+                    warnings.warn(f"Resuming with model {self.config.model}, original was {saved['model']}")
+                stored_tools = e.payload.get("tools")
+                if stored_tools is not None:
+                    current_tools = sorted(self._tool_registry.keys())
+                    if stored_tools != current_tools:
+                        raise ValueError(
+                            f"Tool registry mismatch on resume: stored={stored_tools}, current={current_tools}"
+                        )
+                else:
+                    import warnings
+                    warnings.warn("Resuming run without 'tools' field in run_start — skipping consistency check")
+                return
+
+    def _execute_pending_tools(
+        self,
+        traj: Trajectory,
+        messages: list[Message],
+        turn: int,
+        bound_tools: dict[str, Callable[[dict], str]],
+    ) -> bool:
+        if not messages or messages[-1].role != "assistant":
+            return False
+        last_msg = messages[-1]
+        pending = [
+            b for b in last_msg.content
+            if isinstance(b, ToolUseBlock)
+            and not any(
+                e.type == EventType.tool_result and e.payload.get("tool_use_id") == b.id
+                for e in traj.events
+            )
+        ]
+        if not pending:
+            return False
+
+        tool_results: list[Block] = []
+        for block in pending:
+            traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
+            handler = bound_tools.get(block.name)
+            if handler is None:
+                err = f"Unknown tool: {block.name}"
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
+                continue
+            try:
+                content = handler(block.input)
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+            except Exception as e:
+                err = f"{type(e).__name__}: {e}"
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
+
+        messages.append(Message(role="user", content=tool_results))
+        return True
 
     def _stream_from(
         self,

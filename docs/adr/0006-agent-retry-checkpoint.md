@@ -204,3 +204,27 @@ def _attempt_with_retry(self, messages, tools, config) -> ModelResponse | Iterat
 - 检查点使长任务可恢复——30+ 轮会话不会因进程崩溃全部丢失
 - 恢复引入 `Trajectory.from_db()` 和 `Agent.resume()`，保持向后兼容（功能不修现有接口）
 - SDK 层和 Loop 层重试分工明确，异常分类细化为 10 个细类 + 1 兜底
+
+## 修正案（2026-07-23）
+
+### 修正案 1：配置归属以 ADR-0005 为准
+
+§3 的配置字段归属以 ADR-0005 §16 为准——retry/timeout 旋钮入 `TransportConfig`
+（`timeout_s` / `retry_enabled` / `retry_max_attempts` / `retry_base_s` / `retry_max_delay_s`），
+`AgentConfig` 不再持有 `turn_timeout_s`；消融经 `AgentConfig(transport=TransportConfig(retry_enabled=False))` 控制。
+原文 §3 表格中 `AgentConfig` 字段表述作废。
+
+### 修正案 2：retry budget 耗尽后保留精确终态
+
+§4 retry budget 耗尽的终态修正——保留精确终态：
+- last error 为 `APITimeoutError` 时 `run_end(llm_timeout)`
+- 其余可重试错误耗尽 `run_end(llm_error)`
+
+`error(kind=retry_exhausted)` 的 payload 携带 `last_error_kind`。
+理由：轨迹是评测唯一数据源，失败分类信息不丢失。
+
+### 修正案 3：工具执行 at-least-once 语义（已知限制）
+
+检查点设在工具执行之前（§7），因此若进程在工具执行期间崩溃，该次崩溃前已执行的工具会因回滚到检查点而被重做。
+这对有副作用（写文件、bash 命令）的工具意味着可能执行两次，属于 at-least-once 语义。
+v0 不接受此限制的工程化缓解；这是 Temporal、Airflow 等生产系统的常见议题，面试时可展开讨论。

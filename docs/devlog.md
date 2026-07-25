@@ -15,3 +15,68 @@
 - 实测 DeepSeek 上下文缓存命中：cache_read=256 / input=281
 
 **明天第一件事**：让 plan agent 读文档 5.1，出 Agent Loop 实现计划
+
+---
+
+## 2026-07-21（Day 2）
+
+**做了**
+- 将 day0 的裸 while 循环重构为库形态：`Agent(config, backend).run(task, workdir) → Trajectory`
+- 新建 `AgentConfig`、`ModelBackend` 协议、`DeepSeekBackend`、`Trajectory`（SQLite 事件流存储）
+- 工具系统独立为 `src/agent/tools.py`：`Tool` dataclass + `bind(workdir)` 工厂模式
+- CLI 骨架（argparse + Rich 渲染）
+- 补完 ADR-0004（工具注册表）、ADR-0005（流式事件 IR）、ADR-0006（重试与检查点）
+- 补完实现计划 0002～0004
+- 76 条测试全绿 + ruff/mypy
+
+**学到的**
+- 一份"实现计划 → 代码 → 测试"的流水线比直接写代码快两倍（因为有计划，AI agent 不需要猜上下文）
+- ADR 是异步决策的关键：写计划时看到 ADR-0006 已预定 `TransportConfig`、`retry/timeout` 旋钮位置，后续设计就可以直接引用而不回退
+
+---
+
+## 2026-07-22（Day 3）
+
+**做了**
+- 实现统一流式事件模型（9 种 `StreamEvent` dataclass + `StreamEventVisitor` 协议）
+- DeepSeek codec 新增 `DeepSeekStreamDecoder`（5 步状态机：thinking 边界推断、tool_call 按 index 追踪、finish/usage 延迟发射）
+- `ModelBackend` 扩展 `stream()` 方法，`_stream_from` 适配器兼容非流式后端
+- `RunHandle` 迭代器模式：CLI 实时拉取事件，`Agent.run()` 向后兼容
+- `TransportConfig` 引入，传输层语义与业务配置分离
+- CLI 加入 `RichStreamVisitor` + `--stream`/`--no-stream`
+- 7 套 golden fixture 快照 + 额外 10+ 流式边界单测
+
+**学到的**
+- 流式代码里 bug 最多的点永远是 JSON 增量拼接——集中在一个 `_StreamAggregator` 里，只写一次，所有 codec 复用
+- `hasattr(backend, "stream")` 适配器让 FakeBackend（仅 `complete`）零改动就能进流式管线——评测时流式/非流式切换零成本
+- 工具参数 `json.loads` 放在 `MessageEnd` 之后批量执行，不在每个 `ToolUseEnd` 时逐个解析——这保证了冲突可串行化的基准前提（模型输出顺序 = 串行序）
+
+---
+
+## 2026-07-23（Day 4）
+
+**做了**
+- 实现 ADR-0006 全部 10 节：两层重试（SDK `max_retries=2` + Loop 指数退避全抖动）、异常细分类（10 种 + 1 兜底）、异常驱动 retry 决策
+- `RetryPolicy` 纯函数 + `classify_llm_error` 可脱离 Agent 单独单测
+- `RetryNotice` 作为第 10 种 StreamEvent：CLI 实时打印 `⚠ 请求失败，N 秒后重试（第 n 次）`
+- 检查点机制：每轮 LLM 响应后、工具执行前 `traj.persist()`，崩溃恢复走事务语义（"全回滚"）
+- `Trajectory.from_db` + `Agent.resume()`：从 SQLite 恢复轨迹，识别未完成工具并重做
+- 完成两轮 review（我报 bug → AI 复核 → 发现 P0 off-by-one → 修复 + 回归测试）
+- CLI 测试套件：29 个 mock 管线测试 + 4 个子进程测试 + `--export-jsonl` 目录检测
+- 元数据行（`Run X finished`）从默认输出移到 `--verbose`
+- 205 条测试全绿，ruff/mypy 通
+
+**卡在哪 / 怎么解决**
+- 第一版 resume 的 turn 计算用 `_count_turns`（`max(turn) + 1`）推导，导致工具事件挂错 turn → 改用 `last_llm.turn` 做权威 turn
+- 回归测试用 `max_turns=5` 掩盖了 off-by-one（崩溃于 T=0 → resume 跳过了 T=1 的 LLM 调用，5 轮看不出来）→ 教训：边界回归必须用**最小能暴露 bug 的数值**（`max_turns=2`）
+
+**学到的**
+- Review 产出不是你报对了几个 bug，而是你**报了候选问题**——被降级不丢人，被验证才是真 bug
+- 持久化只有两处（checkpoint + finally），所以所有终态回复都和 `run_end` 同批原子落盘——这是崩溃恢复正确性的根基，面试能讲"为什么只有两个 persist 点而不是到处写"
+- CLI 测试分四层（参数 → 配置传递 → mock 全管道 → 子进程）——每一层都在上一层失败不了的窗口里找漏洞
+
+---
+
+## 已知记录（未补）
+
+待补：Day 2 的"卡在哪"没有记，因为当天都是顺产没有阻塞。Day 3 也没有阻塞项——流式 codec 的单测一次通过后没有回退，只有正常的迭代。Day 4 的阻塞项全在"怎么解决"里记了。

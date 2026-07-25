@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass, field, fields as dc_fields
 from enum import Enum
 from pathlib import Path
 from typing import cast
 
-from src.agent.config import AgentConfig
+from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
@@ -28,6 +29,8 @@ class EventType(str, Enum):
     error = "error"
     run_end = "run_end"
     stream_event = "stream_event"
+    retry = "retry"
+    retry_divergence = "retry_divergence"
 
 
 @dataclass
@@ -107,11 +110,57 @@ class Trajectory:
     def __post_init__(self):
         self._persisted_count = 0
 
-    def emit(self, type: EventType, turn: int | None = None, payload: dict | None = None) -> Event:
+    @classmethod
+    def from_db(cls, run_id: str, db_path: str) -> Trajectory:
+        conn = sqlite3.connect(db_path)
+        try:
+            try:
+                row = conn.execute(
+                    "SELECT config_json, status FROM runs WHERE run_id=?", (run_id,)
+                ).fetchone()
+            except sqlite3.OperationalError:
+                raise ValueError(f"Run {run_id} not found in {db_path}")
+            if row is None:
+                raise ValueError(f"Run {run_id} not found in {db_path}")
+            config_data = json.loads(row[0])
+            transport_data = config_data.pop("transport", {})
+
+            agent_keys = {f.name for f in dc_fields(AgentConfig) if f.name != "transport"}
+            filtered = {k: v for k, v in config_data.items() if k in agent_keys}
+            skipped = set(config_data) - agent_keys
+            if skipped:
+                warnings.warn(f"from_db: ignoring unknown AgentConfig fields: {', '.join(sorted(skipped))}", stacklevel=2)
+
+            transport_keys = {f.name for f in dc_fields(TransportConfig)}
+            filtered_t = {k: v for k, v in transport_data.items() if k in transport_keys}
+            skipped_t = set(transport_data) - transport_keys
+            if skipped_t:
+                warnings.warn(f"from_db: ignoring unknown TransportConfig fields: {', '.join(sorted(skipped_t))}", stacklevel=2)
+
+            config = AgentConfig(**filtered)
+            config.transport = TransportConfig(**filtered_t)
+            traj = cls(run_id=run_id, config=config)
+            for row in conn.execute(
+                "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",
+                (run_id,),
+            ):
+                traj.events.append(Event(
+                    run_id=run_id,
+                    turn=row[0],
+                    ts=row[1],
+                    type=EventType(row[2]),
+                    payload=json.loads(row[3]),
+                ))
+            traj._persisted_count = len(traj.events)
+            return traj
+        finally:
+            conn.close()
+
+    def emit(self, type: EventType, turn: int | None = None, payload: dict | None = None, *, ts: float | None = None) -> Event:
         ev = Event(
             run_id=self.run_id,
             turn=turn,
-            ts=time.time(),
+            ts=ts if ts is not None else time.time(),
             type=type,
             payload=dict(payload or {}),
         )

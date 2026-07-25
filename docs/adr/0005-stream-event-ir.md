@@ -276,3 +276,10 @@ class AgentConfig:
 - 引入新的 `Iterator[StreamEvent]` 中间类型，增加了一层映射但消除了上层的厂商分支
 - `ThinkingBlock.signature` 是 IR 的向前兼容变更，不影响现有 DeepSeek codec（默认 None）
 - 完整 golden transcript 含两套：非流式的 `ModelResponse.to_dict()`（已有）+ 流式的 StreamEvent 序列（新增）
+
+## 修正案（2026-07-23，随 ADR-0006 实施）
+
+StreamEvent 增加第 10 种 `RetryNotice`——Loop 层产生的控制事件（非 Backend 产出，
+§11 的 Backend→Loop 定向不适用于它），用于 CLI 实时重试提示。只经 RunHandle 实时
+yield，不以 stream_event 落盘；轨迹中的事实记录为 ADR-0006 的 `retry` 事件，不重复。
+§2 类型表、§15 Visitor 协议相应扩展。
