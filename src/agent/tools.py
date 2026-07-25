@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+import re
 
 from src.agent.ir import ToolSpec
 
@@ -88,6 +90,7 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
 
 def _patch_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
+
     def handler(input: dict) -> str:
         path_str = input.get("path", "")
         if path_str is None:
@@ -119,6 +122,77 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
             new_content = content.replace(old_str, new_str, 1)
         target.write_text(new_content, encoding="utf-8")
         return f"Wrote {len(new_content)} bytes to {path_str}"
+    return handler
+
+def _grep_factory(workdir: str) -> Callable[[dict], str]:
+    root = Path(workdir).resolve()
+
+    def handler(input: dict) -> str:
+        pattern = input.get("pattern")
+        if pattern is None:
+            raise ValueError("pattern must be a string, got null")
+        if not pattern:
+            raise ValueError("pattern must be a non-empty string")
+        path_str = input.get("path", "")
+        if "\x00" in path_str:
+            raise ValueError("path contains null byte")
+        if not path_str:
+            search_root = root
+        else:
+            search_root = (root / path_str).resolve()
+        if not search_root.is_relative_to(root):
+            raise PermissionError(f"Path traversal detected: {path_str}")
+        include = input.get("include")
+        if include is None:
+            include = "*"
+        result = []
+        for file in search_root.rglob(include):
+            if file.is_file():
+                try:
+                    content = file.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    continue
+                for i, line in enumerate(content.splitlines(), start=1):
+                    if pattern in line:
+                        result.append(f"{file}:{i}: {line}")
+        return "\n".join(result)
+    return handler
+
+def _bash_factory(workdir: str) -> Callable[[dict], str]:
+    root = Path(workdir).resolve()
+    MAX_OUTPUT = 50 * 1024
+    def handler(input: dict) -> str:
+        command = input.get("command", "")
+        if command is None:
+            raise ValueError("command must be a non-empty string, got null")
+        if not command:
+            raise ValueError("command is required")
+        cwd_str = input.get("cwd")
+        if cwd_str:
+            cwd_path = (root / cwd_str).resolve()
+            if not cwd_path.is_relative_to(root):
+                raise PermissionError(f"Path traversal detected: {cwd_str}")
+        else:
+            cwd_path = root
+        try:
+            result = subprocess.run(
+                command,
+                shell=True,
+                cwd=cwd_path,
+                capture_output=True,
+                timeout=30,
+                encoding="utf-8",
+                errors="replace",
+                )
+            stdout = result.stdout
+            stderr = result.stderr
+        except subprocess.TimeoutExpired:
+            return "Error: command timed out after 30 seconds"
+        if len(stdout) > MAX_OUTPUT:
+            stdout = stdout[:MAX_OUTPUT] + f"\n\n[... stdout truncated at {MAX_OUTPUT:_} bytes]"
+        if len(stderr) > MAX_OUTPUT:
+            stderr = stderr[:MAX_OUTPUT] + f"\n\n[... stderr truncated at {MAX_OUTPUT:_} bytes]"
+        return f"stdout:\n{stdout}\nstderr:\n{stderr}"
     return handler
 
 READ_FILE_SPEC = ToolSpec(
@@ -172,9 +246,38 @@ PATCH_SPEC = ToolSpec(
     },
 )
 
+GREP_SPEC = ToolSpec(
+    name="grep",
+    description="Search for a regex pattern in file contents. Returns matching lines with file path and line number.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Directory to search (default: workspace root)"},
+            "pattern": {"type": "string", "description": "The regex pattern to search for in file contents"},
+            "include": {"type": "string", "description": "File glob pattern to filter files (e.g. '*.py')"},
+        },
+        "required": ["pattern"],
+    },
+)
+
+BASH_SPEC = ToolSpec(
+    name="bash",
+    description="Execute a shell command and return its output. Returns stdout and stderr separately.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "The shell command to execute"},
+            "cwd": {"type": "string", "description": "Working directory for the command (default: workspace root)"},
+        },
+        "required": ["command"],
+    },
+)
+
 DEFAULT_TOOLS: dict[str, Tool] = {
     "read_file": Tool(spec=READ_FILE_SPEC, factory=_read_file_factory),
     "write_file": Tool(spec=WRITE_FILE_SPEC, factory=_write_file_factory),
     "glob": Tool(spec=GLOB_SPEC, factory=_glob_factory),
     "patch": Tool(spec=PATCH_SPEC, factory=_patch_factory),
+    "grep": Tool(spec=GREP_SPEC, factory=_grep_factory),
+    "bash": Tool(spec=BASH_SPEC, factory=_bash_factory),
 }
