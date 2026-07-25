@@ -86,6 +86,41 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
         return '\n'.join(result)
     return handler
 
+def _patch_factory(workdir: str) -> Callable[[dict], str]:
+    root = Path(workdir).resolve()
+    def handler(input: dict) -> str:
+        path_str = input.get("path", "")
+        if path_str is None:
+            raise ValueError("path must be a non-empty string, got null")
+        if not path_str:
+            raise ValueError("path is required")
+        if "\x00" in path_str:
+            raise ValueError("path contains null byte")
+        target = (root / path_str).resolve()
+        if not target.is_relative_to(root):
+            raise PermissionError(f"Path traversal detected: {path_str}")
+        if not target.is_file():
+            raise FileNotFoundError(f"File not found: {path_str}")
+        old_str = input.get("old_str", "")
+        if old_str is None:
+            raise ValueError("old_str must be a non-empty string, got null")
+        if not old_str:
+            raise ValueError("old_str is required")
+        new_str = input.get("new_str", "")
+        if new_str is None:
+            raise ValueError("new_str must be a string, got null")
+        content = target.read_text(encoding="utf-8-sig")
+        count = content.count(old_str)
+        if count == 0:
+            raise ValueError(f"String not found: {old_str}")
+        elif count > 1:
+            raise ValueError(f"found {count} occurrences, add more context")
+        else:
+            new_content = content.replace(old_str, new_str, 1)
+        target.write_text(new_content, encoding="utf-8")
+        return f"Wrote {len(new_content)} bytes to {path_str}"
+    return handler
+
 READ_FILE_SPEC = ToolSpec(
     name="read_file",
     description="Read the contents of a file. The path must be relative to the workspace root.",
@@ -123,8 +158,23 @@ GLOB_SPEC = ToolSpec(
     },
 )
 
+PATCH_SPEC = ToolSpec(
+    name="patch",
+    description="Performs exact string replacements in an existing file. Replaces the first occurrence of old_str with new_str. Returns an error if old_str is found multiple times — add more surrounding context to make it unique.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path relative to workspace root"},
+            "old_str": {"type": "string", "description": "The exact text to find and replace"},
+            "new_str": {"type": "string", "description": "The text to replace it with"},
+        },
+        "required": ["path", "old_str", "new_str"],
+    },
+)
+
 DEFAULT_TOOLS: dict[str, Tool] = {
     "read_file": Tool(spec=READ_FILE_SPEC, factory=_read_file_factory),
     "write_file": Tool(spec=WRITE_FILE_SPEC, factory=_write_file_factory),
     "glob": Tool(spec=GLOB_SPEC, factory=_glob_factory),
+    "patch": Tool(spec=PATCH_SPEC, factory=_patch_factory),
 }
