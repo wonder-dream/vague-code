@@ -250,6 +250,22 @@ def test_decode_malformed_arguments_fallback():
     assert result.message.content[0].input == {}
 
 
+def test_encode_system_message():
+    body = encode_request([Message(role="system", content="you are an agent")])
+    assert body["messages"][0]["role"] == "system"
+    assert "agent" in body["messages"][0]["content"]
+
+
+def test_encode_system_then_user():
+    body = encode_request([
+        Message(role="system", content="be helpful"),
+        Message(role="user", content="hi"),
+    ])
+    assert len(body["messages"]) == 2
+    assert body["messages"][0]["role"] == "system"
+    assert body["messages"][1]["role"] == "user"
+
+
 # ── B3: decode_response structural defense ──────────────────────────────
 
 

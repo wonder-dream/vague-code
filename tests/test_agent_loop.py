@@ -85,6 +85,34 @@ def test_single_turn_end_turn():
     assert backend.call_count == 1
 
 
+def test_start_includes_system_message():
+    backend = FakeBackend([_text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = Agent(config, backend)
+        traj = agent.run("test", tmpdir)
+
+    msgs = traj.to_messages()
+    assert len(msgs) >= 2
+    assert msgs[0].role == "system"
+    assert "You are Xcode" in msgs[0].content[0].text
+    assert msgs[1].role == "user"
+
+
+def test_token_budget_recorded():
+    backend = FakeBackend([_text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = Agent(config, backend)
+        traj = agent.run("test", tmpdir)
+
+    compressions = [e for e in traj.events if e.type == EventType.compression]
+    assert len(compressions) >= 1
+    assert compressions[0].payload["layer"] == "budget"
+    assert compressions[0].payload["budget"] > 0
+    assert "utilization" in compressions[0].payload
+
+
 def test_multi_turn_tool_use_then_end_turn():
     backend = FakeBackend([
         _tool_use_response(("call_1", "read_file", {"path": "README.md"})),
@@ -570,6 +598,7 @@ def test_to_messages_preserves_turn_interleaving(tmp_path):
     msgs = traj.to_messages()
     seq = [(m.role, type(m.content[0]).__name__) for m in msgs]
     assert seq == [
+        ("system", "TextBlock"),
         ("user", "TextBlock"),
         ("assistant", "ToolUseBlock"),
         ("user", "ToolResultBlock"),
@@ -1305,19 +1334,18 @@ def test_to_messages_workdir_prefix_matches_fresh_start():
         # 抓取 run_start 事件里的 task + workdir
         rs = next(e for e in traj.events if e.type == EventType.run_start)
         expected_task = rs.payload.get("task", "")
-        expected_workdir = rs.payload.get("workdir", "")
-        expected_content = f"Workspace root: {expected_workdir}\n\n{expected_task}"
 
         # to_messages() 重建
         msgs = traj.to_messages()
-        first_msg = msgs[0] if msgs else None
-        first_text = "".join(
-            b.text for b in first_msg.content
-        ) if first_msg else ""
+        assert len(msgs) >= 2
+        assert msgs[0].role == "system"
+        first_user_text = "".join(
+            b.text for b in msgs[1].content
+        )
 
-    # 逐字相等
-    assert first_text == expected_content, (
-        f"to_messages() workdir prefix mismatch:\n"
-        f"  expected: {expected_content!r}\n"
-        f"  got:      {first_text!r}"
+    # 用户消息应与 task 原文一致（不含 workdir 前缀）
+    assert first_user_text == expected_task, (
+        f"to_messages() user message mismatch:\n"
+        f"  expected: {expected_task!r}\n"
+        f"  got:      {first_user_text!r}"
     )

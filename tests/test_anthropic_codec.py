@@ -177,6 +177,23 @@ def test_encode_empty_assistant_raises():
         encode_request(messages)
 
 
+def test_encode_system_message():
+    body = encode_request([
+        Message(role="system", content="you are an agent"),
+        Message(role="user", content="hi"),
+    ])
+    assert "system" in body
+    assert "agent" in body["system"]
+    assert all(m["role"] != "system" for m in body["messages"])
+
+
+def test_encode_system_then_user():
+    body = encode_request([
+        Message(role="system", content="be helpful"),
+        Message(role="user", content="hi"),
+    ])
+    assert "system" in body
+    assert body["messages"][0]["role"] == "user"
 # ── decode (golden transcript) ──────────────────────────────────
 
 
