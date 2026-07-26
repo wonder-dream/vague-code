@@ -12,6 +12,8 @@ DEFAULT_MAX_OVERWRITE = False
 MAX_READ_BYTES = 10 * 1024 * 1024
 MAX_OUTPUT = 50 * 1024
 MAX_GLOB_RESULTS = 1000
+MAX_GREP_FILE_SIZE = 5_242_880
+MAX_GREP_FILE_COUNT = 500
 MAX_GREP_RESULTS = 500
 
 @dataclass
@@ -152,7 +154,9 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
             raise ValueError("pattern must be a string, got null")
         if not pattern:
             raise ValueError("pattern must be a non-empty string")
-        path_str = input.get("path", "")
+        path_str = input.get("path")
+        if path_str is None:
+            path_str = ""
         if "\x00" in path_str:
             raise ValueError("path contains null byte")
         if not path_str:
@@ -164,20 +168,29 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
         include = input.get("include")
         if include is None:
             include = "*"
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            return ""
+
         result = []
+        file_count = 0
         for file in search_root.rglob(include):
-            if file.is_file():
-                try:
-                    content = file.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    continue
-                try:
-                    compiled = re.compile(pattern)
-                except re.error:
-                    continue
-                for i, line in enumerate(content.splitlines(), start=1):
-                    if compiled.search(line):
-                        result.append(f"{file}:{i}: {line}")
+            if not file.is_file():
+                continue
+            if file_count >= MAX_GREP_FILE_COUNT:
+                result.append(f"... truncated at {MAX_GREP_FILE_COUNT} files")
+                break
+            file_count += 1
+            if file.stat().st_size > MAX_GREP_FILE_SIZE:
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for i, line in enumerate(content.splitlines(), start=1):
+                if compiled.search(line):
+                    result.append(f"{file.relative_to(root)}:{i}: {line}")
         if len(result) > MAX_GREP_RESULTS:
             result = result[:MAX_GREP_RESULTS]
             result.append(f"... {MAX_GREP_RESULTS} results shown, output truncated")
