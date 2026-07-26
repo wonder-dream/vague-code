@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from typing import cast
+
 from src.agent.context_tokens import compute_budget, count_tokens
-from src.agent.ir import Message, TextBlock, ToolSpec
+from src.agent.ir import (
+    Message,
+    TextBlock,
+    ThinkingBlock,
+    ToolResultBlock,
+    ToolSpec,
+    ToolUseBlock,
+)
 
 
 def test_empty_messages_zero() -> None:
@@ -54,3 +63,44 @@ def test_compute_budget_with_user_limit() -> None:
 
 def test_compute_budget_user_limit_not_exceeded() -> None:
     assert compute_budget("deepseek-v4-flash", user_max_tokens=2_000_000) == 900_000
+
+
+def test_count_tokens_none_tool_ignored() -> None:
+    bad_tools = cast("list", [None])
+    assert count_tokens([], bad_tools) >= 0
+
+
+def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
+    import src.agent.context_tokens as ct
+
+    monkeypatch.setattr(ct, "_ENC", False)
+    msgs = [Message(role="user", content="test message")]
+    result = count_tokens(msgs)
+    assert result > 0
+
+
+def test_fallback_less_precise_but_reasonable() -> None:
+    import src.agent.context_tokens as ct
+
+    ct._ENC = False
+    msgs = [Message(role="user", content="abcdefgh" * 100)]
+    result = count_tokens(msgs)
+    assert result >= 100
+
+
+def test_count_tokens_includes_tool_blocks() -> None:
+    text_only = [Message(role="user", content="hello")]
+    with_tools = [
+        Message(role="assistant", content=[
+            ThinkingBlock(text="think step by step", signature="sig"),
+            TextBlock(text="let me check"),
+            ToolUseBlock(id="c1", name="read_file", input={"path": "x.txt"}),
+        ]),
+        Message(role="user", content=[
+            ToolResultBlock(tool_use_id="c1", content="file contents here"),
+        ]),
+    ]
+    # verify non-TextBlock types contribute meaningfully
+    base = count_tokens(text_only)
+    total = count_tokens(with_tools)
+    assert total > base

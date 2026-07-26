@@ -45,3 +45,28 @@ def test_workdir_rules_override_parent(tmp_path: Path) -> None:
     result = load_rules(str(child))
     assert "base: always read first" in result
     assert "override: use python -m pytest" in result
+
+
+def test_load_rules_skips_binary_file(tmp_path: Path) -> None:
+    agent_dir = tmp_path / ".agent"
+    agent_dir.mkdir()
+    rules_file = agent_dir / "rules.md"
+    rules_file.write_bytes(b'\x00\x01\xff\xfe\x80\x81')
+    result = load_rules(str(tmp_path))
+    assert result == ""
+    assert rules_file.exists()
+
+
+def test_load_rules_skips_too_large_file(tmp_path: Path) -> None:
+    agent_dir = tmp_path / ".agent"
+    agent_dir.mkdir()
+    rules_file = agent_dir / "rules.md"
+    rules_file.write_text("x" * 20_000, encoding="utf-8")
+    import src.agent.context_rules as cr
+    orig = cr.MAX_RULES_SIZE
+    try:
+        cr.MAX_RULES_SIZE = 15_000
+        result = load_rules(str(tmp_path))
+        assert result == ""
+    finally:
+        cr.MAX_RULES_SIZE = orig
