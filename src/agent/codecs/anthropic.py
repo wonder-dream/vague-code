@@ -46,9 +46,19 @@ def encode_request(
     if not messages:
         raise ValueError("messages cannot be empty")
 
-    merged = _merge_consecutive_same_role(messages)
-    if merged[0].role != "user":
-        raise ValueError("first message must have role 'user', got '{merged[0].role}'")
+    system_parts: list[str] = []
+    non_system: list[Message] = []
+    for msg in messages:
+        if msg.role == "system":
+            system_parts.extend(
+                b.text for b in msg.content if isinstance(b, TextBlock)
+            )
+        else:
+            non_system.append(msg)
+
+    merged = _merge_consecutive_same_role(non_system)
+    if not merged or merged[0].role != "user":
+        raise ValueError("first message must have role 'user'")
 
     wire_messages: list[dict[str, Any]] = []
     for msg in merged:
@@ -60,6 +70,8 @@ def encode_request(
             raise ValueError(f"unsupported role: {msg.role}")
 
     body: dict[str, Any] = {"messages": wire_messages}
+    if system_parts:
+        body["system"] = "\n".join(system_parts)
     if tools:
         body["tools"] = [t.to_anthropic_tool() for t in tools]
     if isinstance(config, dict):

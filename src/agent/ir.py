@@ -85,10 +85,10 @@ Block = TextBlock | ThinkingBlock | ToolUseBlock | ToolResultBlock
 
 @dataclass
 class Message:
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant", "system"]
     content: list[Block]
 
-    def __init__(self, role: Literal["user", "assistant"], content: str | list[Block]):
+    def __init__(self, role: Literal["user", "assistant", "system"], content: str | list[Block]):
         self.role = role
         if content is None:
             raise ValueError("content must not be None")

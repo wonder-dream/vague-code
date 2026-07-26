@@ -42,6 +42,10 @@ def encode_request(
             wire_messages.append(_encode_assistant(msg))
         elif msg.role == "user":
             wire_messages.extend(_encode_user(msg))
+        elif msg.role == "system":
+            wire_messages.append({"role": "system", "content": "".join(
+                b.text for b in msg.content if isinstance(b, TextBlock)
+            )})
         else:
             raise ValueError(f"unsupported role: {msg.role}")
     body: dict[str, Any] = {"messages": wire_messages}
