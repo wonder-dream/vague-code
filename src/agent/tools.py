@@ -88,9 +88,10 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
             raise ValueError("pattern must be a non-empty string, got null")
         if not pattern:
             raise ValueError("pattern is required")
-        target = root.glob(pattern)
         result = []
-        for path in target:
+        for path in root.glob(pattern):
+            if not path.resolve().is_relative_to(root):
+                continue
             result.append(str(path.relative_to(root)))
 
         if len(result) > MAX_GLOB_RESULTS:
