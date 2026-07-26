@@ -67,7 +67,11 @@ class _StreamAggregator:
         elif isinstance(ev, ThinkingEnd):
             self._thinking_sig = ev.signature
         elif isinstance(ev, ToolUseStart):
-            if ev.id not in self._tool_buffers:
+            if ev.id in self._tool_buffers:
+                import warnings
+                warnings.warn(f"Duplicate ToolUseStart id={ev.id}; resetting buffer")
+                self._tool_buffers[ev.id] = StringIO()
+            else:
                 self._tool_buffers[ev.id] = StringIO()
                 self._tool_order.append(ev.id)
             self._tool_names[ev.id] = ev.name
@@ -128,6 +132,17 @@ class RunHandle:
         except StopIteration:
             self._finished = True
             raise
+
+    def close(self) -> None:
+        if not self._finished:
+            self._generator.close()  # type: ignore[attr-defined]
+            self._finished = True
+
+    def __enter__(self) -> RunHandle:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     @property
     def trajectory(self) -> Trajectory:
@@ -200,20 +215,6 @@ class Agent:
                 turn = turn_box[0]
                 traj.emit(EventType.turn_start, turn=turn)
 
-                from src.agent.context_tokens import compute_budget, count_tokens
-
-                total = count_tokens(messages, self._tool_specs)
-                budget = compute_budget(self.config.model)
-                traj.emit(EventType.compression, turn=turn, payload={
-                    "layer": "budget",
-                    "before_tokens": total,
-                    "after_tokens": total,
-                    "budget": budget,
-                    "utilization": round(total / budget, 4) if budget > 0 else 0.0,
-                    "tools_tokens": count_tokens([], self._tool_specs),
-                    "tool_count": len(self._tool_specs),
-                })
-
                 call_config = {"model": self.config.model, "stream": self.config.transport.stream}
 
                 retry_index = 0
@@ -225,6 +226,20 @@ class Agent:
                     buffered: list[tuple[float, StreamEvent]] = []
 
                     try:
+                        from src.agent.context_tokens import compute_budget, count_tokens
+
+                        total = count_tokens(messages, self._tool_specs)
+                        budget = compute_budget(self.config.model)
+                        traj.emit(EventType.compression, turn=turn, payload={
+                            "layer": "budget",
+                            "before_tokens": total,
+                            "after_tokens": total,
+                            "budget": budget,
+                            "utilization": round(total / budget, 4) if budget > 0 else 0.0,
+                            "tools_tokens": count_tokens([], self._tool_specs),
+                            "tool_count": len(self._tool_specs),
+                        })
+
                         for ev in self._stream_from(messages, self._tool_specs, call_config):
                             buffered.append((time.time(), ev))
                             aggregator.feed(ev)
@@ -306,6 +321,12 @@ class Agent:
                             continue
                         try:
                             content = handler(block.input)
+                            MAX_TOOL_CONTENT = 50_000
+                            if len(content) > MAX_TOOL_CONTENT:
+                                content = content[:MAX_TOOL_CONTENT] + (
+                                    f"\n\n[... output truncated at {MAX_TOOL_CONTENT} chars, "
+                                    f"total: {len(content)} chars]"
+                                )
                             traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
                             tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
                         except Exception as e:
