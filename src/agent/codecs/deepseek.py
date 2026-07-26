@@ -12,6 +12,7 @@ from src.agent.ir import (
     ModelResponse,
     NormalizedUsage,
     StopReason,
+    StreamDisconnect,
     StreamEvent,
     TextBlock,
     TextDelta,
@@ -36,18 +37,28 @@ def encode_request(
 ) -> dict[str, Any]:
     if not messages:
         raise ValueError("messages 不能为空")
-    wire_messages: list[dict[str, Any]] = []
+    system_parts: list[str] = []
+    non_system: list[Message] = []
     for msg in messages:
-        if msg.role == "assistant":
-            wire_messages.append(_encode_assistant(msg))
+        if msg.role == "system":
+            text = "".join(b.text for b in msg.content if isinstance(b, TextBlock))
+            if text.strip():
+                system_parts.append(text)
+        elif msg.role == "assistant":
+            non_system.append(msg)
         elif msg.role == "user":
-            wire_messages.extend(_encode_user(msg))
-        elif msg.role == "system":
-            wire_messages.append({"role": "system", "content": "".join(
-                b.text for b in msg.content if isinstance(b, TextBlock)
-            )})
+            non_system.append(msg)
         else:
             raise ValueError(f"unsupported role: {msg.role}")
+
+    wire_messages: list[dict[str, Any]] = []
+    if system_parts:
+        wire_messages.append({"role": "system", "content": "\n\n".join(system_parts)})
+    for msg in non_system:
+        if msg.role == "assistant":
+            wire_messages.append(_encode_assistant(msg))
+        else:
+            wire_messages.extend(_encode_user(msg))
     body: dict[str, Any] = {"messages": wire_messages}
     if tools:
         body["tools"] = [t.to_openai_tool() for t in tools]
@@ -254,7 +265,8 @@ class DeepSeekStreamDecoder:
 
         # Step 0 — 防御入口
         if "error" in chunk:
-            raise ValueError(f"stream error chunk: {chunk['error']}")
+            err = chunk.get("error", {})
+            raise StreamDisconnect(f"stream error: {err}")
         usage = chunk.get("usage")
         if isinstance(usage, dict):
             self._usage = _decode_usage(usage)

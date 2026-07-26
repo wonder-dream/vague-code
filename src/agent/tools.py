@@ -171,8 +171,8 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
             include = "*"
         try:
             compiled = re.compile(pattern)
-        except re.error:
-            return ""
+        except re.error as e:
+            return f"Invalid regex pattern: {e}"
 
         result = []
         file_count = 0
@@ -191,7 +191,11 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
                 continue
             for i, line in enumerate(content.splitlines(), start=1):
                 if compiled.search(line):
-                    result.append(f"{file.relative_to(root)}:{i}: {line}")
+                    rel = str(file.relative_to(root))
+                    if rel == ".":
+                        result.append(f"{i}: {line}")
+                    else:
+                        result.append(f"{rel}:{i}: {line}")
         if len(result) > MAX_GREP_RESULTS:
             result = result[:MAX_GREP_RESULTS]
             result.append(f"... {MAX_GREP_RESULTS} results shown, output truncated")
@@ -213,7 +217,8 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
                 raise PermissionError(f"Path traversal detected: {cwd_str}")
         else:
             cwd_path = root
-        command = f"chcp 65001 >nul && {command}"
+        if not command.strip().lower().startswith("chcp"):
+            command = f"chcp 65001 >nul && {command}"
         proc = subprocess.Popen(
             command,
             shell=True,

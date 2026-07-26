@@ -50,6 +50,13 @@ def encode_request(
     non_system: list[Message] = []
     for msg in messages:
         if msg.role == "system":
+            non_text = sum(1 for b in msg.content if not isinstance(b, TextBlock))
+            if non_text:
+                import warnings
+                warnings.warn(
+                    f"System message contains {non_text} non-TextBlock content(s); "
+                    "they will be dropped."
+                )
             system_parts.extend(
                 b.text for b in msg.content if isinstance(b, TextBlock)
             )
@@ -254,7 +261,7 @@ class AnthropicStreamDecoder:
                 out.append(TextDelta(delta=delta.get("text", "")))
             elif dt == "input_json_delta":
                 pid = st.id if st.id else ""
-                out.append(ArgsDelta(id=pid, delta=delta.get("partial_json", "")))
+                out.append(ArgsDelta(id=pid, delta=delta.get("partial_json") or ""))
             elif dt == "thinking_delta":
                 out.append(ThinkingDelta(delta=delta.get("thinking", "")))
             elif dt == "signature_delta":
@@ -294,6 +301,8 @@ class AnthropicStreamDecoder:
             raise StreamDisconnect(f"API streaming error: [{etype}] {msg}")
 
         elif et == "message_stop":
+            if self._ended:
+                return []
             out.append(MessageEnd(
                 stop_reason=self._stop_reason or StopReason.unknown,
                 truncated=self._truncated,

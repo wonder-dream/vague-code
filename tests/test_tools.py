@@ -390,7 +390,7 @@ def test_grep_invalid_regex(tmp_path):
     (ws / "f.txt").write_text("hello", encoding="utf-8")
     handler = DEFAULT_TOOLS["grep"].bind(str(ws))
     result = handler({"pattern": r"["})
-    assert result == ""
+    assert "Invalid regex" in result
 
 
 def test_grep_multiple_matches_in_file(tmp_path):
@@ -471,6 +471,16 @@ def test_grep_returns_relative_paths(tmp_path):
     result = handler({"pattern": r"content"})
     assert ws_str not in result, f"absolute workspace path leaked: {result}"
     assert "a.txt" in result
+
+
+def test_grep_root_level_file_no_dot_prefix(tmp_path):
+    ws = _ws(tmp_path)
+    root_file = ws / "root.py"
+    root_file.write_text("line1\nline2\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    result = handler({"pattern": r"line"})
+    assert ".:" not in result
+    assert "1: line1" in result or "root.py" in result
 
 
 def test_grep_skips_binary(tmp_path):
@@ -637,3 +647,27 @@ def test_bash_empty_command(tmp_path):
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     with pytest.raises(ValueError, match="required"):
         handler({"command": ""})
+
+
+def test_bash_chcp_command_not_doubled(tmp_path):
+    ws = _ws(tmp_path)
+    handler = DEFAULT_TOOLS["bash"].bind(str(ws))
+    import src.agent.tools as tmod
+    orig_popen = tmod.subprocess.Popen
+    try:
+        class FakePopen:
+            pid = 999
+            returncode = 0
+            def __init__(self, *_a, **_k):
+                pass
+            def communicate(self, timeout=None):
+                return (b"hello", b"")
+            def kill(self):
+                pass
+        tmod.subprocess.Popen = FakePopen
+        result = handler({"command": "chcp"})
+        assert "hello" in result
+        result2 = handler({"command": "echo hi"})
+        assert "hello" in result2
+    finally:
+        tmod.subprocess.Popen = orig_popen
