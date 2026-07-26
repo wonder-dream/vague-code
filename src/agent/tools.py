@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -12,6 +13,8 @@ DEFAULT_MAX_OVERWRITE = False
 MAX_READ_BYTES = 10 * 1024 * 1024
 MAX_OUTPUT = 50 * 1024
 MAX_GLOB_RESULTS = 1000
+MAX_GREP_FILE_SIZE = 5_242_880
+MAX_GREP_FILE_COUNT = 500
 MAX_GREP_RESULTS = 500
 
 @dataclass
@@ -41,7 +44,8 @@ def _read_file_factory(workdir: str) -> Callable[[dict], str]:
             raise FileNotFoundError(f"File not found: {path_str}")
         file_size = target.stat().st_size
         if file_size > MAX_READ_BYTES:
-            raw = target.read_bytes()[:MAX_READ_BYTES]
+            with target.open("rb") as f:
+                raw = f.read(MAX_READ_BYTES)
             content = raw.decode("utf-8-sig", errors="replace")
             return (
                     content
@@ -66,7 +70,7 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
             raise PermissionError(f"Path traversal detected: {path_str}")
-        overwrite = input.get("overwrite", False)
+        overwrite = input.get("overwrite", DEFAULT_MAX_OVERWRITE)
         if target.exists() and not overwrite:
             raise FileExistsError(f"File already exists: {path_str}. Set overwrite=true to replace it.")
         content = input.get("content", "")
@@ -87,9 +91,10 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
             raise ValueError("pattern must be a non-empty string, got null")
         if not pattern:
             raise ValueError("pattern is required")
-        target = root.glob(pattern)
         result = []
-        for path in target:
+        for path in root.glob(pattern):
+            if not path.resolve().is_relative_to(root):
+                continue
             result.append(str(path.relative_to(root)))
 
         if len(result) > MAX_GLOB_RESULTS:
@@ -115,6 +120,12 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
             raise PermissionError(f"Path traversal detected: {path_str}")
         if not target.is_file():
             raise FileNotFoundError(f"File not found: {path_str}")
+        MAX_PATCH_BYTES = 1_048_576
+        if target.stat().st_size > MAX_PATCH_BYTES:
+            raise ValueError(
+                f"File too large for patch ({target.stat().st_size:_} bytes). "
+                f"Maximum is {MAX_PATCH_BYTES:_} bytes. Use write_file to replace the entire file instead."
+            )
         old_str = input.get("old_str", "")
         if old_str is None:
             raise ValueError("old_str must be a non-empty string, got null")
@@ -144,7 +155,9 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
             raise ValueError("pattern must be a string, got null")
         if not pattern:
             raise ValueError("pattern must be a non-empty string")
-        path_str = input.get("path", "")
+        path_str = input.get("path")
+        if path_str is None:
+            path_str = ""
         if "\x00" in path_str:
             raise ValueError("path contains null byte")
         if not path_str:
@@ -156,20 +169,29 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
         include = input.get("include")
         if include is None:
             include = "*"
+        try:
+            compiled = re.compile(pattern)
+        except re.error:
+            return ""
+
         result = []
+        file_count = 0
         for file in search_root.rglob(include):
-            if file.is_file():
-                try:
-                    content = file.read_text(encoding="utf-8")
-                except UnicodeDecodeError:
-                    continue
-                try:
-                    compiled = re.compile(pattern)
-                except re.error:
-                    continue
-                for i, line in enumerate(content.splitlines(), start=1):
-                    if compiled.search(line):
-                        result.append(f"{file}:{i}: {line}")
+            if not file.is_file():
+                continue
+            if file_count >= MAX_GREP_FILE_COUNT:
+                result.append(f"... truncated at {MAX_GREP_FILE_COUNT} files")
+                break
+            file_count += 1
+            if file.stat().st_size > MAX_GREP_FILE_SIZE:
+                continue
+            try:
+                content = file.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            for i, line in enumerate(content.splitlines(), start=1):
+                if compiled.search(line):
+                    result.append(f"{file.relative_to(root)}:{i}: {line}")
         if len(result) > MAX_GREP_RESULTS:
             result = result[:MAX_GREP_RESULTS]
             result.append(f"... {MAX_GREP_RESULTS} results shown, output truncated")
@@ -191,25 +213,33 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
                 raise PermissionError(f"Path traversal detected: {cwd_str}")
         else:
             cwd_path = root
+        command = f"chcp 65001 >nul && {command}"
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=cwd_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+        )
         try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd_path,
-                capture_output=True,
-                timeout=30,
-                encoding="utf-8",
-                errors="replace",
-                )
-            stdout = result.stdout
-            stderr = result.stderr
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
+            proc.kill()
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=5,
+                )
+            stdout_bytes, stderr_bytes = proc.communicate()
             raise RuntimeError("command timed out after 30 seconds")
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
         if len(stdout) > MAX_OUTPUT:
             stdout = stdout[:MAX_OUTPUT] + f"\n\n[... stdout truncated at {MAX_OUTPUT:_} bytes]"
         if len(stderr) > MAX_OUTPUT:
             stderr = stderr[:MAX_OUTPUT] + f"\n\n[... stderr truncated at {MAX_OUTPUT:_} bytes]"
-        return f"exit code: {result.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        return f"exit code: {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     return handler
 
 READ_FILE_SPEC = ToolSpec(

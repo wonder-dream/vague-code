@@ -38,7 +38,6 @@ from src.agent.retry import (
     RetryPolicy,
     classify_llm_error,
     estimate_input_tokens,
-    response_signature,
 )
 from src.agent.tools import DEFAULT_TOOLS, Tool
 from src.agent.trajectory import EventType, Trajectory
@@ -197,7 +196,6 @@ class Agent:
                 call_config = {"model": self.config.model, "stream": self.config.transport.stream}
 
                 retry_index = 0
-                prev_one_fingerprint: dict | None = None
                 resp: ModelResponse | None = None
 
                 while True:
@@ -245,13 +243,6 @@ class Agent:
 
                     for ts, ev in buffered:
                         traj.emit(EventType.stream_event, turn=turn, payload=ev.to_dict(), ts=ts)
-                    sig = response_signature(resp)
-                    if prev_one_fingerprint is not None and sig != prev_one_fingerprint:
-                        traj.emit(EventType.retry_divergence, turn=turn, payload={
-                            "attempt": retry_index + 1,
-                            "previous": prev_one_fingerprint,
-                            "current": sig,
-                        })
                     break
 
                 traj.emit(EventType.llm_response, turn=turn, payload={

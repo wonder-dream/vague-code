@@ -362,7 +362,7 @@ class TestCliMockPipeline:
         result = capsys.readouterr()
         # Exhausted: completes with error, shows retry notices on stdout
         assert "finished, reason: llm_error" in result.err
-        assert "请求失败" in result.out
+        assert "retry:" in result.out
 
 
 # ── Resume CLI tests ─────────────────────────────────────────────────────────
