@@ -9,9 +9,6 @@ All tests in this file must be runnable WITHOUT a real API key."""
 from __future__ import annotations
 
 import subprocess
-import sys
-
-import pytest
 
 XCODE = ["uv", "run", "xcode"]
 
