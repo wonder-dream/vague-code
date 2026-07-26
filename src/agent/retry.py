@@ -16,8 +16,20 @@ from openai import (
     UnprocessableEntityError,
 )
 
-from src.agent.config import TransportConfig
-from src.agent.ir import (
+_ANTHROPIC_RETRYABLE: tuple[type, ...] = ()
+try:
+    from anthropic import (  # type: ignore[import-untyped]
+        APIConnectionError as _AnthropicConn,
+        APITimeoutError as _AnthropicTimeout,
+        InternalServerError as _AnthropicServer,
+        RateLimitError as _AnthropicRate,
+    )
+    _ANTHROPIC_RETRYABLE = (_AnthropicConn, _AnthropicTimeout, _AnthropicServer, _AnthropicRate)
+except ImportError:
+    pass
+
+from src.agent.config import TransportConfig  # noqa: E402
+from src.agent.ir import (  # noqa: E402
     Message,
     ModelResponse,
     StreamDisconnect,
@@ -83,6 +95,16 @@ def classify_llm_error(exc: BaseException) -> RetryDecision:
         return RetryDecision(
             retryable=True, reason="stream_disconnect",
             error_kind="stream_disconnect", terminal_reason="llm_error",
+        )
+    if _ANTHROPIC_RETRYABLE and isinstance(exc, _ANTHROPIC_RETRYABLE):
+        if isinstance(exc, _AnthropicRate):
+            return RetryDecision(
+                retryable=True, reason="rate_limit",
+                error_kind="rate_limit", terminal_reason="llm_error",
+            )
+        return RetryDecision(
+            retryable=True, reason="server_error",
+            error_kind="llm_error", terminal_reason="llm_error",
         )
     if isinstance(exc, (BadRequestError, AuthenticationError, PermissionDeniedError, NotFoundError, UnprocessableEntityError)):
         return RetryDecision(

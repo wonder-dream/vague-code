@@ -83,9 +83,9 @@ class TestDeepSeekStreamDecoder:
         assert evs[0].to_dict()["stream_type"] == "message_end"
 
     def test_error_chunk_raises(self):
-        """评审修复 R3c：error chunk → ValueError"""
         decoder = DeepSeekStreamDecoder()
-        with pytest.raises(ValueError, match="stream error chunk"):
+        from src.agent.ir import StreamDisconnect
+        with pytest.raises(StreamDisconnect, match="stream error"):
             decoder.decode_chunk({"error": {"message": "overloaded"}})
 
     def test_usage_only_chunk(self):

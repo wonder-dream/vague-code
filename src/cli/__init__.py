@@ -51,13 +51,13 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    api_key = _resolve_api_key(args.provider)
-    if not api_key:
-        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
-        print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
-        sys.exit(1)
-
     try:
+        api_key = _resolve_api_key(args.provider)
+        if not api_key:
+            key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
+            print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
+            sys.exit(1)
+
         config = AgentConfig(
             model=args.model,
             max_turns=args.max_turns,

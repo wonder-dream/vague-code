@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, asdict, field
-from pathlib import Path
 
 MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
 
@@ -46,7 +45,7 @@ class AgentConfig:
             raise ValueError(f"model contains invalid characters: {self.model!r}")
         if not self.db_path.strip():
             raise ValueError("db_path must not be empty")
-        if Path(self.db_path).suffix != ".db":
+        if not self.db_path.endswith((".db", ".sqlite")):
             raise ValueError(f"db_path must end with .db, got {self.db_path!r}")
 
     def to_public_dict(self) -> dict:

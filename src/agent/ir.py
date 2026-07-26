@@ -166,9 +166,9 @@ class ModelResponse:
 
     def to_dict(self) -> dict:
         return {
-            "message": self.message.to_dict(),
-            "stop_reason": self.stop_reason.value,
-            "usage": self.usage.to_dict(),
+            "message": self.message.to_dict() if self.message else {},
+            "stop_reason": self.stop_reason.value if self.stop_reason else "unknown",
+            "usage": self.usage.to_dict() if self.usage else NormalizedUsage().to_dict(),
         }
 
 
