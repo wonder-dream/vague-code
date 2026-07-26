@@ -116,6 +116,12 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
             raise PermissionError(f"Path traversal detected: {path_str}")
         if not target.is_file():
             raise FileNotFoundError(f"File not found: {path_str}")
+        MAX_PATCH_BYTES = 1_048_576
+        if target.stat().st_size > MAX_PATCH_BYTES:
+            raise ValueError(
+                f"File too large for patch ({target.stat().st_size:_} bytes). "
+                f"Maximum is {MAX_PATCH_BYTES:_} bytes. Use write_file to replace the entire file instead."
+            )
         old_str = input.get("old_str", "")
         if old_str is None:
             raise ValueError("old_str must be a non-empty string, got null")
