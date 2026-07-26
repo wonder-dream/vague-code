@@ -31,6 +31,7 @@ class EventType(str, Enum):
     stream_event = "stream_event"
     retry = "retry"
     retry_divergence = "retry_divergence"
+    compression = "compression"
 
 
 @dataclass
@@ -180,10 +181,13 @@ class Trajectory:
             if ev.type == EventType.run_start:
                 if messages and messages[-1].role == "user":
                     continue
-                task = ev.payload.get("task", "")
                 workdir = ev.payload.get("workdir", "")
-                content = f"Workspace root: {workdir}\n\n{task}" if workdir else task
-                messages.append(Message(role="user", content=content))
+                if workdir and not any(m.role == "system" for m in messages):
+                    from src.agent.context import SystemPrompt
+                    sys_text = SystemPrompt(workdir).build()
+                    messages.append(Message(role="system", content=sys_text))
+                task = ev.payload.get("task", "")
+                messages.append(Message(role="user", content=task))
             elif ev.type == EventType.llm_response:
                 flush_results()
                 blocks: list[Block] = []

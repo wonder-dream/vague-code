@@ -177,7 +177,13 @@ class Agent:
             self._persist(traj)
             return RunHandle(iter([]), traj)
 
-        messages: list[Message] = [Message(role="user", content=f"Workspace root: {workdir}\n\n{task}")]
+        from src.agent.context import SystemPrompt
+
+        system_prompt = SystemPrompt(workdir).build()
+        messages: list[Message] = [
+            Message(role="system", content=system_prompt),
+            Message(role="user", content=task),
+        ]
         gen = self._run_gen(traj, messages, [0], bound_tools)
         return RunHandle(gen, traj)
 
@@ -193,6 +199,21 @@ class Agent:
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
                 traj.emit(EventType.turn_start, turn=turn)
+
+                from src.agent.context_tokens import compute_budget, count_tokens
+
+                total = count_tokens(messages, self._tool_specs)
+                budget = compute_budget(self.config.model)
+                traj.emit(EventType.compression, turn=turn, payload={
+                    "layer": "budget",
+                    "before_tokens": total,
+                    "after_tokens": total,
+                    "budget": budget,
+                    "utilization": round(total / budget, 4) if budget > 0 else 0.0,
+                    "tools_tokens": count_tokens([], self._tool_specs),
+                    "tool_count": len(self._tool_specs),
+                })
+
                 call_config = {"model": self.config.model, "stream": self.config.transport.stream}
 
                 retry_index = 0
