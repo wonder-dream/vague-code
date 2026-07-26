@@ -15,6 +15,10 @@ from src.cli.renderer import RichStreamVisitor
 
 
 def main(argv: list[str] | None = None) -> None:
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+    except (AttributeError, OSError):
+        pass
     parser = argparse.ArgumentParser(prog="xcode", description="Coding Agent (Xcode)")
     parser.add_argument("task", nargs="?", default="", help="Task description for the agent")
     parser.add_argument("workdir", nargs="?", default=".", help="Workspace root directory")
