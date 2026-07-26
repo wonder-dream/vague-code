@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import dotenv_values
 from rich.console import Console
 
-from src.agent.backend import create_deepseek_backend
+from src.agent.backend import ModelBackend, create_anthropic_backend, create_deepseek_backend
 from src.agent.config import AgentConfig, TransportConfig
 from src.agent.ir import dispatch_event
 from src.agent.loop import Agent
@@ -41,13 +41,16 @@ def main(argv: list[str] | None = None) -> None:
                         help="Maximum delay between retries (seconds)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
                         help="Per-turn LLM call timeout (seconds)")
+    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
+                        help="Model provider (default: deepseek)")
     parser.add_argument("--verbose", action="store_true", help="Show model info")
 
     args = parser.parse_args(argv)
 
-    api_key = _resolve_api_key()
+    api_key = _resolve_api_key(args.provider)
     if not api_key:
-        print("Error: DEEPSEEK_API_KEY not found. Set it in .env or environment.", file=sys.stderr)
+        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
+        print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -65,11 +68,19 @@ def main(argv: list[str] | None = None) -> None:
             ),
         )
 
-        backend = create_deepseek_backend(
-            api_key=api_key,
-            base_url="https://api.deepseek.com",
-            timeout_s=config.transport.timeout_s,
-        )
+        backend: ModelBackend
+        if args.provider == "anthropic":
+            backend = create_anthropic_backend(
+                api_key=api_key,
+                base_url="https://api.deepseek.com/anthropic",
+                timeout_s=config.transport.timeout_s,
+            )
+        else:
+            backend = create_deepseek_backend(
+                api_key=api_key,
+                base_url="https://api.deepseek.com",
+                timeout_s=config.transport.timeout_s,
+            )
 
         agent = Agent(config, backend)
         console = Console()
@@ -106,10 +117,11 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  Trajectory exported: {export_path}", file=sys.stderr)
 
 
-def _resolve_api_key() -> str | None:
+def _resolve_api_key(provider: str) -> str | None:
     env_file = dotenv_values()
-    key = env_file.get("DEEPSEEK_API_KEY")
+    key_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "DEEPSEEK_API_KEY"
+    key = env_file.get(key_name)
     if key:
         return key
     import os
-    return os.environ.get("DEEPSEEK_API_KEY")
+    return os.environ.get(key_name)
