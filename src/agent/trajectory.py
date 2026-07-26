@@ -180,7 +180,10 @@ class Trajectory:
             if ev.type == EventType.run_start:
                 if messages and messages[-1].role == "user":
                     continue
-                messages.append(Message(role="user", content=ev.payload.get("task", "")))
+                task = ev.payload.get("task", "")
+                workdir = ev.payload.get("workdir", "")
+                content = f"Workspace root: {workdir}\n\n{task}" if workdir else task
+                messages.append(Message(role="user", content=content))
             elif ev.type == EventType.llm_response:
                 flush_results()
                 blocks: list[Block] = []

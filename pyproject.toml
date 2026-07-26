@@ -35,6 +35,13 @@ ignore_errors = false
 module = "dotenv.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "tests._target_bug.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+norecursedirs = "_target_bug"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
