@@ -178,7 +178,7 @@ class Agent:
             self._persist(traj)
             return RunHandle(iter([]), traj)
 
-        messages: list[Message] = [Message(role="user", content=task)]
+        messages: list[Message] = [Message(role="user", content=f"Workspace root: {workdir}\n\n{task}")]
         gen = self._run_gen(traj, messages, [0], bound_tools)
         return RunHandle(gen, traj)
 
@@ -366,7 +366,7 @@ class Agent:
                 stored_tools = e.payload.get("tools")
                 if stored_tools is not None:
                     current_tools = sorted(self._tool_registry.keys())
-                    if stored_tools != current_tools:
+                    if not set(stored_tools).issubset(set(current_tools)):
                         raise ValueError(
                             f"Tool registry mismatch on resume: stored={stored_tools}, current={current_tools}"
                         )
