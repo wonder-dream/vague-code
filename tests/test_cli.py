@@ -61,7 +61,7 @@ class TestCliArgumentParsing:
 
     @pytest.fixture(autouse=True)
     def _fix_env(self, monkeypatch):
-        monkeypatch.setattr("src.cli._resolve_api_key", lambda: "sk-fake")
+        monkeypatch.setattr("src.cli._resolve_api_key", lambda _: "sk-fake")
         monkeypatch.setattr("src.cli.sys.exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
 
     def test_no_args(self):
@@ -127,9 +127,9 @@ class TestCliArgumentParsing:
         assert exc.value.code == 1
 
     def test_no_api_key(self, monkeypatch):
-        monkeypatch.setattr("src.cli._resolve_api_key", lambda: None)
+        monkeypatch.setattr("src.cli._resolve_api_key", lambda _: None)
         from src.cli import _resolve_api_key
-        assert _resolve_api_key() is None
+        assert _resolve_api_key("deepseek") is None
         # The main() should exit 1 with key message
         with pytest.raises(SystemExit) as exc:
             from src.cli import main
@@ -145,7 +145,7 @@ class TestCliConfigPassing:
 
     @pytest.fixture(autouse=True)
     def _fix_env(self, monkeypatch):
-        monkeypatch.setattr("src.cli._resolve_api_key", lambda: "sk-fake")
+        monkeypatch.setattr("src.cli._resolve_api_key", lambda _: "sk-fake")
         monkeypatch.setattr("src.cli.sys.exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
 
     def test_config_defaults_propagate(self, monkeypatch):
@@ -234,7 +234,7 @@ class TestCliMockPipeline:
 
     @pytest.fixture(autouse=True)
     def _fix_env(self, monkeypatch):
-        monkeypatch.setattr("src.cli._resolve_api_key", lambda: "sk-fake")
+        monkeypatch.setattr("src.cli._resolve_api_key", lambda _: "sk-fake")
         monkeypatch.setattr("time.sleep", lambda _: None)
         monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
 
@@ -371,8 +371,10 @@ class TestCliMockPipeline:
 class TestCliResume:
     @pytest.fixture(autouse=True)
     def _fix_env(self, monkeypatch):
-        monkeypatch.setattr("src.cli._resolve_api_key", lambda: "sk-fake")
-        monkeypatch.setattr("time.sleep", lambda _: None)
+        monkeypatch.setattr("src.cli._resolve_api_key", lambda _: "sk-fake")
+        monkeypatch.setattr("src.cli.sys.exit", lambda code: (_ for _ in ()).throw(SystemExit(code)))
+
+
 
     def _create_checkpoint_db(self, tmp_path: Path) -> tuple[str, str]:
         """Create and return (run_id, db_path) with a checkpoint state."""
