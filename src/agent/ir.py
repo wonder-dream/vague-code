@@ -150,6 +150,13 @@ class ToolSpec:
             },
         }
 
+    def to_anthropic_tool(self) -> dict:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.parameters,
+        }
+
 
 @dataclass
 class ModelResponse:
