@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -1175,3 +1176,148 @@ def test_tools_field_missing_warning(tmp_path):
         loaded = Trajectory.from_db("r_old", db_path)
         agent.resume(loaded)
         assert any("without 'tools' field" in str(m.message) for m in w), [str(m.message) for m in w]
+
+
+# ── E2E (FakeBackend) ────────────────────────────────────────────────────────
+
+
+TARGET_BUG_DIR = Path(__file__).parent / "_target_bug"
+
+
+def test_e2e_read_patch_bash_pass():
+    """
+    End-to-end: Agent 修复全部 5 个 bug（3 visible + 2 hidden）。
+
+    Visible (pytest catches):
+      V1  stats.py: pass → continue
+      V2  repo.py:  page*size → (page-1)*size
+      V3  repo.py:  <= min_rating → >= min_rating
+
+    Hidden (no test covers, only code review catches):
+      H1  repo.py:  update() reports True but never updates
+      H2  repo.py:  delete() reports True but never deletes
+    """
+    backend = FakeBackend([
+        _tool_use_response(("c1", "read_file", {"path": "src/stats.py"})),
+        _tool_use_response(("c2", "read_file", {"path": "src/repo.py"})),
+        _tool_use_response(("c3", "patch", {
+            "path": "src/stats.py",
+            "old_str": "            if p.stock == 0:\n                pass",
+            "new_str": "            if p.stock == 0:\n                continue",
+        })),
+        _tool_use_response(("c4", "patch", {
+            "path": "src/repo.py",
+            "old_str": "        start = page * page_size  # BUG: off-by-one, page 1 should start at 0",
+            "new_str": "        start = (page - 1) * page_size",
+        })),
+        _tool_use_response(("c5", "patch", {
+            "path": "src/repo.py",
+            "old_str": "            results = [p for p in results if p.rating <= min_rating]  # BUG: inverted comparison",
+            "new_str": "            results = [p for p in results if p.rating >= min_rating]",
+        })),
+        _tool_use_response(("c6", "patch", {
+            "path": "src/repo.py",
+            "old_str": "    def update(self, product: Product) -> bool:\n        return product.id in self._products  # BUG: reports existence but never updates",
+            "new_str": "    def update(self, product: Product) -> bool:\n        if product.id in self._products:\n            self._products[product.id] = product\n            return True\n        return False",
+        })),
+        _tool_use_response(("c7", "patch", {
+            "path": "src/repo.py",
+            "old_str": "    def delete(self, product_id: str) -> bool:\n        return product_id in self._products  # BUG: reports existence but never deletes",
+            "new_str": "    def delete(self, product_id: str) -> bool:\n        return self._products.pop(product_id, None) is not None",
+        })),
+        _tool_use_response(("c8", "bash", {"command": "python -m pytest tests/test_catalog.py -v"})),
+        _text_response("All 5 bugs fixed: pass→continue, paginate offset, min_rating comparison, update(), delete()."),
+    ])
+    config = AgentConfig(max_turns=12)
+
+    stats_content_after: str | None = None
+    repo_content_after: str | None = None
+    bash_output: str | None = None
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for item in TARGET_BUG_DIR.iterdir():
+            src = item
+            dst = Path(tmpdir) / item.name
+            if src.is_dir():
+                shutil.copytree(src, dst)
+            else:
+                shutil.copy2(src, dst)
+
+        agent = Agent(config, backend)
+        traj = agent.run("Fix all bugs in stats.py and repo.py", tmpdir)
+        stats_content_after = (Path(tmpdir) / "src" / "stats.py").read_text(encoding="utf-8")
+        repo_content_after = (Path(tmpdir) / "src" / "repo.py").read_text(encoding="utf-8")
+        tool_result_events = [e for e in traj.events if e.type == "tool_result"]
+        if len(tool_result_events) >= 8:
+            bash_output = tool_result_events[7].payload.get("content", "")
+
+    # 验证轨迹完整性
+    types = [e.type for e in traj.events]
+    assert "run_start" in types
+    assert "run_end" in types
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    assert backend.call_count == 9
+
+    tool_call_events = [e for e in traj.events if e.type == "tool_call"]
+    assert len(tool_call_events) == 8
+
+    tool_names = [e.payload.get("name") for e in tool_call_events]
+    assert tool_names == ["read_file", "read_file", "patch", "patch", "patch", "patch", "patch", "bash"]
+
+    # V1: stats.py pass → continue
+    assert stats_content_after is not None
+    for i, line in enumerate(stats_content_after.splitlines()):
+        if "p.stock == 0" in line:
+            assert "continue" in stats_content_after.splitlines()[i + 1]
+            break
+
+    # V2: repo.py paginate
+    assert repo_content_after is not None
+    assert "(page - 1) * page_size" in repo_content_after or "(page-1) * page_size" in repo_content_after
+
+    # V3: repo.py min_rating
+    assert ">= min_rating" in repo_content_after
+
+    # H1: repo.py update() 有赋值逻辑
+    assert "self._products[product.id] = product" in repo_content_after
+
+    # H2: repo.py delete() 有 pop
+    assert ".pop(" in repo_content_after
+
+    # 验证 pytest 全部通过
+    assert bash_output is not None
+    assert "8 passed" in bash_output, f"expected 8 passed, got: {bash_output[:200]}"
+
+
+# ── Trajectory resume workdir ─────────────────────────────────────────────────
+
+
+def test_to_messages_workdir_prefix_matches_fresh_start():
+    """to_messages() 重建的首条消息必须与 Agent.start() 注入的完全一致。"""
+    db_path = "runs/test_workdir.db"
+    config = AgentConfig(max_turns=1, db_path=db_path)
+    backend = FakeBackend([_text_response("ok")])
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = Agent(config, backend)
+        traj = agent.run("do the thing", tmpdir)
+
+        # 抓取 run_start 事件里的 task + workdir
+        rs = next(e for e in traj.events if e.type == EventType.run_start)
+        expected_task = rs.payload.get("task", "")
+        expected_workdir = rs.payload.get("workdir", "")
+        expected_content = f"Workspace root: {expected_workdir}\n\n{expected_task}"
+
+        # to_messages() 重建
+        msgs = traj.to_messages()
+        first_msg = msgs[0] if msgs else None
+        first_text = "".join(
+            b.text for b in first_msg.content
+        ) if first_msg else ""
+
+    # 逐字相等
+    assert first_text == expected_content, (
+        f"to_messages() workdir prefix mismatch:\n"
+        f"  expected: {expected_content!r}\n"
+        f"  got:      {first_text!r}"
+    )
