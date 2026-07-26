@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from src.agent.config import AgentConfig, TransportConfig
+from src.agent.context import SystemPrompt
 from src.agent.ir import (
     Block,
     Message,
@@ -52,7 +53,17 @@ class Event:
         }
 
     def to_row(self) -> tuple:
-        return (self.run_id, self.turn, self.ts, self.type.value, json.dumps(self.payload, ensure_ascii=False, default=str))
+        try:
+            payload_json = json.dumps(self.payload, ensure_ascii=False)
+        except TypeError:
+            import warnings
+            warnings.warn(
+                f"Payload for event type '{self.type.value}' contains non-serializable data; "
+                f"falling back to repr() — roundtrip will be lossy.",
+                stacklevel=2,
+            )
+            payload_json = json.dumps(self.payload, ensure_ascii=False, default=repr)
+        return (self.run_id, self.turn, self.ts, self.type.value, payload_json)
 
 
 SCHEMA_RUNS = """CREATE TABLE IF NOT EXISTS runs (
@@ -71,6 +82,8 @@ SCHEMA_EVENTS = """CREATE TABLE IF NOT EXISTS events (
     type   TEXT,
     payload TEXT
 )"""
+
+SCHEMA_INDEX_EVENTS = "CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)"
 
 
 @dataclass
@@ -183,7 +196,6 @@ class Trajectory:
                     continue
                 workdir = ev.payload.get("workdir", "")
                 if workdir and not any(m.role == "system" for m in messages):
-                    from src.agent.context import SystemPrompt
                     sys_text = SystemPrompt(workdir).build()
                     messages.append(Message(role="system", content=sys_text))
                 task = ev.payload.get("task", "")
@@ -230,6 +242,7 @@ class Trajectory:
             conn.execute("PRAGMA busy_timeout=5000")
             conn.execute(SCHEMA_RUNS)
             conn.execute(SCHEMA_EVENTS)
+            conn.execute(SCHEMA_INDEX_EVENTS)
 
             new_events = self.events[self._persisted_count:]
             if new_events:
@@ -253,7 +266,7 @@ def _decode_block(d: dict) -> Block | None:
     if t == "text":
         return TextBlock(text=d.get("text", ""))
     elif t == "thinking":
-        return ThinkingBlock(text=d.get("text", ""))
+        return ThinkingBlock(text=d.get("text", ""), signature=d.get("signature"))
     elif t == "tool_use":
         return ToolUseBlock(
             id=d.get("id", ""),
