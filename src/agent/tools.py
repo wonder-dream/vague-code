@@ -41,7 +41,8 @@ def _read_file_factory(workdir: str) -> Callable[[dict], str]:
             raise FileNotFoundError(f"File not found: {path_str}")
         file_size = target.stat().st_size
         if file_size > MAX_READ_BYTES:
-            raw = target.read_bytes()[:MAX_READ_BYTES]
+            with target.open("rb") as f:
+                raw = f.read(MAX_READ_BYTES)
             content = raw.decode("utf-8-sig", errors="replace")
             return (
                     content
@@ -66,7 +67,7 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
             raise PermissionError(f"Path traversal detected: {path_str}")
-        overwrite = input.get("overwrite", False)
+        overwrite = input.get("overwrite", DEFAULT_MAX_OVERWRITE)
         if target.exists() and not overwrite:
             raise FileExistsError(f"File already exists: {path_str}. Set overwrite=true to replace it.")
         content = input.get("content", "")
