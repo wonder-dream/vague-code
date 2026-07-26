@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -212,25 +213,33 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
                 raise PermissionError(f"Path traversal detected: {cwd_str}")
         else:
             cwd_path = root
+        command = f"chcp 65001 >nul && {command}"
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=cwd_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+        )
         try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                cwd=cwd_path,
-                capture_output=True,
-                timeout=30,
-                encoding="utf-8",
-                errors="replace",
-                )
-            stdout = result.stdout
-            stderr = result.stderr
+            stdout_bytes, stderr_bytes = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
+            proc.kill()
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                    capture_output=True, timeout=5,
+                )
+            stdout_bytes, stderr_bytes = proc.communicate()
             raise RuntimeError("command timed out after 30 seconds")
+        stdout = stdout_bytes.decode("utf-8", errors="replace")
+        stderr = stderr_bytes.decode("utf-8", errors="replace")
         if len(stdout) > MAX_OUTPUT:
             stdout = stdout[:MAX_OUTPUT] + f"\n\n[... stdout truncated at {MAX_OUTPUT:_} bytes]"
         if len(stderr) > MAX_OUTPUT:
             stderr = stderr[:MAX_OUTPUT] + f"\n\n[... stderr truncated at {MAX_OUTPUT:_} bytes]"
-        return f"exit code: {result.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+        return f"exit code: {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
     return handler
 
 READ_FILE_SPEC = ToolSpec(
