@@ -338,22 +338,36 @@ class Agent:
                     messages.append(resp.message)
                     self._checkpoint(traj)
                     tool_results: list[Block] = []
-                    for block in tool_uses:
-                        traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
-                        handler = bound_tools.get(block.name)
-                        if handler is None:
-                            error_msg = f"Unknown tool: {block.name}"
-                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
-                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
-                            continue
-                        try:
-                            content = self._truncate_tool_content(handler(block.input))
-                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
-                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
-                        except Exception as e:
-                            error_msg = f"{type(e).__name__}: {e}"
-                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
-                            tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                    if self.config.concurrent_tools and len(tool_uses) > 1:
+                        from src.agent.concurrency import execute_concurrent
+                        workdir = ""
+                        for traj_ev in traj.events:
+                            if traj_ev.type == EventType.run_start:
+                                workdir = traj_ev.payload.get("workdir", "")
+                                break
+                        con_results = execute_concurrent(tool_uses, bound_tools, workdir)
+                        for block, result in zip(tool_uses, con_results):
+                            traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
+                            content = self._truncate_tool_content(result.content)
+                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": result.tool_use_id, "content": content, "is_error": result.is_error})
+                            tool_results.append(ToolResultBlock(tool_use_id=result.tool_use_id, content=content, is_error=result.is_error))
+                    else:
+                        for block in tool_uses:
+                            traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
+                            handler = bound_tools.get(block.name)
+                            if handler is None:
+                                error_msg = f"Unknown tool: {block.name}"
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
+                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                                continue
+                            try:
+                                content = self._truncate_tool_content(handler(block.input))
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
+                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+                            except Exception as e:
+                                error_msg = f"{type(e).__name__}: {e}"
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
+                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
 
                     messages.append(Message(role="user", content=tool_results))
                     turn_box[0] += 1

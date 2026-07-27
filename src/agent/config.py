@@ -57,6 +57,7 @@ class AgentConfig:
     db_path: str = "runs/runs.db"
     transport: TransportConfig = field(default_factory=TransportConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
+    concurrent_tools: bool = False
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:
