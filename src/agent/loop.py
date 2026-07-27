@@ -255,7 +255,9 @@ class Agent:
                         "layer": "budget",
                         "before_tokens": total,
                         "after_tokens": total,
+                        "affected": 0,
                         "budget": budget,
+                        "skip_thinking": skip_thinking,
                         "utilization": round(total / budget, 4) if budget > 0 else 0.0,
                     })
 
@@ -499,7 +501,7 @@ class Agent:
                     yield ThinkingEnd(signature=block.signature)
                 elif isinstance(block, ToolUseBlock):
                     yield ToolUseStart(id=block.id, name=block.name)
-                    yield ArgsDelta(id=block.id, delta=_dump_json(block.input))
+                    yield ArgsDelta(id=block.id, delta=json.dumps(block.input, ensure_ascii=False))
                     yield ToolUseEnd(id=block.id)
             yield MessageEnd(
                 stop_reason=resp.stop_reason,
@@ -526,5 +528,4 @@ class Agent:
                 traj.emit(EventType.run_end, payload={"reason": "persist_failed"})
 
 
-def _dump_json(obj: object) -> str:
-    return json.dumps(obj, ensure_ascii=False)
+

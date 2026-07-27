@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 
 from src.agent.context_tokens import count_tokens
 from src.agent.ir import (
-    Block,
     Message,
     StopReason,
     TextBlock,
@@ -72,8 +72,6 @@ def stale_snip(
     skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Replace ToolResultBlocks superseded by later same-path reads with a stale placeholder."""
-    from copy import deepcopy
-
     msgs = deepcopy(messages)
     before = count_tokens(msgs, tools, skip_thinking=skip_thinking)
 
@@ -156,8 +154,6 @@ def microcompact(
     skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Compact long ToolResultBlock content to head+tail summary."""
-    from copy import deepcopy
-
     msgs = deepcopy(messages)
     before = count_tokens(msgs, tools, skip_thinking=skip_thinking)
 
@@ -167,7 +163,6 @@ def microcompact(
 
     for _, user_idx in eligible:
         msg = msgs[user_idx]
-        new_blocks: list[Block] = []
         for block in msg.content:
             if isinstance(block, ToolResultBlock) and not block.is_error:
                 if (
@@ -176,10 +171,12 @@ def microcompact(
                     and "compacted" not in block.meta
                 ):
                     head, tail, total_lines = _head_tail(block.content, _HEAD_LINES, _TAIL_LINES)
+                    head_n = len(head.splitlines(keepends=True))
+                    tail_n = len(tail.splitlines(keepends=True)) if tail else 0
                     compacted = (
                         f"[compacted: {len(block.content)} chars, {total_lines} lines]"
-                        f"\n--- head ({_HEAD_LINES} lines) ---\n{head}"
-                        f"\n--- tail ({_TAIL_LINES} lines) ---\n{tail}"
+                        f"\n--- head ({head_n} lines) ---\n{head}"
+                        f"\n--- tail ({tail_n} lines) ---\n{tail}"
                     )
                     if len(compacted) < len(block.content):
                         block.meta["compacted"] = {
@@ -188,10 +185,6 @@ def microcompact(
                         }
                         block.content = compacted
                         affected += 1
-                new_blocks.append(block)
-            else:
-                new_blocks.append(block)
-        msg.content = new_blocks
 
     after = count_tokens(msgs, tools, skip_thinking=skip_thinking)
     return msgs, LayerReport(
@@ -222,8 +215,6 @@ def auto_compact(
     skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Summarize older turns via LLM, keep system + summary + recent turns."""
-    from copy import deepcopy
-
     msgs = deepcopy(messages)
     before = count_tokens(msgs, tools, skip_thinking=skip_thinking)
 
@@ -353,8 +344,6 @@ def truncate(
     skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Keep system + first user + newest messages fitting within budget."""
-    from copy import deepcopy
-
     msgs = deepcopy(messages)
     before = count_tokens(msgs, tools, skip_thinking)
 

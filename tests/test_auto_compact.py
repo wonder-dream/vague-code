@@ -53,7 +53,7 @@ def test_summary_request_contains_history() -> None:
     req_text = "".join(b.text for b in backend.last_messages[0].content if isinstance(b, TextBlock))
     assert "Read the file" in req_text
     assert "I read it" in req_text
-    assert "check results" not in req_text or "Check results" not in req_text
+    assert "Check results" not in req_text
 
 
 def test_rebuild_structure() -> None:

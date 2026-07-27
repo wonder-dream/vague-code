@@ -15,6 +15,7 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-flash": 1_000_000,
     "deepseek-v4-pro": 64_000,
     "claude-opus-4-8": 200_000,
+    "claude-sonnet-4-5": 200_000,
 }
 
 _SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-",)
