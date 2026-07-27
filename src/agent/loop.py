@@ -163,6 +163,14 @@ class Agent:
         self.config = config
         self.backend = backend
         self._on_permission = None
+        self._memory_store = None
+        if config.memory.enabled:
+            try:
+                from src.agent.memory import MemoryStore
+                self._memory_store = MemoryStore(config.memory.memory_db_path)
+            except Exception as e:
+                import warnings
+                warnings.warn(f"Failed to initialize memory store: {e}", stacklevel=2)
         self._tool_registry = tools if tools is not None else DEFAULT_TOOLS
         for key, tool in self._tool_registry.items():
             if key != tool.spec.name:
@@ -196,10 +204,27 @@ class Agent:
         from src.agent.context import SystemPrompt
 
         system_prompt = SystemPrompt(workdir).build()
+
+        # Memory: inject pinned memories
+        if self._memory_store and self.config.memory.inject_pinned:
+            pinned = self._memory_store.get_pinned()
+            if pinned:
+                pinned_section = "\n\n## Persistent knowledge (from past sessions)\n" + "\n---\n".join(
+                    p["content"] for p in pinned
+                )
+                system_prompt += pinned_section
+
         messages: list[Message] = [
             Message(role="system", content=system_prompt),
             Message(role="user", content=task),
         ]
+
+        # Memory: inject episodic search results when memory_search tool is available
+        if self._memory_store and task.strip():
+            from src.agent.memory_tool import make_memory_search_handler
+            memory_search_handler = make_memory_search_handler(self._memory_store)
+            bound_tools["memory_search"] = memory_search_handler
+
         gen = self._run_gen(traj, messages, [0], bound_tools)
         return RunHandle(gen, traj)
 
@@ -261,6 +286,16 @@ class Agent:
                         "skip_thinking": skip_thinking,
                         "utilization": round(total / budget, 4) if budget > 0 else 0.0,
                     })
+
+                # Memory: auto_compact distillation
+                if self._memory_store and self.config.memory.auto_compact_distill:
+                    for r in reports:
+                        if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
+                            self._memory_store.ingest(
+                                content=r.detail["summary_text"],
+                                kind="episodic",
+                                source_session=traj.run_id,
+                            )
 
                 while True:
                     aggregator = _StreamAggregator()

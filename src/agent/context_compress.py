@@ -331,6 +331,7 @@ def auto_compact(
             "summary_tokens": resp.usage.output_tokens if resp.usage else 0,
             "summary_input_tokens": resp.usage.input_tokens if resp.usage else 0,
             "original_messages": compacted_history_len,
+            "summary_text": summary_text,
         },
     )
 

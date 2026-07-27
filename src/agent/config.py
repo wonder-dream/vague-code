@@ -51,6 +51,15 @@ class CompressionConfig:
 
 
 @dataclass
+class MemoryConfig:
+    enabled: bool = True
+    memory_db_path: str = "runs/memory.db"
+    search_top_k: int = 5
+    inject_pinned: bool = True
+    auto_compact_distill: bool = True
+
+
+@dataclass
 class AgentConfig:
     model: str = "deepseek-v4-flash"
     max_turns: int = 20
@@ -59,6 +68,7 @@ class AgentConfig:
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     concurrent_tools: bool = False
     permission_mode: str = "normal"
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:
