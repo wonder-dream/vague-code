@@ -129,4 +129,6 @@ def test_enabled_false_noop():
     msgs = _make_session(5)
     budget = count_tokens(msgs, skip_thinking=True) + 100
     result, reports = compress_chain(msgs, None, cfg, budget, backend=backend, model="test")
-    assert len(reports) >= 1
+    assert len(reports) == 0
+    # Messages unchanged
+    assert len(result) == len(msgs)

@@ -408,6 +408,9 @@ def compress_chain(
     model: str = "",
 ) -> tuple[list[Message], list[LayerReport]]:
 
+    if not cfg.enabled:
+        return messages, []
+
     reports: list[LayerReport] = []
 
     # Layer 1: stale_snip (always)

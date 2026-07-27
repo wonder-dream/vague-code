@@ -232,30 +232,18 @@ class Agent:
                         budget = compute_budget(self.config.model)
                         cfg = self.config.compression
 
-                        if cfg.enabled:
-                            messages, reports = compress_chain(
-                                messages, self._tool_specs, cfg, budget,
-                                backend=self.backend, model=self.config.model)
-                            for r in reports:
-                                traj.emit(EventType.compression, turn=turn, payload={
-                                    "layer": r.layer,
-                                    "before_tokens": r.before_tokens,
-                                    "after_tokens": r.after_tokens,
-                                    "affected": r.affected,
-                                    "budget": budget,
-                                    "skip_thinking": r.skip_thinking,
-                                    **({"detail": r.detail} if r.detail else {}),
-                                })
-                        else:
-                            total = count_tokens(messages, self._tool_specs)
+                        messages, reports = compress_chain(
+                            messages, self._tool_specs, cfg, budget,
+                            backend=self.backend, model=self.config.model)
+                        for r in reports:
                             traj.emit(EventType.compression, turn=turn, payload={
-                                "layer": "budget",
-                                "before_tokens": total,
-                                "after_tokens": total,
+                                "layer": r.layer,
+                                "before_tokens": r.before_tokens,
+                                "after_tokens": r.after_tokens,
+                                "affected": r.affected,
                                 "budget": budget,
-                                "utilization": round(total / budget, 4) if budget > 0 else 0.0,
-                                "tools_tokens": count_tokens([], self._tool_specs),
-                                "tool_count": len(self._tool_specs),
+                                "skip_thinking": r.skip_thinking,
+                                **({"detail": r.detail} if r.detail else {}),
                             })
 
                         for ev in self._stream_from(messages, self._tool_specs, call_config):
