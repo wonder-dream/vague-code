@@ -157,8 +157,18 @@ Last updated: 2026-07-27
 | 4 处 `from copy import deepcopy` 移到模块顶 | `context_compress.py` | `b1e044f` |
 | `loop.py` 重复 `_dump_json` 删除 | `loop.py` | `b1e044f` |
 | `test_auto_compact.py:54` `or` 改 `and` | `test_auto_compact.py` | `b1e044f` |
+| `_pattern_prefix` 根目录 `"."` → `""` | `concurrency.py` | `cffccce` |
+| grep 默认 `"."` → `""` | `concurrency.py` | `cffccce` |
+| `_scopes_conflict` 加路径边界检查 `_path_under` | `concurrency.py` | `cffccce` |
+| 加 `_CONCURRENT_TIMEOUT` 超时保护 | `concurrency.py` | `cffccce` |
+| loop 并发分支加 try/except | `loop.py` | `f2cd058` |
+| 加并发集成测试（2 个） | `test_agent_loop.py` | `f2cd058` |
+| 边界+异常+传播测试（5 个） | `test_concurrency.py` | `cffccce`+`f2cd058` |
+
+## 剩余低优先级项
 
 | # | 领域 | 类型 | 触发条件 | 修复代价 | 优先级 |
+|---|------|------|----------|----------|--------|
 |---|------|------|----------|----------|--------|
 | 1 | stale_snip | 功能少回收 | 多路径 grep | 中 | 低 |
 | 2 | stale_snip | 防御缺失 | malformed 输入 | 低 | 低 |
