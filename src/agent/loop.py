@@ -328,13 +328,7 @@ class Agent:
                             tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
                             continue
                         try:
-                            content = handler(block.input)
-                            MAX_TOOL_CONTENT = 50_000
-                            if len(content) > MAX_TOOL_CONTENT:
-                                content = content[:MAX_TOOL_CONTENT] + (
-                                    f"\n\n[... output truncated at {MAX_TOOL_CONTENT} chars, "
-                                    f"total: {len(content)} chars]"
-                                )
+                            content = self._truncate_tool_content(handler(block.input))
                             traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
                             tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
                         except Exception as e:
@@ -355,6 +349,15 @@ class Agent:
         except Exception:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    @staticmethod
+    def _truncate_tool_content(content: str, max_chars: int = 50_000) -> str:
+        if len(content) > max_chars:
+            return content[:max_chars] + (
+                f"\n\n[... output truncated at {max_chars} chars, "
+                f"total: {len(content)} chars]"
+            )
+        return content
 
     TERMINAL_STOP_REASONS = {"end_turn", "stop_sequence", "max_tokens", "content_filter", "unknown"}
 
@@ -447,7 +450,7 @@ class Agent:
                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
                 continue
             try:
-                content = handler(block.input)
+                content = self._truncate_tool_content(handler(block.input))
                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
             except Exception as e:
