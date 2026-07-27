@@ -99,6 +99,19 @@ def test_not_longer_than_original() -> None:
     assert result[1].content[0].content == content
 
 
+def test_no_tool_result_blocks() -> None:
+    blocks: list[Block] = [
+        TextBlock(text="some text only"),
+        TextBlock(text="another text only"),
+    ]
+    msgs = [
+        Message(role="assistant", content=[ToolUseBlock(id="c1", name="bash", input={"cmd": "x"})]),
+        Message(role="user", content=blocks),
+    ]
+    result, report = microcompact(msgs, max_chars=10, keep_recent=0)
+    assert report.affected == 0
+
+
 def test_error_result_skipped() -> None:
     msgs = [
         Message(role="assistant", content=[ToolUseBlock(id="c1", name="bash", input={"cmd": "x"})]),

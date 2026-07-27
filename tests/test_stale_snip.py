@@ -105,6 +105,42 @@ def test_glob_pattern_snipped() -> None:
     assert "stale" not in result[3].content[0].content
 
 
+def test_multiple_tools_in_one_message() -> None:
+    asst_blocks: list[Block] = [
+        ToolUseBlock(id="c1", name="read", input={"path": "a.py"}),
+        ToolUseBlock(id="c2", name="read", input={"path": "b.py"}),
+    ]
+    user_blocks: list[Block] = [
+        ToolResultBlock(tool_use_id="c1", content="content a"),
+        ToolResultBlock(tool_use_id="c2", content="content b"),
+    ]
+    msgs = [
+        Message(role="assistant", content=asst_blocks),
+        Message(role="user", content=user_blocks),
+        *([Message(role="assistant", content=[ToolUseBlock(id="c3", name="read", input={"path": "a.py"})]),
+           Message(role="user", content=[ToolResultBlock(tool_use_id="c3", content="new a")])]),
+    ]
+    result, report = stale_snip(msgs, keep_recent=0)
+    assert report.affected == 1
+    assert "stale" in result[1].content[0].content
+    assert "stale" not in result[1].content[1].content  # b.py still current
+
+
+def test_interleaved_non_read_tool() -> None:
+    msgs = (
+        _read_pair("c1", "a.py", "old")
+        + [
+            Message(role="assistant", content=[ToolUseBlock(id="c2", name="edit", input={"path": "a.py"})]),
+            Message(role="user", content=[ToolResultBlock(tool_use_id="c2", content="edited a.py")]),
+        ]
+        + _read_pair("c3", "a.py", "new")
+    )
+    result, report = stale_snip(msgs, keep_recent=0)
+    # 'edit' tool does NOT make the read stale — read is still stale from c1→c3
+    assert report.affected == 1
+    assert "stale" in result[1].content[0].content
+
+
 def test_tokens_decreased() -> None:
     msgs = _read_pair("c1", "a.py", "A" * 500) + _read_pair("c2", "a.py", "B" * 500)
     before = count_tokens(msgs, skip_thinking=True)

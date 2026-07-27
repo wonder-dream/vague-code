@@ -123,6 +123,17 @@ def test_chain_order_preserved():
     assert actual_layers == expected_order
 
 
+def test_enabled_true_produces_reports():
+    backend = _FakeBackend()
+    cfg = CompressionConfig(enabled=True)
+    msgs = _make_session(3)
+    budget = count_tokens(msgs, skip_thinking=True) + 100
+    result, reports = compress_chain(msgs, None, cfg, budget, backend=backend, model="test")
+    assert len(reports) >= 1
+    # When enabled, stale_snip always runs
+    assert "stale_snip" in [r.layer for r in reports]
+
+
 def test_enabled_false_noop():
     backend = _FakeBackend()
     cfg = CompressionConfig(enabled=False)

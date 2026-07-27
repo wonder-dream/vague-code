@@ -97,6 +97,22 @@ def test_marker_overflow_with_standalone() -> None:
     assert count_tokens(result, skip_thinking=True) <= tight_budget
 
 
+def test_single_message_no_truncation() -> None:
+    msgs = [Message(role="user", content="hello")]
+    budget = count_tokens(msgs, skip_thinking=True) - 1
+    result, report = truncate(msgs, budget, skip_thinking=True)
+    assert report.affected == 0
+    assert len(result) == 1
+
+
+def test_system_only_no_task() -> None:
+    msgs = [Message(role="system", content="You are a coding agent.")]
+    budget = 1  # tiny
+    result, report = truncate(msgs, budget, skip_thinking=True)
+    assert report.affected == 0
+    assert len(result) == 1
+
+
 def test_no_system_message() -> None:
     msgs = [
         Message(role="user", content="task"),
