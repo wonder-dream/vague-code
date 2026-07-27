@@ -85,6 +85,26 @@ def test_evaluate_deny_priority() -> None:
     assert evaluate(PermissionMode.AUTO, op, rules) == Decision.DENY
 
 
+def test_evaluate_safe_write_file_deny() -> None:
+    op = Operation(tool_name="write_file", input={"path": "a.py", "content": "x"})
+    assert evaluate(PermissionMode.SAFE, op) == Decision.DENY
+
+
+def test_evaluate_normal_write_file_confirm() -> None:
+    op = Operation(tool_name="write_file", input={"path": "a.py", "content": "x"})
+    assert evaluate(PermissionMode.NORMAL, op) == Decision.CONFIRM
+
+
+def test_evaluate_safe_glob_allow() -> None:
+    op = Operation(tool_name="glob", input={"pattern": "*.py"})
+    assert evaluate(PermissionMode.SAFE, op) == Decision.ALLOW
+
+
+def test_evaluate_autoedit_patch_allow() -> None:
+    op = Operation(tool_name="patch", input={"path": "a.py", "old_str": "x", "new_str": "y"})
+    assert evaluate(PermissionMode.AUTOEDIT, op) == Decision.ALLOW
+
+
 def test_evaluate_unknown_tool_write_policy() -> None:
     op = Operation(tool_name="unknown_tool", input={})
     assert evaluate(PermissionMode.SAFE, op) == Decision.DENY

@@ -22,6 +22,7 @@ from src.agent.ir import (
     ToolUseBlock,
 )
 from src.agent.loop import Agent
+from src.agent.permission import Decision
 from src.agent.tools import DEFAULT_TOOLS, Tool
 from src.agent.trajectory import Event, EventType, Trajectory
 from src.agent.backend import DeepSeekBackend
@@ -388,7 +389,9 @@ def test_empty_tools_registry():
             called_with.append(tools)
             return _text_response("ok")
 
-    agent = Agent(AgentConfig(max_turns=5), _RecordingBackend(), tools={})
+    config = AgentConfig(max_turns=5)
+    config.memory.enabled = False  # disable memory_search tool spec injection
+    agent = Agent(config, _RecordingBackend(), tools={})
     assert agent._tool_specs == []
     agent.run("x", ".")
     assert called_with[-1] == []
@@ -1258,7 +1261,7 @@ def test_e2e_read_patch_bash_pass():
         _tool_use_response(("c8", "bash", {"command": "python -m pytest tests/test_catalog.py -v"})),
         _text_response("All 5 bugs fixed: pass→continue, paginate offset, min_rating comparison, update(), delete()."),
     ])
-    config = AgentConfig(max_turns=12)
+    config = AgentConfig(max_turns=12, permission_mode="auto")
 
     stats_content_after: str | None = None
     repo_content_after: str | None = None
@@ -1274,6 +1277,7 @@ def test_e2e_read_patch_bash_pass():
                 shutil.copy2(src, dst)
 
         agent = Agent(config, backend)
+        agent._on_permission = lambda op, default: Decision.ALLOW
         traj = agent.run("Fix all bugs in stats.py and repo.py", tmpdir)
         stats_content_after = (Path(tmpdir) / "src" / "stats.py").read_text(encoding="utf-8")
         repo_content_after = (Path(tmpdir) / "src" / "repo.py").read_text(encoding="utf-8")

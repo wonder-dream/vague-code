@@ -221,7 +221,8 @@ class Agent:
 
         # Memory: inject episodic search results when memory_search tool is available
         if self._memory_store and task.strip():
-            from src.agent.memory_tool import make_memory_search_handler
+            from src.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
+            self._tool_specs.append(MEMORY_SEARCH_SPEC)
             memory_search_handler = make_memory_search_handler(self._memory_store)
             bound_tools["memory_search"] = memory_search_handler
 
@@ -375,48 +376,51 @@ class Agent:
                     self._checkpoint(traj)
                     tool_results: list[Block] = []
 
-                    # Permission check pre-pass
+                    # Permission check pre-pass (covers ALL tools)
                     from src.agent.permission import Decision, PermissionMode, Operation, evaluate
                     perm_mode = PermissionMode(self.config.permission_mode)
                     allowed_tool_uses: list[ToolUseBlock] = []
                     for block in tool_uses:
-                        if block.name == "bash":
-                            op = Operation(tool_name=block.name, input=block.input,
-                                           command=block.input.get("command", ""))
-                            perm_decision = evaluate(perm_mode, op)
-                            traj.emit(EventType.permission_check, turn=turn, payload={
-                                "tool": block.name, "decision": perm_decision.value,
-                                "command": (op.command or "")[:200],
+                        op = Operation(tool_name=block.name, input=block.input,
+                                       command=block.input.get("command", "") if block.name == "bash" else "")
+                        perm_decision = evaluate(perm_mode, op)
+                        traj.emit(EventType.permission_check, turn=turn, payload={
+                            "tool": block.name, "decision": perm_decision.value,
+                            "command": (op.command or "")[:200],
+                        })
+                        if perm_decision == Decision.DENY:
+                            content = f"Permission denied: mode {perm_mode.value} blocks this operation"
+                            if perm_mode == PermissionMode.SAFE:
+                                content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+                            traj.emit(EventType.tool_call, turn=turn, payload={
+                                "id": block.id, "name": block.name, "input": block.input,
                             })
+                            traj.emit(EventType.tool_result, turn=turn, payload={
+                                "tool_use_id": block.id, "content": content, "is_error": True,
+                            })
+                            tool_results.append(ToolResultBlock(
+                                tool_use_id=block.id, content=content, is_error=True,
+                            ))
+                            continue
+                        if perm_decision == Decision.CONFIRM:
+                            if self._on_permission:
+                                perm_decision = self._on_permission(op, perm_decision)
+                            else:
+                                perm_decision = Decision.DENY  # default safe
                             if perm_decision == Decision.DENY:
-                                content = f"Permission denied: mode {perm_mode.value} blocks this operation"
-                                if perm_mode == PermissionMode.SAFE:
-                                    content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+                                content = "Permission denied"
+                                if not self._on_permission:
+                                    content = "Permission denied: no interactive confirmation available"
+                                traj.emit(EventType.tool_call, turn=turn, payload={
+                                    "id": block.id, "name": block.name, "input": block.input,
+                                })
                                 traj.emit(EventType.tool_result, turn=turn, payload={
                                     "tool_use_id": block.id, "content": content, "is_error": True,
                                 })
                                 tool_results.append(ToolResultBlock(
                                     tool_use_id=block.id, content=content, is_error=True,
                                 ))
-                                traj.emit(EventType.tool_call, turn=turn, payload={
-                                    "id": block.id, "name": block.name, "input": block.input,
-                                })
                                 continue
-                            if perm_decision == Decision.CONFIRM:
-                                if self._on_permission:
-                                    perm_decision = self._on_permission(op, perm_decision)
-                                    if perm_decision == Decision.DENY:
-                                        content = "Permission denied by user"
-                                        traj.emit(EventType.tool_result, turn=turn, payload={
-                                            "tool_use_id": block.id, "content": content, "is_error": True,
-                                        })
-                                        tool_results.append(ToolResultBlock(
-                                            tool_use_id=block.id, content=content, is_error=True,
-                                        ))
-                                        traj.emit(EventType.tool_call, turn=turn, payload={
-                                            "id": block.id, "name": block.name, "input": block.input,
-                                        })
-                                        continue
                         allowed_tool_uses.append(block)
 
                     if not allowed_tool_uses:
@@ -432,7 +436,7 @@ class Agent:
                                 workdir = traj_ev.payload.get("workdir", "")
                                 break
                         try:
-                            con_results = execute_concurrent(tool_uses, bound_tools, workdir)
+                            con_results = execute_concurrent(allowed_tool_uses, bound_tools, workdir)
                         except Exception as e:
                             traj.emit(EventType.error, turn=turn, payload={"kind": "concurrent_execution_error", "message": str(e)})
                             traj.emit(EventType.run_end, payload={"reason": "concurrent_execution_error"})
@@ -567,6 +571,21 @@ class Agent:
         tool_results: list[Block] = []
         for block in pending:
             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
+
+            # Permission check (same as _run_gen pre-pass)
+            from src.agent.permission import Decision, PermissionMode, Operation, evaluate
+            perm_mode = PermissionMode(self.config.permission_mode)
+            op = Operation(tool_name=block.name, input=block.input,
+                           command=block.input.get("command", "") if block.name == "bash" else "")
+            if evaluate(perm_mode, op) == Decision.DENY:
+                err = f"Permission denied: mode {perm_mode.value} blocks this operation"
+                traj.emit(EventType.permission_check, turn=turn, payload={
+                    "tool": block.name, "decision": Decision.DENY.value, "command": (op.command or "")[:200],
+                })
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
+                continue
+
             handler = bound_tools.get(block.name)
             if handler is None:
                 err = f"Unknown tool: {block.name}"
