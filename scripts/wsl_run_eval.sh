@@ -1,5 +1,4 @@
 #!/bin/bash
-# WSL eval runner - reads API key from environment
 cd /home/vague/xcode
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate
@@ -25,6 +24,25 @@ tasks = all_tasks[:3]
 base_workdir = "/tmp/xcode_eval_real"
 os.makedirs(base_workdir, exist_ok=True)
 
+def clone_at_commit(repo_url, commit, workdir):
+    """Minimal fetch of a specific commit (no full history)."""
+    if os.path.exists(workdir):
+        shutil.rmtree(workdir)
+    os.makedirs(workdir, exist_ok=True)
+    subprocess.run(["git", "init"], cwd=workdir, capture_output=True, check=True, timeout=10)
+    subprocess.run(
+        ["git", "remote", "add", "origin", repo_url],
+        cwd=workdir, capture_output=True, check=True, timeout=10,
+    )
+    subprocess.run(
+        ["git", "fetch", "origin", commit, "--depth=1"],
+        cwd=workdir, capture_output=True, check=True, timeout=120,
+    )
+    subprocess.run(
+        ["git", "checkout", "FETCH_HEAD"],
+        cwd=workdir, capture_output=True, check=True, timeout=30,
+    )
+
 for i, task in enumerate(tasks):
     instance_id = task["instance_id"]
     print(f"\n[{i+1}/3] {instance_id}...")
@@ -33,19 +51,13 @@ for i, task in enumerate(tasks):
     commit = task["base_commit"]
     workdir = f"{base_workdir}/{instance_id}"
     
-    if os.path.exists(workdir):
-        shutil.rmtree(workdir)
-    
-    print(f"  Cloning {repo_url} @ {commit[:8]}...")
-    subprocess.run(
-        ["git", "clone", "--depth=1", repo_url, workdir],
-        capture_output=True, timeout=300, check=True,
-    )
-    subprocess.run(
-        ["git", "checkout", commit],
-        cwd=workdir, capture_output=True, timeout=30, check=True,
-    )
-    print(f"  Repo ready.")
+    print(f"  Fetching {repo_url} @ {commit[:12]}...")
+    try:
+        clone_at_commit(repo_url, commit, workdir)
+    except Exception as e:
+        print(f"  Clone ERROR: {e}")
+        continue
+    print(f"  Repo size: {sum(f.stat().st_size for f in Path(workdir).glob('**/*') if f.is_file()) // 1024}KB")
     
     config = AgentConfig(
         max_turns=30, model="deepseek-v4-flash",
@@ -65,9 +77,10 @@ for i, task in enumerate(tasks):
             e.payload.get("usage", {}).get("input_tokens", 0) + e.payload.get("usage", {}).get("output_tokens", 0)
             for e in events if e.type == "llm_response"
         )
-        print(f"  Result: end={reason}, turns={turns}, tokens={tokens}")
+        api_calls = sum(1 for e in events if e.type == "llm_response")
+        print(f"  Result: end={reason}, turns={turns}, api_calls={api_calls}, tokens={tokens}")
     except Exception as e:
-        print(f"  ERROR: {type(e).__name__}: {e}")
+        print(f"  AGENT ERROR: {type(e).__name__}: {e}")
     
     shutil.rmtree(workdir, ignore_errors=True)
 
