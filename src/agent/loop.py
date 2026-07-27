@@ -220,32 +220,32 @@ class Agent:
                 retry_index = 0
                 resp: ModelResponse | None = None
 
+                from src.agent.context import compress_chain
+                from src.agent.context_tokens import compute_budget
+
+                budget = compute_budget(self.config.model)
+                cfg = self.config.compression
+
+                messages, reports = compress_chain(
+                    messages, self._tool_specs, cfg, budget,
+                    backend=self.backend, model=self.config.model)
+                for r in reports:
+                    traj.emit(EventType.compression, turn=turn, payload={
+                        "layer": r.layer,
+                        "before_tokens": r.before_tokens,
+                        "after_tokens": r.after_tokens,
+                        "affected": r.affected,
+                        "budget": budget,
+                        "skip_thinking": r.skip_thinking,
+                        **({"detail": r.detail} if r.detail else {}),
+                    })
+
                 while True:
                     aggregator = _StreamAggregator()
                     message_end: MessageEnd | None = None
                     buffered: list[tuple[float, StreamEvent]] = []
 
                     try:
-                        from src.agent.context import compress_chain
-                        from src.agent.context_tokens import compute_budget
-
-                        budget = compute_budget(self.config.model)
-                        cfg = self.config.compression
-
-                        messages, reports = compress_chain(
-                            messages, self._tool_specs, cfg, budget,
-                            backend=self.backend, model=self.config.model)
-                        for r in reports:
-                            traj.emit(EventType.compression, turn=turn, payload={
-                                "layer": r.layer,
-                                "before_tokens": r.before_tokens,
-                                "after_tokens": r.after_tokens,
-                                "affected": r.affected,
-                                "budget": budget,
-                                "skip_thinking": r.skip_thinking,
-                                **({"detail": r.detail} if r.detail else {}),
-                            })
-
                         for ev in self._stream_from(messages, self._tool_specs, call_config):
                             buffered.append((time.time(), ev))
                             aggregator.feed(ev)
