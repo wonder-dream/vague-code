@@ -81,6 +81,24 @@ def test_persist_reload() -> None:
         store2.close()
 
 
+def test_search_like_wildcard_percent() -> None:
+    store = _make_store()
+    store.ingest("Completion: 100% done")
+    store.ingest("Another: done")
+    results = store.search("100%", k=5)
+    assert len(results) >= 1
+    assert "100%" in results[0]["content"]
+
+
+def test_search_like_wildcard_underscore() -> None:
+    store = _make_store()
+    store.ingest("File: test_file.py")
+    store.ingest("File: test_file2.py")
+    results = store.search("test_file.py", k=5)
+    assert len(results) >= 1
+    assert "test_file.py" in results[0]["content"]
+
+
 def test_fts_match_by_word() -> None:
     store = _make_store()
     store.ingest("Always use type hints.")

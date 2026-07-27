@@ -66,11 +66,11 @@ class MemoryStore:
     def search(self, query: str, k: int = 5) -> list[dict]:
         if not query.strip():
             return []
-        terms = [t for t in query.split() if len(t) > 1]
+        terms = query.split()
         if not terms:
             return []
-        like_clauses = " OR ".join("content LIKE ?" for _ in terms)
-        params = [f"%{t}%" for t in terms]
+        like_clauses = " OR ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
+        params = [f"%{t.replace('%', '\\%').replace('_', '\\_')}%" for t in terms]
         try:
             rows = self.conn.execute(
                 f"SELECT content, kind, confidence, created_at "
