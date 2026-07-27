@@ -113,7 +113,7 @@ class AnthropicBackend:
         config: dict | None = None,
     ) -> ModelResponse:
         body = anthropic_encode(messages, tools, config)
-        model = "deepseek-v4-flash"
+        model = "claude-sonnet-4-5"
         if isinstance(config, dict):
             model = config.get("model", model)
         body["model"] = model
@@ -128,7 +128,7 @@ class AnthropicBackend:
         config: dict | None = None,
     ) -> Iterator[StreamEvent]:
         body = anthropic_encode(messages, tools, config)
-        model = "deepseek-v4-flash"
+        model = "claude-sonnet-4-5"
         if isinstance(config, dict):
             model = config.get("model", model)
         body["model"] = model

@@ -138,12 +138,8 @@ def stale_snip(
 
 # ── Layer 2: microcompact ──────────────────────────────────────────────────
 
-def _split_lines(content: str):
-    return content.splitlines(keepends=True)
-
-
 def _head_tail(content: str, head_n: int, tail_n: int) -> tuple[str, str, int]:
-    lines = _split_lines(content)
+    lines = content.splitlines(keepends=True)
     n = len(lines)
     if head_n + tail_n >= n:
         return "".join(lines), "", n
@@ -169,7 +165,7 @@ def microcompact(
     eligible = pairs[:max(0, len(pairs) - keep_recent)] if keep_recent > 0 else pairs
     affected = 0
 
-    for asst_idx, user_idx in eligible:
+    for _, user_idx in eligible:
         msg = msgs[user_idx]
         new_blocks: list[Block] = []
         for block in msg.content:
@@ -177,7 +173,7 @@ def microcompact(
                 if (
                     len(block.content) > max_chars
                     and not block.meta.get("stale")
-                    and not block.meta.get("compacted")
+                    and "compacted" not in block.meta
                 ):
                     head, tail, total_lines = _head_tail(block.content, _HEAD_LINES, _TAIL_LINES)
                     compacted = (
@@ -243,7 +239,7 @@ def auto_compact(
 
     # Keep system + summary + last keep_turns pairs
     system = None
-    if msgs and msgs[0].role == "system":
+    if len(msgs) > 0 and msgs[0].role == "system":
         system = msgs[0]
     prefix = 1 if system else 0
 
@@ -260,7 +256,8 @@ def auto_compact(
 
     # All pairs before the last keep_turns are eligible for summarization
     summarize_pairs = pairs[:-keep_turns] if keep_turns > 0 else pairs
-    keep_start = summarize_pairs[-1][1] + 1 if summarize_pairs else (prefix if system else 0)
+    assert summarize_pairs, "summarize_pairs should never be empty here"
+    keep_start = summarize_pairs[-1][1] + 1
 
     to_summarize = msgs[prefix:keep_start]
 
@@ -471,6 +468,7 @@ def truncate(
         before_tokens=before,
         after_tokens=after,
         affected=dropped,
+        skip_thinking=skip_thinking,
     )
 
 
