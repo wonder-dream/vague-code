@@ -384,14 +384,34 @@ def truncate(
         else:
             break
 
-    # Collect all remaining messages (standalone + gaps) in chronological order
-    for i in range(prefix_end, len(msgs)):
+    # Collect all remaining messages (standalone + gaps) in chronological order.
+    # Preserve tool_use/tool_result pair atomicity.
+    i = prefix_end
+    while i < len(msgs):
         if i in collected:
+            i += 1
+            continue
+        # Check if this assistant has a paired user message right after
+        is_pair = (
+            msgs[i].role == "assistant"
+            and i + 1 < len(msgs)
+            and msgs[i + 1].role == "user"
+            and (i + 1) not in collected
+        )
+        if is_pair:
+            candidates = [msgs[i], msgs[i + 1]]
+            test = msgs[:prefix_end] + tail_messages + candidates
+            if count_tokens(test, tools, skip_thinking) < budget:
+                tail_messages.extend(candidates)
+                collected.add(i)
+                collected.add(i + 1)
+            i += 2
             continue
         test = msgs[:prefix_end] + tail_messages + [msgs[i]]
         if count_tokens(test, tools, skip_thinking) < budget:
             tail_messages.append(msgs[i])
             collected.add(i)
+        i += 1
 
     dropped = len(msgs) - prefix_end - len(tail_messages)
     reconstructed = msgs[:prefix_end]
