@@ -1,5 +1,6 @@
 #!/bin/bash
 cd /home/vague/xcode
+export DEEPSEEK_API_KEY="sk-REPLACED"
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate
 
