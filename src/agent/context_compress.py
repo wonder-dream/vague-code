@@ -369,7 +369,6 @@ def truncate(
     reconstructed = msgs[:prefix_end]
 
     # Determine if a truncation marker can fit
-    marker_added = False
     if dropped > 0:
         for _ in range(len(tail_messages) + 5):
             marker_text = f"[truncated: dropped {dropped} messages to fit token budget]"
@@ -377,7 +376,6 @@ def truncate(
             test_m = reconstructed + [marker] + tail_messages
             if count_tokens(test_m, tools, skip_thinking) <= budget:
                 reconstructed.append(marker)
-                marker_added = True
                 break
             # Drop oldest message(s) from tail to make room
             if not tail_messages:

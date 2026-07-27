@@ -227,7 +227,7 @@ class Agent:
 
                     try:
                         from src.agent.context import compress_chain
-                        from src.agent.context_tokens import compute_budget, count_tokens
+                        from src.agent.context_tokens import compute_budget
 
                         budget = compute_budget(self.config.model)
                         cfg = self.config.compression
