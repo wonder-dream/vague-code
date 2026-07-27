@@ -221,7 +221,7 @@ class Agent:
                 resp: ModelResponse | None = None
 
                 from src.agent.context import compress_chain
-                from src.agent.context_tokens import compute_budget, should_skip_thinking
+                from src.agent.context_tokens import compute_budget, count_tokens, should_skip_thinking
 
                 budget = compute_budget(self.config.model)
                 cfg = self.config.compression
@@ -238,15 +238,25 @@ class Agent:
                         "message": str(e),
                     })
                     reports = []
-                for r in reports:
+                if reports:
+                    for r in reports:
+                        traj.emit(EventType.compression, turn=turn, payload={
+                            "layer": r.layer,
+                            "before_tokens": r.before_tokens,
+                            "after_tokens": r.after_tokens,
+                            "affected": r.affected,
+                            "budget": budget,
+                            "skip_thinking": r.skip_thinking,
+                            **({"detail": r.detail} if r.detail else {}),
+                        })
+                else:
+                    total = count_tokens(messages, self._tool_specs, skip_thinking=skip_thinking)
                     traj.emit(EventType.compression, turn=turn, payload={
-                        "layer": r.layer,
-                        "before_tokens": r.before_tokens,
-                        "after_tokens": r.after_tokens,
-                        "affected": r.affected,
+                        "layer": "budget",
+                        "before_tokens": total,
+                        "after_tokens": total,
                         "budget": budget,
-                        "skip_thinking": r.skip_thinking,
-                        **({"detail": r.detail} if r.detail else {}),
+                        "utilization": round(total / budget, 4) if budget > 0 else 0.0,
                     })
 
                 while True:
