@@ -42,9 +42,9 @@ def _pattern_prefix(pattern: str) -> str:
         if "/" in prefix:
             prefix = prefix.rsplit("/", 1)[0]
         else:
-            return "."
-        return prefix or "."
-    return trimmed or "."
+            return ""
+        return prefix or ""
+    return trimmed or ""
 
 
 def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
@@ -75,7 +75,7 @@ def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
         return ResourceScope(path=prefix, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     if name == "grep":
-        path = inp.get("path") or "."
+        path = inp.get("path") or ""
         return ResourceScope(path=path, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.WRITE)
@@ -92,11 +92,21 @@ def _scopes_conflict(a: ResourceScope, b: ResourceScope) -> bool:
     b_path = b.path
     if a_path == b_path:
         return True
-    if a.scope_type == ScopeType.PREFIX and b_path.startswith(a_path):
+    # Empty path means entire workspace (root prefix)
+    if a_path and a.scope_type == ScopeType.PREFIX and _path_under(a_path, b_path):
         return True
-    if b.scope_type == ScopeType.PREFIX and a_path.startswith(b_path):
+    if b_path and b.scope_type == ScopeType.PREFIX and _path_under(b_path, a_path):
         return True
     return False
+
+
+def _path_under(prefix: str, path: str) -> bool:
+    """True if `path` is under directory `prefix` (respecting directory boundaries)."""
+    if not path.startswith(prefix):
+        return False
+    if len(path) == len(prefix):
+        return True
+    return path[len(prefix)] in ("/", "\\")
 
 
 # ── Scheduler ───────────────────────────────────────────────────────────────
@@ -125,6 +135,9 @@ def schedule(
 
 
 # ── Concurrent execution ────────────────────────────────────────────────────
+
+_CONCURRENT_TIMEOUT = 120.0
+
 
 def execute_concurrent(
     calls: list[ToolUseBlock],
@@ -160,17 +173,28 @@ def execute_concurrent(
                 future: Future = executor.submit(handler, call.input)
                 future_map[future] = call.id
 
-            for future in as_completed(future_map):
-                call_id = future_map[future]
-                try:
-                    content: str = future.result()
+            try:
+                for future in as_completed(future_map, timeout=_CONCURRENT_TIMEOUT):
+                    call_id = future_map[future]
+                    try:
+                        content: str = future.result(timeout=_CONCURRENT_TIMEOUT)
+                        results[call_id] = ToolResultBlock(tool_use_id=call_id, content=content)
+                    except Exception as e:
+                        results[call_id] = ToolResultBlock(
+                            tool_use_id=call_id,
+                            content=f"{type(e).__name__}: {e}",
+                            is_error=True,
+                        )
+                        failed = True
+            except TimeoutError:
+                failed = True
+                for call in group:
+                    if call.id not in results:
+                        results[call.id] = ToolResultBlock(
+                            tool_use_id=call.id,
+                            content=f"[timed out after {_CONCURRENT_TIMEOUT}s]",
+                            is_error=True,
+                        )
                     results[call_id] = ToolResultBlock(tool_use_id=call_id, content=content)
-                except Exception as e:
-                    results[call_id] = ToolResultBlock(
-                        tool_use_id=call_id,
-                        content=f"{type(e).__name__}: {e}",
-                        is_error=True,
-                    )
-                    failed = True
 
     return [results[c.id] for c in calls]

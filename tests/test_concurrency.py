@@ -31,7 +31,7 @@ def test_pattern_prefix_deep_path() -> None:
 
 
 def test_pattern_prefix_root_wildcard() -> None:
-    assert _pattern_prefix("*.py") == "."
+    assert _pattern_prefix("*.py") == ""
 
 
 # ── _extract_scope ──────────────────────────────────────────────────────────
