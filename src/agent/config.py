@@ -35,6 +35,20 @@ class CompressionConfig:
     auto_compact_keep_turns: int = 4
     stale_snip_keep_recent: int = 3
 
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.microcompact_threshold <= 1.0:
+            raise ValueError(f"microcompact_threshold must be in [0,1], got {self.microcompact_threshold}")
+        if not 0.0 <= self.auto_compact_threshold <= 1.0:
+            raise ValueError(f"auto_compact_threshold must be in [0,1], got {self.auto_compact_threshold}")
+        if self.microcompact_max_chars < 1:
+            raise ValueError(f"microcompact_max_chars must be >= 1, got {self.microcompact_max_chars}")
+        if self.microcompact_keep_recent < 0:
+            raise ValueError(f"microcompact_keep_recent must be >= 0, got {self.microcompact_keep_recent}")
+        if self.stale_snip_keep_recent < 0:
+            raise ValueError(f"stale_snip_keep_recent must be >= 0, got {self.stale_snip_keep_recent}")
+        if self.auto_compact_keep_turns < 0:
+            raise ValueError(f"auto_compact_keep_turns must be >= 0, got {self.auto_compact_keep_turns}")
+
 
 @dataclass
 class AgentConfig:

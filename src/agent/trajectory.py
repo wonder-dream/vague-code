@@ -153,6 +153,12 @@ class Trajectory:
 
             config = AgentConfig(**filtered)
             config.transport = TransportConfig(**filtered_t)
+            compression_data = config_data.get("compression")
+            if compression_data and isinstance(compression_data, dict):
+                from src.agent.config import CompressionConfig as CC
+                comp_keys = {f.name for f in dc_fields(CC)}
+                filtered_c = {k: v for k, v in compression_data.items() if k in comp_keys}
+                config.compression = CC(**filtered_c)
             traj = cls(run_id=run_id, config=config)
             for row in conn.execute(
                 "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",

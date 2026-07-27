@@ -79,6 +79,7 @@ def _count_precise(
         for t in tools:
             if t is None:
                 continue
+            total += len(enc.encode(t.name))
             total += len(enc.encode(t.description))
             total += len(enc.encode(json.dumps(t.parameters)))
     return total
@@ -108,6 +109,7 @@ def _count_rough(
         for t in tools:
             if t is None:
                 continue
+            total += len(t.name) // 4
             total += len(t.description) // 4
             total += len(json.dumps(t.parameters)) // 4
     return total
