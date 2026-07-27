@@ -292,6 +292,16 @@ def auto_compact(
         if isinstance(block, TextBlock):
             summary_text += block.text
 
+    if not summary_text.strip():
+        return msgs, LayerReport(
+            layer="auto_compact",
+            before_tokens=before,
+            after_tokens=before,
+            affected=0,
+            skip_thinking=skip_thinking,
+            detail={"skipped": "empty_summary_from_model"},
+        )
+
     reconstructed: list[Message] = []
     if system:
         reconstructed.append(system)

@@ -7,6 +7,7 @@ from src.agent.ir import (
     NormalizedUsage,
     StopReason,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolSpec,
     ToolUseBlock,
@@ -106,6 +107,27 @@ def test_failure_graceful() -> None:
     result, report = auto_compact(msgs, _FailingBackend(), "test-model", keep_turns=1)
     assert report.affected == 0
     assert "error" in report.detail
+    assert len(result) == len(msgs)
+
+
+def test_empty_summary_skips() -> None:
+    class _EmptyBackend:
+        def complete(self, messages, tools=None, config=None):
+            return ModelResponse(
+                message=Message(role="assistant", content=[ThinkingBlock(text="thinking only")]),
+                stop_reason=StopReason.end_turn, usage=NormalizedUsage(5, 2))
+
+    msgs = [
+        Message(role="system", content="You are a coding agent."),
+        Message(role="user", content="task"),
+        Message(role="assistant", content=[TextBlock(text="done")]),
+        Message(role="user", content=[TextBlock(text="ok")]),
+        Message(role="assistant", content=[TextBlock(text="verify")]),
+        Message(role="user", content=[TextBlock(text="pass")]),
+    ]
+    result, report = auto_compact(msgs, _EmptyBackend(), "test-model", keep_turns=1)
+    assert report.affected == 0
+    assert report.detail.get("skipped") == "empty_summary_from_model"
     assert len(result) == len(msgs)
 
 
