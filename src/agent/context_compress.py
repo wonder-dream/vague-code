@@ -72,8 +72,9 @@ def stale_snip(
     pairs = _find_pairs(msgs)
     eligible = pairs[:max(0, len(pairs) - keep_recent)] if keep_recent > 0 else pairs
 
-    # Build path→list of (assistant_idx, user_idx, block_idx, ToolResultBlock)
-    path_map: dict[str, list[tuple[int, int, ToolResultBlock]]] = {}
+    # Build (tool_name, path)→list of (user_idx, block_idx, ToolResultBlock)
+    # Each tool type only competes with same tool type (e.g. read↔read, not read↔grep)
+    path_map: dict[tuple[str, str], list[tuple[int, int, ToolResultBlock]]] = {}
 
     for asst_idx, user_idx in eligible:
         asst_msg = msgs[asst_idx]
@@ -102,16 +103,16 @@ def stale_snip(
             result_block = result_map.get(tool_block.id)
             if result_block is None or result_block.is_error:
                 continue
-            path_map.setdefault(path, []).append((user_idx, block_indices[tool_block.id], result_block))
+            path_map.setdefault((tool_block.name, path), []).append((user_idx, block_indices[tool_block.id], result_block))
 
     affected = 0
-    for path, entries in path_map.items():
+    for (tool_name, path), entries in path_map.items():
         if len(entries) <= 1:
             continue
         for _, _, result_block in entries[:-1]:
             result_block.meta["stale"] = True
             result_block.meta["original_stale_content"] = result_block.content
-            result_block.content = f"[stale: superseded by later read of {path}]"
+            result_block.content = f"[stale: superseded by later {tool_name} of {path}]"
             affected += 1
 
     after = count_tokens(msgs, skip_thinking=skip_thinking)
@@ -121,7 +122,7 @@ def stale_snip(
         before_tokens=before,
         after_tokens=after,
         affected=affected,
-        detail={"paths_stale": sum(1 for v in path_map.values() if len(v) > 1)},
+        detail={"stale_groups": sum(1 for v in path_map.values() if len(v) > 1)},
     )
 
 
