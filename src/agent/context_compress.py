@@ -6,6 +6,7 @@ from src.agent.context_tokens import count_tokens
 from src.agent.ir import (
     Block,
     Message,
+    StopReason,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -18,6 +19,7 @@ class LayerReport:
     before_tokens: int
     after_tokens: int
     affected: int
+    unit: str = "messages"
     skip_thinking: bool = True
     detail: dict = field(default_factory=dict)
 
@@ -48,7 +50,12 @@ def _find_pairs(messages: list[Message]) -> list[tuple[int, int]]:
 def _extract_path(tool_block: ToolUseBlock) -> str | None:
     if tool_block.name not in _READ_TOOLS:
         return None
-    raw = tool_block.input.get("path") or tool_block.input.get("paths") or tool_block.input.get("pattern")
+    raw = None
+    for key in ("path", "paths", "pattern"):
+        v = tool_block.input.get(key)
+        if v is not None:
+            raw = v
+            break
     if isinstance(raw, str):
         return raw
     if isinstance(raw, list) and raw:
@@ -138,6 +145,8 @@ def _split_lines(content: str):
 def _head_tail(content: str, head_n: int, tail_n: int) -> tuple[str, str, int]:
     lines = _split_lines(content)
     n = len(lines)
+    if head_n + tail_n >= n:
+        return "".join(lines), "", n
     head = "".join(lines[:head_n])
     tail = "".join(lines[-tail_n:]) if tail_n > 0 else ""
     return head, tail, n
@@ -301,6 +310,9 @@ def auto_compact(
     for block in resp.message.content:
         if isinstance(block, TextBlock):
             summary_text += block.text
+
+    if resp.stop_reason == StopReason.max_tokens:
+        summary_text += "\n[summary truncated]"
 
     if not summary_text.strip():
         return msgs, LayerReport(
