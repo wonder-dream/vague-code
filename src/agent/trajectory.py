@@ -33,6 +33,8 @@ class EventType(str, Enum):
     retry = "retry"
     retry_divergence = "retry_divergence"
     compression = "compression"
+    permission_check = "permission_check"
+    mode_change = "mode_change"
 
 
 @dataclass

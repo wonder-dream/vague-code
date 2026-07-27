@@ -58,6 +58,7 @@ class AgentConfig:
     transport: TransportConfig = field(default_factory=TransportConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
     concurrent_tools: bool = False
+    permission_mode: str = "normal"
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:

@@ -162,6 +162,7 @@ class Agent:
     ):
         self.config = config
         self.backend = backend
+        self._on_permission = None
         self._tool_registry = tools if tools is not None else DEFAULT_TOOLS
         for key, tool in self._tool_registry.items():
             if key != tool.spec.name:
@@ -338,7 +339,57 @@ class Agent:
                     messages.append(resp.message)
                     self._checkpoint(traj)
                     tool_results: list[Block] = []
-                    if self.config.concurrent_tools and len(tool_uses) > 1:
+
+                    # Permission check pre-pass
+                    from src.agent.permission import Decision, PermissionMode, Operation, evaluate
+                    perm_mode = PermissionMode(self.config.permission_mode)
+                    allowed_tool_uses: list[ToolUseBlock] = []
+                    for block in tool_uses:
+                        if block.name == "bash":
+                            op = Operation(tool_name=block.name, input=block.input,
+                                           command=block.input.get("command", ""))
+                            perm_decision = evaluate(perm_mode, op)
+                            traj.emit(EventType.permission_check, turn=turn, payload={
+                                "tool": block.name, "decision": perm_decision.value,
+                                "command": (op.command or "")[:200],
+                            })
+                            if perm_decision == Decision.DENY:
+                                content = f"Permission denied: mode {perm_mode.value} blocks this operation"
+                                if perm_mode == PermissionMode.SAFE:
+                                    content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+                                traj.emit(EventType.tool_result, turn=turn, payload={
+                                    "tool_use_id": block.id, "content": content, "is_error": True,
+                                })
+                                tool_results.append(ToolResultBlock(
+                                    tool_use_id=block.id, content=content, is_error=True,
+                                ))
+                                traj.emit(EventType.tool_call, turn=turn, payload={
+                                    "id": block.id, "name": block.name, "input": block.input,
+                                })
+                                continue
+                            if perm_decision == Decision.CONFIRM:
+                                if self._on_permission:
+                                    perm_decision = self._on_permission(op, perm_decision)
+                                    if perm_decision == Decision.DENY:
+                                        content = "Permission denied by user"
+                                        traj.emit(EventType.tool_result, turn=turn, payload={
+                                            "tool_use_id": block.id, "content": content, "is_error": True,
+                                        })
+                                        tool_results.append(ToolResultBlock(
+                                            tool_use_id=block.id, content=content, is_error=True,
+                                        ))
+                                        traj.emit(EventType.tool_call, turn=turn, payload={
+                                            "id": block.id, "name": block.name, "input": block.input,
+                                        })
+                                        continue
+                        allowed_tool_uses.append(block)
+
+                    if not allowed_tool_uses:
+                        messages.append(Message(role="user", content=tool_results))
+                        turn_box[0] += 1
+                        continue
+
+                    if self.config.concurrent_tools and len(allowed_tool_uses) > 1:
                         from src.agent.concurrency import execute_concurrent
                         workdir = ""
                         for traj_ev in traj.events:
@@ -351,13 +402,13 @@ class Agent:
                             traj.emit(EventType.error, turn=turn, payload={"kind": "concurrent_execution_error", "message": str(e)})
                             traj.emit(EventType.run_end, payload={"reason": "concurrent_execution_error"})
                             return
-                        for block, result in zip(tool_uses, con_results):
+                        for block, result in zip(allowed_tool_uses, con_results):
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
                             content = self._truncate_tool_content(result.content)
                             traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": result.tool_use_id, "content": content, "is_error": result.is_error})
                             tool_results.append(ToolResultBlock(tool_use_id=result.tool_use_id, content=content, is_error=result.is_error))
                     else:
-                        for block in tool_uses:
+                        for block in allowed_tool_uses:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
                             handler = bound_tools.get(block.name)
                             if handler is None:
