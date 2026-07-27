@@ -385,10 +385,10 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ### Week 2（07-27 ～ 08-02）：上下文治理
 
-- [ ] 四层压缩流水线（stale_snip → microcompact → auto_compact → truncation）+ 阈值策略
-- [ ] 系统提示分层注入 + 规则文件层级加载
-- [ ] 工具并发调度（冲突可串行化模型 + 资源 scope 提取 + 结构/内容性写区分）
-- [ ] 会话持久化 + checkpoint 恢复
+- [x] 四层压缩流水线（stale_snip → microcompact → auto_compact → truncation）+ 阈值策略
+- [x] 系统提示分层注入 + 规则文件层级加载
+- [x] 工具并发调度（冲突可串行化模型 + 资源 scope 提取 + 结构/内容性写区分）
+- [x] 会话持久化 + checkpoint 恢复
 - **里程碑 M2**：30+ 轮长会话任务不丢失任务目标；记录压缩前后 token 数据
 - **对应简历 bullet**：上下文与记忆条（量化：压缩率、长会话正确率）
 
