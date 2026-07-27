@@ -82,6 +82,21 @@ def test_truncation_marker() -> None:
     assert len(markers) >= 1
 
 
+def test_marker_overflow_with_standalone() -> None:
+    msgs = [
+        Message(role="system", content="You are a coding agent."),
+        Message(role="user", content="task"),
+        Message(role="assistant", content=[TextBlock(text="assistant reply")]),
+        Message(role="user", content=[TextBlock(text="user followup")]),
+        Message(role="user", content=[TextBlock(text="standalone trailing")]),
+    ]
+    # Budget fits prefix + 1-2 messages but not all + marker
+    tight_budget = count_tokens(msgs[:2], skip_thinking=True) + 10
+    result, report = truncate(msgs, tight_budget, skip_thinking=True)
+    # Should not crash, should respect budget
+    assert count_tokens(result, skip_thinking=True) <= tight_budget
+
+
 def test_no_system_message() -> None:
     msgs = [
         Message(role="user", content="task"),

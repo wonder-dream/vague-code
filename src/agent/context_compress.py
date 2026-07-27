@@ -367,25 +367,32 @@ def truncate(
 
     dropped = len(msgs) - prefix_end - len(tail_messages)
     reconstructed = msgs[:prefix_end]
+
+    # Determine if a truncation marker can fit
+    marker_added = False
     if dropped > 0:
-        marker_text = f"[truncated: dropped {dropped} messages to fit token budget]"
-        marker = Message(role="user", content=[TextBlock(text=marker_text)])
-        test_with_marker = reconstructed + [marker] + tail_messages
-        if count_tokens(test_with_marker, tools, skip_thinking) <= budget:
-            reconstructed.append(marker)
-        else:
-            # Marker overflows: drop pairs from tail until it fits
-            for _ in range(len(tail_messages) // 2):
-                if len(tail_messages) < 2:
-                    break
+        for _ in range(len(tail_messages) + 5):
+            marker_text = f"[truncated: dropped {dropped} messages to fit token budget]"
+            marker = Message(role="user", content=[TextBlock(text=marker_text)])
+            test_m = reconstructed + [marker] + tail_messages
+            if count_tokens(test_m, tools, skip_thinking) <= budget:
+                reconstructed.append(marker)
+                marker_added = True
+                break
+            # Drop oldest message(s) from tail to make room
+            if not tail_messages:
+                break
+            if (
+                tail_messages[0].role == "assistant"
+                and len(tail_messages) > 1
+                and tail_messages[1].role == "user"
+            ):
                 tail_messages = tail_messages[2:]
                 dropped += 2
-                marker_text = f"[truncated: dropped {dropped} messages to fit token budget]"
-                marker = Message(role="user", content=[TextBlock(text=marker_text)])
-                test_with_marker = reconstructed + [marker] + tail_messages
-                if count_tokens(test_with_marker, tools, skip_thinking) <= budget:
-                    reconstructed.append(marker)
-                    break
+            else:
+                tail_messages = tail_messages[1:]
+                dropped += 1
+
     reconstructed.extend(tail_messages)
 
     after = count_tokens(reconstructed, tools, skip_thinking)
