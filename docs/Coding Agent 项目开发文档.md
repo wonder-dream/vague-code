@@ -403,10 +403,10 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ### Week 4（08-10 ～ 08-16）：评测与交付
 
-- [ ] 评测 CLI + 30 题标准任务集（含对抗注入题）
-- [ ] 实验矩阵 + 事件流存储 + eval report 一键生成
-- [ ] 消融实验 × 3（压缩 / 记忆 / 并发），整理全部量化数据
-- [ ] README（架构图 + Demo GIF + 数据表）+ Docker 镜像 + GitHub Actions CI
+- [x] 评测 CLI + 30 题标准任务集（SWE-bench Lite 抽取）
+- [x] 实验矩阵 + 事件流存储 + eval report 一键生成
+- [ ] 消融实验 × 3（压缩 / 记忆 / 并发），整理全部量化数据（需跑真实 API）
+- [ ] README（架构图 + Demo GIF + 数据表）+ GitHub Actions CI
 - [ ] 技术博客 1 篇：《我如何实现一个 Coding Agent 的上下文压缩》
 - **里程碑 M4**：仓库可公开展示，数字全部入库
 - **对应简历 bullet**：评测工具条 + 全部量化数字回填
