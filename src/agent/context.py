@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from src.agent.context_compress import compress_chain  # noqa: F401
 from src.agent.context_rules import load_rules
 
 

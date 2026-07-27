@@ -31,17 +31,22 @@ def _get_enc():
     return _ENC if _ENC is not False else None
 
 
-def count_tokens(messages: list, tools: list[ToolSpec] | None = None) -> int:
+def count_tokens(
+    messages: list,
+    tools: list[ToolSpec] | None = None,
+    skip_thinking: bool = False,
+) -> int:
     enc = _get_enc()
     if enc is not None:
-        return _count_precise(messages, tools, enc)
-    return _count_rough(messages, tools)
+        return _count_precise(messages, tools, enc, skip_thinking)
+    return _count_rough(messages, tools, skip_thinking)
 
 
 def _count_precise(
     messages: list,
     tools: list[ToolSpec] | None,
     enc,
+    skip_thinking: bool = False,
 ) -> int:
     total = 0
     for msg in messages:
@@ -51,7 +56,8 @@ def _count_precise(
             if isinstance(block, TextBlock):
                 total += len(enc.encode(block.text))
             elif isinstance(block, ThinkingBlock):
-                total += len(enc.encode(block.text))
+                if not skip_thinking:
+                    total += len(enc.encode(block.text))
             elif isinstance(block, ToolUseBlock):
                 total += len(enc.encode(block.name))
                 total += len(enc.encode(json.dumps(block.input)))
@@ -66,7 +72,11 @@ def _count_precise(
     return total
 
 
-def _count_rough(messages: list, tools: list[ToolSpec] | None = None) -> int:
+def _count_rough(
+    messages: list,
+    tools: list[ToolSpec] | None = None,
+    skip_thinking: bool = False,
+) -> int:
     total = 0
     for msg in messages:
         content = msg.content if hasattr(msg, "content") else msg
@@ -75,7 +85,8 @@ def _count_rough(messages: list, tools: list[ToolSpec] | None = None) -> int:
             if isinstance(block, TextBlock):
                 total += len(block.text) // 4
             elif isinstance(block, ThinkingBlock):
-                total += len(block.text) // 4
+                if not skip_thinking:
+                    total += len(block.text) // 4
             elif isinstance(block, ToolUseBlock):
                 total += len(block.name) // 4
                 total += len(json.dumps(block.input)) // 4

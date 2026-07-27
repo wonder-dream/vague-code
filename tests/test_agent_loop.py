@@ -108,9 +108,10 @@ def test_token_budget_recorded():
 
     compressions = [e for e in traj.events if e.type == EventType.compression]
     assert len(compressions) >= 1
-    assert compressions[0].payload["layer"] == "budget"
+    assert compressions[0].payload["layer"] == "stale_snip"
     assert compressions[0].payload["budget"] > 0
-    assert "utilization" in compressions[0].payload
+    assert compressions[0].payload["before_tokens"] >= 0
+    assert compressions[0].payload["after_tokens"] >= 0
 
 
 def test_multi_turn_tool_use_then_end_turn():

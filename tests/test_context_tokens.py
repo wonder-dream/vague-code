@@ -82,10 +82,14 @@ def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
 def test_fallback_less_precise_but_reasonable() -> None:
     import src.agent.context_tokens as ct
 
+    saved = ct._ENC
     ct._ENC = False
-    msgs = [Message(role="user", content="abcdefgh" * 100)]
-    result = count_tokens(msgs)
-    assert result >= 100
+    try:
+        msgs = [Message(role="user", content="abcdefgh" * 100)]
+        result = count_tokens(msgs)
+        assert result >= 100
+    finally:
+        ct._ENC = saved
 
 
 def test_count_tokens_includes_tool_blocks() -> None:

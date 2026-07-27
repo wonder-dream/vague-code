@@ -26,11 +26,23 @@ class TransportConfig:
             raise ValueError(f"retry_max_delay_s must be > 0, got {self.retry_max_delay_s}")
 
 @dataclass
+class CompressionConfig:
+    enabled: bool = True
+    microcompact_threshold: float = 0.5
+    microcompact_max_chars: int = 4000
+    microcompact_keep_recent: int = 3
+    auto_compact_threshold: float = 0.85
+    auto_compact_keep_turns: int = 4
+    stale_snip_keep_recent: int = 3
+
+
+@dataclass
 class AgentConfig:
     model: str = "deepseek-v4-flash"
     max_turns: int = 20
     db_path: str = "runs/runs.db"
     transport: TransportConfig = field(default_factory=TransportConfig)
+    compression: CompressionConfig = field(default_factory=CompressionConfig)
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:

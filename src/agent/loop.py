@@ -226,19 +226,37 @@ class Agent:
                     buffered: list[tuple[float, StreamEvent]] = []
 
                     try:
+                        from src.agent.context import compress_chain
                         from src.agent.context_tokens import compute_budget, count_tokens
 
-                        total = count_tokens(messages, self._tool_specs)
                         budget = compute_budget(self.config.model)
-                        traj.emit(EventType.compression, turn=turn, payload={
-                            "layer": "budget",
-                            "before_tokens": total,
-                            "after_tokens": total,
-                            "budget": budget,
-                            "utilization": round(total / budget, 4) if budget > 0 else 0.0,
-                            "tools_tokens": count_tokens([], self._tool_specs),
-                            "tool_count": len(self._tool_specs),
-                        })
+                        cfg = self.config.compression
+
+                        if cfg.enabled:
+                            messages, reports = compress_chain(
+                                messages, self._tool_specs, cfg, budget,
+                                backend=self.backend, model=self.config.model)
+                            for r in reports:
+                                traj.emit(EventType.compression, turn=turn, payload={
+                                    "layer": r.layer,
+                                    "before_tokens": r.before_tokens,
+                                    "after_tokens": r.after_tokens,
+                                    "affected": r.affected,
+                                    "budget": budget,
+                                    "skip_thinking": r.skip_thinking,
+                                    **({"detail": r.detail} if r.detail else {}),
+                                })
+                        else:
+                            total = count_tokens(messages, self._tool_specs)
+                            traj.emit(EventType.compression, turn=turn, payload={
+                                "layer": "budget",
+                                "before_tokens": total,
+                                "after_tokens": total,
+                                "budget": budget,
+                                "utilization": round(total / budget, 4) if budget > 0 else 0.0,
+                                "tools_tokens": count_tokens([], self._tool_specs),
+                                "tool_count": len(self._tool_specs),
+                            })
 
                         for ev in self._stream_from(messages, self._tool_specs, call_config):
                             buffered.append((time.time(), ev))
