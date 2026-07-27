@@ -1350,3 +1350,39 @@ def test_to_messages_workdir_prefix_matches_fresh_start():
         f"  expected: {expected_task!r}\n"
         f"  got:      {first_user_text!r}"
     )
+
+
+# ── Concurrent tools integration ────────────────────────────────────────────
+
+def test_concurrent_tools_enabled(tmp_path):
+    config = AgentConfig(max_turns=5, concurrent_tools=True)
+    backend = FakeBackend([
+        _tool_use_response(
+            ("c1", "read_file", {"path": "a.txt"}),
+            ("c2", "read_file", {"path": "b.txt"}),
+        ),
+        _text_response("Done reading both files."),
+    ])
+    (tmp_path / "a.txt").write_text("content a", encoding="utf-8")
+    (tmp_path / "b.txt").write_text("content b", encoding="utf-8")
+    agent = Agent(config, backend, tools=DEFAULT_TOOLS)
+    traj = agent.run("read both files", str(tmp_path))
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    tool_results = [e for e in traj.events if e.type == EventType.tool_result]
+    assert len(tool_results) == 2
+    assert "content a" in tool_results[0].payload["content"]
+    assert "content b" in tool_results[1].payload["content"]
+
+
+def test_concurrent_tools_unknown_tool(tmp_path):
+    config = AgentConfig(max_turns=5, concurrent_tools=True)
+    backend = FakeBackend([
+        _tool_use_response(("c1", "nonexistent_tool", {})),
+        _text_response("ok"),
+    ])
+    agent = Agent(config, backend)
+    traj = agent.run("test unknown tool", str(tmp_path))
+    assert traj.events[-1].payload["reason"] == "end_turn"
+    tool_results = [e for e in traj.events if e.type == EventType.tool_result]
+    assert len(tool_results) >= 1
+    assert all(r.payload.get("is_error") for r in tool_results)

@@ -124,6 +124,18 @@ def test_conflict_workspace_with_any() -> None:
     assert _scopes_conflict(a, b)
 
 
+def test_conflict_exact_contained_in_prefix() -> None:
+    a = ResourceScope("src/a.py", ScopeType.EXACT, OpType.WRITE)
+    b = ResourceScope("src", ScopeType.PREFIX, OpType.READ)
+    assert _scopes_conflict(a, b)
+
+
+def test_conflict_prefix_boundary_not_crossed() -> None:
+    a = ResourceScope("src", ScopeType.PREFIX, OpType.READ)
+    b = ResourceScope("src-2/a.py", ScopeType.EXACT, OpType.WRITE)
+    assert not _scopes_conflict(a, b)
+
+
 def test_conflict_prefix_contains_exact() -> None:
     a = ResourceScope("src", ScopeType.PREFIX, OpType.READ)
     b = ResourceScope("src/a.py", ScopeType.EXACT, OpType.WRITE)
@@ -213,6 +225,39 @@ def test_execute_unknown_tool() -> None:
     assert len(results) == 1
     assert results[0].is_error
     assert "Unknown" in results[0].content
+
+
+def test_execute_handler_raises_exception() -> None:
+    calls = [ToolUseBlock(id="c1", name="read_file", input={"path": "x"})]
+    def exploding_handler(_: dict) -> str:
+        raise ValueError("handler boom")
+    results = execute_concurrent(calls, {"read_file": exploding_handler}, "/ws")
+    assert len(results) == 1
+    assert results[0].is_error
+    assert "ValueError" in results[0].content
+
+
+def test_execute_failure_propagation() -> None:
+    # First group: [read a, bash] — bash is WORKSPACE, can't share with read
+    # After read a handler throws, bash (group 2) should be skipped
+    calls = [
+        ToolUseBlock(id="c1", name="read_file", input={"path": "will_fail"}),
+        ToolUseBlock(id="c2", name="bash", input={"command": "echo ok"}),
+    ]
+    def ok_handler(input: dict) -> str:
+        return "ok"
+    def failing_handler(input: dict) -> str:
+        raise RuntimeError("intentional fail")
+    handlers: dict[str, Callable[[dict], str]] = {
+        "read_file": failing_handler,
+        "bash": ok_handler,
+    }
+    results = execute_concurrent(calls, handlers, "/ws")
+    assert len(results) == 2
+    assert results[0].is_error
+    assert "RuntimeError" in results[0].content
+    assert results[1].is_error
+    assert "skipped" in results[1].content
 
 
 def test_execute_concurrent_faster_than_serial(tmp_path: Path) -> None:

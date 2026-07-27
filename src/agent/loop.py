@@ -345,7 +345,12 @@ class Agent:
                             if traj_ev.type == EventType.run_start:
                                 workdir = traj_ev.payload.get("workdir", "")
                                 break
-                        con_results = execute_concurrent(tool_uses, bound_tools, workdir)
+                        try:
+                            con_results = execute_concurrent(tool_uses, bound_tools, workdir)
+                        except Exception as e:
+                            traj.emit(EventType.error, turn=turn, payload={"kind": "concurrent_execution_error", "message": str(e)})
+                            traj.emit(EventType.run_end, payload={"reason": "concurrent_execution_error"})
+                            return
                         for block, result in zip(tool_uses, con_results):
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
                             content = self._truncate_tool_content(result.content)
