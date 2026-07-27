@@ -48,7 +48,7 @@ def _find_pairs(messages: list[Message]) -> list[tuple[int, int]]:
 def _extract_path(tool_block: ToolUseBlock) -> str | None:
     if tool_block.name not in _READ_TOOLS:
         return None
-    raw = tool_block.input.get("path") or tool_block.input.get("paths")
+    raw = tool_block.input.get("path") or tool_block.input.get("paths") or tool_block.input.get("pattern")
     if isinstance(raw, str):
         return raw
     if isinstance(raw, list) and raw:

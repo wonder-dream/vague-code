@@ -97,6 +97,14 @@ def test_glob_path_tracked() -> None:
     assert report.affected == 0
 
 
+def test_glob_pattern_snipped() -> None:
+    msgs = _glob_pair("c1", "*.py", "old list") + _glob_pair("c2", "*.py", "new list")
+    result, report = stale_snip(msgs, keep_recent=0)
+    assert report.affected == 1
+    assert "stale" in result[1].content[0].content
+    assert "stale" not in result[3].content[0].content
+
+
 def test_tokens_decreased() -> None:
     msgs = _read_pair("c1", "a.py", "A" * 500) + _read_pair("c2", "a.py", "B" * 500)
     before = count_tokens(msgs, skip_thinking=True)
