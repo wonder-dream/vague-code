@@ -66,7 +66,7 @@ for i, task in enumerate(tasks):
     )
     config.compression.enabled = False
     
-    agent = Agent(config, DeepSeekBackend())
+    agent = Agent(config, DeepSeekBackend(api_key=api_key))
     try:
         traj = agent.run(task["problem_statement"], workdir)
         events = traj.events
