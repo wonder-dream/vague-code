@@ -221,14 +221,16 @@ class Agent:
                 resp: ModelResponse | None = None
 
                 from src.agent.context import compress_chain
-                from src.agent.context_tokens import compute_budget
+                from src.agent.context_tokens import compute_budget, should_skip_thinking
 
                 budget = compute_budget(self.config.model)
                 cfg = self.config.compression
+                skip_thinking = should_skip_thinking(self.config.model)
 
                 messages, reports = compress_chain(
                     messages, self._tool_specs, cfg, budget,
-                    backend=self.backend, model=self.config.model)
+                    backend=self.backend, model=self.config.model,
+                    skip_thinking=skip_thinking)
                 for r in reports:
                     traj.emit(EventType.compression, turn=turn, payload={
                         "layer": r.layer,

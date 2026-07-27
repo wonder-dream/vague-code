@@ -17,6 +17,18 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "claude-opus-4-8": 200_000,
 }
 
+_SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-",)
+
+
+def should_skip_thinking(model: str) -> bool:
+    """Return True if the model's codec drops ThinkingBlock on the wire (so token budget skips them).
+    Return False for models whose codec sends ThinkingBlock (e.g. Anthropic claude)."""
+    for prefix in _SENDS_THINKING_PREFIXES:
+        if model.startswith(prefix):
+            return False
+    return True
+
+
 _ENC: object | None = None
 
 

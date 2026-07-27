@@ -61,12 +61,13 @@ def _extract_path(tool_block: ToolUseBlock) -> str | None:
 def stale_snip(
     messages: list[Message],
     keep_recent: int = 3,
+    skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Replace ToolResultBlocks superseded by later same-path reads with a stale placeholder."""
     from copy import deepcopy
 
     msgs = deepcopy(messages)
-    before = count_tokens(msgs, skip_thinking=True)
+    before = count_tokens(msgs, skip_thinking=skip_thinking)
 
     pairs = _find_pairs(msgs)
     eligible = pairs[:len(pairs) - keep_recent] if keep_recent > 0 else pairs
@@ -113,9 +114,10 @@ def stale_snip(
             result_block.content = f"[stale: superseded by later read of {path}]"
             affected += 1
 
-    after = count_tokens(msgs, skip_thinking=True)
+    after = count_tokens(msgs, skip_thinking=skip_thinking)
     return msgs, LayerReport(
         layer="stale_snip",
+        skip_thinking=skip_thinking,
         before_tokens=before,
         after_tokens=after,
         affected=affected,
@@ -141,12 +143,13 @@ def microcompact(
     messages: list[Message],
     max_chars: int = 4000,
     keep_recent: int = 3,
+    skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Compact long ToolResultBlock content to head+tail summary."""
     from copy import deepcopy
 
     msgs = deepcopy(messages)
-    before = count_tokens(msgs, skip_thinking=True)
+    before = count_tokens(msgs, skip_thinking=skip_thinking)
 
     pairs = _find_pairs(msgs)
     eligible = pairs[:len(pairs) - keep_recent] if keep_recent > 0 else pairs
@@ -180,9 +183,10 @@ def microcompact(
                 new_blocks.append(block)
         msg.content = new_blocks
 
-    after = count_tokens(msgs, skip_thinking=True)
+    after = count_tokens(msgs, skip_thinking=skip_thinking)
     return msgs, LayerReport(
         layer="microcompact",
+        skip_thinking=skip_thinking,
         before_tokens=before,
         after_tokens=after,
         affected=affected,
@@ -204,12 +208,13 @@ def auto_compact(
     backend,
     model: str,
     keep_turns: int = 4,
+    skip_thinking: bool = True,
 ) -> tuple[list[Message], LayerReport]:
     """Summarize older turns via LLM, keep system + summary + recent turns."""
     from copy import deepcopy
 
     msgs = deepcopy(messages)
-    before = count_tokens(msgs, skip_thinking=True)
+    before = count_tokens(msgs, skip_thinking=skip_thinking)
 
     if len(msgs) < 3:
         return msgs, LayerReport(
@@ -293,7 +298,7 @@ def auto_compact(
     reconstructed.append(Message(role="user", content=[TextBlock(text=f"[Session summary]\n{summary_text}")]))
     reconstructed.extend(msgs[keep_start:])
 
-    after = count_tokens(reconstructed, skip_thinking=True)
+    after = count_tokens(reconstructed, skip_thinking=skip_thinking)
     compacted_history_len = len(to_summarize)
 
     return reconstructed, LayerReport(
@@ -301,6 +306,7 @@ def auto_compact(
         before_tokens=before,
         after_tokens=after,
         affected=compacted_history_len,
+        skip_thinking=skip_thinking,
         detail={
             "summary_tokens": resp.usage.output_tokens if resp.usage else 0,
             "original_messages": compacted_history_len,
@@ -411,6 +417,7 @@ def compress_chain(
     budget: int,
     backend=None,
     model: str = "",
+    skip_thinking: bool = True,
 ) -> tuple[list[Message], list[LayerReport]]:
 
     if not cfg.enabled:
@@ -419,25 +426,25 @@ def compress_chain(
     reports: list[LayerReport] = []
 
     # Layer 1: stale_snip (always)
-    messages, report = stale_snip(messages, cfg.stale_snip_keep_recent)
+    messages, report = stale_snip(messages, cfg.stale_snip_keep_recent, skip_thinking)
     reports.append(report)
 
     # Layer 2: microcompact (util > microcompact_threshold)
-    new_total = count_tokens(messages, tools, skip_thinking=True)
+    new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
     if new_total > budget * cfg.microcompact_threshold:
-        messages, report = microcompact(messages, cfg.microcompact_max_chars, cfg.microcompact_keep_recent)
+        messages, report = microcompact(messages, cfg.microcompact_max_chars, cfg.microcompact_keep_recent, skip_thinking)
         reports.append(report)
-        new_total = count_tokens(messages, tools, skip_thinking=True)
+        new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
     # Layer 3: auto_compact (util > auto_compact_threshold AND backend available)
     if backend is not None and new_total > budget * cfg.auto_compact_threshold:
-        messages, report = auto_compact(messages, backend, model, cfg.auto_compact_keep_turns)
+        messages, report = auto_compact(messages, backend, model, cfg.auto_compact_keep_turns, skip_thinking)
         reports.append(report)
-        new_total = count_tokens(messages, tools, skip_thinking=True)
+        new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
     # Layer 4: truncate (still over budget)
     if new_total > budget:
-        messages, report = truncate(messages, budget, tools, skip_thinking=True)
+        messages, report = truncate(messages, budget, tools, skip_thinking=skip_thinking)
         reports.append(report)
 
     return messages, reports
