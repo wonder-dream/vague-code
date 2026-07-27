@@ -141,6 +141,17 @@ def test_interleaved_non_read_tool() -> None:
     assert "stale" in result[1].content[0].content
 
 
+def test_reentry_idempotent() -> None:
+    msgs = _read_pair("c1", "a.py", "original") + _read_pair("c2", "a.py", "updated")
+    result1, report1 = stale_snip(msgs, keep_recent=0)
+    assert report1.affected == 1
+    # Second call on same (already sniped) messages should produce no additional affected
+    # and preserve the original stale message content
+    result2, report2 = stale_snip(result1, keep_recent=0)
+    assert report2.affected == 0
+    assert "[stale:" in result2[1].content[0].content
+
+
 def test_tokens_decreased() -> None:
     msgs = _read_pair("c1", "a.py", "A" * 500) + _read_pair("c2", "a.py", "B" * 500)
     before = count_tokens(msgs, skip_thinking=True)

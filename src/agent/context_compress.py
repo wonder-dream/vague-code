@@ -93,6 +93,8 @@ def stale_snip(
         block_indices: dict[str, int] = {}
         for bi, block in enumerate(user_msg.content):
             if isinstance(block, ToolResultBlock):
+                if block.meta.get("stale"):
+                    continue
                 result_map[block.tool_use_id] = block
                 block_indices[block.tool_use_id] = bi
 

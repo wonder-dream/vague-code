@@ -227,10 +227,17 @@ class Agent:
                 cfg = self.config.compression
                 skip_thinking = should_skip_thinking(self.config.model)
 
-                messages, reports = compress_chain(
-                    messages, self._tool_specs, cfg, budget,
-                    backend=self.backend, model=self.config.model,
-                    skip_thinking=skip_thinking)
+                try:
+                    messages, reports = compress_chain(
+                        messages, self._tool_specs, cfg, budget,
+                        backend=self.backend, model=self.config.model,
+                        skip_thinking=skip_thinking)
+                except Exception as e:
+                    traj.emit(EventType.error, turn=turn, payload={
+                        "kind": "compression_error",
+                        "message": str(e),
+                    })
+                    reports = []
                 for r in reports:
                     traj.emit(EventType.compression, turn=turn, payload={
                         "layer": r.layer,
