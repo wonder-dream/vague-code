@@ -90,6 +90,15 @@ def test_tokens_decreased() -> None:
     assert after < before
 
 
+def test_not_longer_than_original() -> None:
+    # Single-line content where head+tail equals whole content
+    content = "x" * 4001
+    msgs = _tool_result_pair("c1", content)
+    result, report = microcompact(msgs, max_chars=4000, keep_recent=0)
+    assert report.affected == 0
+    assert result[1].content[0].content == content
+
+
 def test_error_result_skipped() -> None:
     msgs = [
         Message(role="assistant", content=[ToolUseBlock(id="c1", name="bash", input={"cmd": "x"})]),

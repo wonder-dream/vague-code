@@ -157,19 +157,24 @@ def microcompact(
         new_blocks: list[Block] = []
         for block in msg.content:
             if isinstance(block, ToolResultBlock) and not block.is_error:
-                if len(block.content) > max_chars and not block.meta.get("stale") and not block.meta.get("compacted"):
+                if (
+                    len(block.content) > max_chars
+                    and not block.meta.get("stale")
+                    and not block.meta.get("compacted")
+                ):
                     head, tail, total_lines = _head_tail(block.content, _HEAD_LINES, _TAIL_LINES)
                     compacted = (
                         f"[compacted: {len(block.content)} chars, {total_lines} lines]"
                         f"\n--- head ({_HEAD_LINES} lines) ---\n{head}"
                         f"\n--- tail ({_TAIL_LINES} lines) ---\n{tail}"
                     )
-                    block.meta["compacted"] = {
-                        "original_chars": len(block.content),
-                        "tool_use_id": block.tool_use_id,
-                    }
-                    block.content = compacted
-                    affected += 1
+                    if len(compacted) < len(block.content):
+                        block.meta["compacted"] = {
+                            "original_chars": len(block.content),
+                            "tool_use_id": block.tool_use_id,
+                        }
+                        block.content = compacted
+                        affected += 1
                 new_blocks.append(block)
             else:
                 new_blocks.append(block)
