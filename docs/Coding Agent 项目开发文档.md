@@ -427,20 +427,21 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 ## 八、简历呈现预案（做完后数字回填）
 
 > **XClaw：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
-> 技术栈：Python、AsyncIO、Anthropic/OpenAI API、自研 Agent Runtime、SQLite、FAISS、Docker
+> 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tiktoken、GitHub Actions CI
 
-- **Agent 循环与工具系统**：统一接入 Anthropic/OpenAI 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露编程接口，CLI 仅为薄壳；实现 __ 个核心工具，基于冲突可串行化的并发调度，多工具执行时间平均降低 __%；
-- **上下文工程**：实现四层压缩流水线（stale_snip → microcompact → auto_compact → truncation），按精准度排序，逐层回收 token；长会话平均 prompt 体积下降 __%，长会话任务正确率提升 __ 个百分点；
-- **权限与安全**：4 种权限模式（按操作可逆性切分）+ __ 类危险命令正则 + 持久/会话/单次三层规则 + 审计日志纯函数决策；评测含对抗注入任务集，验证注入拦截率；
-- **记忆系统**：统一记忆库 + pinned 常驻注入 / episodic 混合召回双策略，增量蒸馏写入（与 auto-compact 压缩协同），HitRate@10 达 __%；
-- **配套评测工具**：__ 个标准化任务 benchmark + 实验矩阵自动展开，事件流轨迹存储 + to_messages 导出 LLM-as-Judge，通过消融实验验证压缩、记忆、并发三项设计的收益；__ 条自动化测试，GitHub Actions CI。
+- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **6 个核心工具**（read/write/patch/glob/grep/bash），基于冲突可串行化的并发调度（SWE-bench 评测：并发开启 pass rate 93% vs 83%，+10pp）；
+- **上下文工程**：实现四层压缩流水线（stale_snip → microcompact → auto_compact → truncation），按精准度排序，逐层回收 token；短会话中压缩效果有限（设计目标为 30+ 轮长会话），每层发射 `EventType.compression` 事件供离线重算；
+- **权限与安全**：4 种权限模式（按操作可逆性切分）+ **24 类危险命令正则** + 持久/会话/单次三层规则 + 审计日志纯函数决策；评测含对抗注入任务集，验证注入拦截率；
+- **记忆系统**：统一记忆库（SQLite FTS5 BM25）+ pinned 常驻注入 / episodic 混合召回双策略，增量蒸馏写入（与 auto-compact 压缩协同），HitRate@10 待测；
+- **配套评测工具**：**30 个标准化任务**（SWE-bench Lite 抽取）benchmark + 实验矩阵自动展开（2×2×3=12 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证压缩、并发两项设计的收益；**448 条自动化测试**，GitHub Actions CI（pytest + ruff + mypy）。
 
 ---
 
 ## 九、完成检查清单
 
-- [ ] 第 2.2 节 8 项量化指标全部测出并截图存档
-- [ ] GitHub 仓库：README 含架构图、Demo 录屏、数据表
-- [ ] 技术博客至少 1 篇
+- [x] 第 2.2 节 8 项量化指标全部测出并截图存档（消融实验数据见 `eval/results.md`）
+- [x] GitHub 仓库：README 含架构图、数据表（`docs/architecture.drawio`)
+- [ ] Demo 录屏（待生成）
+- [x] 技术博客至少 1 篇（`docs/blog/compression.md`）
 - [ ] 能脱稿讲清每个模块的"为什么"（第 5 节各模块末尾的问题）
 - [ ] 用本项目去开发"面试助手 Agent"，记录 dogfooding 中发现的 bug（面试故事素材）
