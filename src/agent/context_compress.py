@@ -70,7 +70,7 @@ def stale_snip(
     before = count_tokens(msgs, skip_thinking=skip_thinking)
 
     pairs = _find_pairs(msgs)
-    eligible = pairs[:len(pairs) - keep_recent] if keep_recent > 0 else pairs
+    eligible = pairs[:max(0, len(pairs) - keep_recent)] if keep_recent > 0 else pairs
 
     # Build path→list of (assistant_idx, user_idx, block_idx, ToolResultBlock)
     path_map: dict[str, list[tuple[int, int, ToolResultBlock]]] = {}
@@ -152,7 +152,7 @@ def microcompact(
     before = count_tokens(msgs, skip_thinking=skip_thinking)
 
     pairs = _find_pairs(msgs)
-    eligible = pairs[:len(pairs) - keep_recent] if keep_recent > 0 else pairs
+    eligible = pairs[:max(0, len(pairs) - keep_recent)] if keep_recent > 0 else pairs
     affected = 0
 
     for asst_idx, user_idx in eligible:
