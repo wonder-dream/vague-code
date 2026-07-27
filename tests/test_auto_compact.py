@@ -7,7 +7,9 @@ from src.agent.ir import (
     NormalizedUsage,
     StopReason,
     TextBlock,
+    ToolResultBlock,
     ToolSpec,
+    ToolUseBlock,
 )
 
 
@@ -105,6 +107,28 @@ def test_failure_graceful() -> None:
     assert report.affected == 0
     assert "error" in report.detail
     assert len(result) == len(msgs)
+
+
+def test_summary_includes_tool_calls() -> None:
+    backend = _FakeSummaryBackend("tool work done")
+    msgs = [
+        Message(role="system", content="You are a coding agent."),
+        Message(role="user", content="Read and run"),
+        Message(role="assistant", content=[ToolUseBlock(id="c1", name="read", input={"path": "a.py"})]),
+        Message(role="user", content=[ToolResultBlock(tool_use_id="c1", content="file content here")]),
+        Message(role="assistant", content=[TextBlock(text="Reading done")]),
+        Message(role="user", content=[TextBlock(text="Now check")]),
+        Message(role="assistant", content=[TextBlock(text="All good")]),
+        Message(role="user", content=[TextBlock(text="ok")]),
+    ]
+    result, report = auto_compact(msgs, backend, "test-model", keep_turns=1)
+    assert report.affected > 0
+    assert backend.last_messages is not None
+    req_text = "".join(b.text for b in backend.last_messages[0].content if isinstance(b, TextBlock))
+    assert "[tool:" in req_text
+    assert "[result:" in req_text
+    assert "read" in req_text
+    assert "a.py" in req_text
 
 
 def test_too_few_messages_skips() -> None:

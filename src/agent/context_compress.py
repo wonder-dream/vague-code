@@ -244,9 +244,17 @@ def auto_compact(
 
     lines = []
     for msg in to_summarize:
-        text_parts = [b.text for b in msg.content if isinstance(b, TextBlock)]
-        if text_parts:
-            lines.append(f"{msg.role}: {' '.join(text_parts)}")
+        parts: list[str] = []
+        for b in msg.content:
+            if isinstance(b, TextBlock):
+                parts.append(b.text)
+            elif isinstance(b, ToolUseBlock):
+                parts.append(f"[tool: {b.name}({b.input})]")
+            elif isinstance(b, ToolResultBlock):
+                truncated = b.content[:200] + "..." if len(b.content) > 200 else b.content
+                parts.append(f"[result: {truncated}]")
+        if parts:
+            lines.append(f"{msg.role}: {' '.join(parts)}")
     if not lines:
         return msgs, LayerReport(
             layer="auto_compact",
