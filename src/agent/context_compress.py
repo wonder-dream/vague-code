@@ -358,29 +358,40 @@ def truncate(
     # Determine must-keep prefix (system + first user task)
     prefix_end = 2 if msgs[0].role == "system" and len(msgs) > 1 and msgs[1].role == "user" else 1
 
+    # Guard: if prefix alone exceeds budget, return prefix only (best effort)
+    prefix_tokens = count_tokens(msgs[:prefix_end], tools, skip_thinking)
+    if prefix_tokens >= budget:
+        return msgs[:prefix_end], LayerReport(
+            layer="truncate",
+            before_tokens=before,
+            after_tokens=prefix_tokens,
+            affected=len(msgs) - prefix_end,
+            skip_thinking=skip_thinking,
+        )
+
     # Collect pairs from the tail greedily, keeping tool pairs atomic
     pairs = _find_pairs(msgs)
     relevant_pairs = [(a, u) for a, u in pairs if a >= prefix_end]
+    collected: set[int] = set()
 
     tail_messages: list[Message] = []
     for asst_idx, user_idx in reversed(relevant_pairs):
         test = msgs[:prefix_end] + tail_messages + [msgs[asst_idx], msgs[user_idx]]
         if count_tokens(test, tools, skip_thinking) < budget:
             tail_messages = [msgs[asst_idx], msgs[user_idx]] + tail_messages
+            collected.add(asst_idx)
+            collected.add(user_idx)
         else:
             break
 
-    last_pair_end = relevant_pairs[-1][1] if relevant_pairs else prefix_end - 1
-    for i in range(last_pair_end + 1, len(msgs)):
+    # Collect all remaining messages (standalone + gaps) in chronological order
+    for i in range(prefix_end, len(msgs)):
+        if i in collected:
+            continue
         test = msgs[:prefix_end] + tail_messages + [msgs[i]]
         if count_tokens(test, tools, skip_thinking) < budget:
             tail_messages.append(msgs[i])
-
-    first_pair_start = relevant_pairs[0][0] if relevant_pairs else len(msgs)
-    for i in range(prefix_end, first_pair_start):
-        test = msgs[:prefix_end] + tail_messages + [msgs[i]]
-        if count_tokens(test, tools, skip_thinking) < budget:
-            tail_messages = [msgs[i]] + tail_messages
+            collected.add(i)
 
     dropped = len(msgs) - prefix_end - len(tail_messages)
     reconstructed = msgs[:prefix_end]
