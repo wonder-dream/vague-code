@@ -145,21 +145,28 @@ def execute_concurrent(
     workdir: str,
 ) -> list[ToolResultBlock]:
     groups = schedule(calls, workdir)
+    group_scopes = [[_extract_scope(c, workdir) for c in g] for g in groups]
     results: dict[str, ToolResultBlock] = {}
-    failed = False
+    failed_scopes: list[ResourceScope] = []
 
-    for group in groups:
-        if failed:
-            for call in group:
-                results[call.id] = ToolResultBlock(
-                    tool_use_id=call.id,
-                    content="[skipped: cancelled due to upstream failure]",
-                    is_error=True,
-                )
-            continue
+    for group, g_scopes in zip(groups, group_scopes):
+        if failed_scopes:
+            conflict = any(
+                any(_scopes_conflict(gs, fs) for fs in failed_scopes)
+                for gs in g_scopes
+            )
+            if conflict:
+                for call in group:
+                    results[call.id] = ToolResultBlock(
+                        tool_use_id=call.id,
+                        content="[skipped: cancelled due to upstream failure]",
+                        is_error=True,
+                    )
+                continue
 
         with ThreadPoolExecutor(max_workers=max(1, min(len(group), 4))) as executor:
             future_map: dict[Future, str] = {}
+            group_failed = False
             for call in group:
                 handler = handlers.get(call.name)
                 if handler is None:
@@ -168,7 +175,7 @@ def execute_concurrent(
                         content=f"Unknown tool: {call.name}",
                         is_error=True,
                     )
-                    failed = True
+                    group_failed = True
                     continue
                 future: Future = executor.submit(handler, call.input)
                 future_map[future] = call.id
@@ -185,9 +192,9 @@ def execute_concurrent(
                             content=f"{type(e).__name__}: {e}",
                             is_error=True,
                         )
-                        failed = True
+                        group_failed = True
             except TimeoutError:
-                failed = True
+                group_failed = True
                 for call in group:
                     if call.id not in results:
                         results[call.id] = ToolResultBlock(
@@ -195,6 +202,8 @@ def execute_concurrent(
                             content=f"[timed out after {_CONCURRENT_TIMEOUT}s]",
                             is_error=True,
                         )
-                    results[call_id] = ToolResultBlock(tool_use_id=call_id, content=content)
+
+        if group_failed:
+            failed_scopes.extend(g_scopes)
 
     return [results[c.id] for c in calls]

@@ -237,7 +237,13 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
                     capture_output=True, timeout=5,
                 )
             stdout_bytes, stderr_bytes = proc.communicate()
-            raise RuntimeError("command timed out after 30 seconds")
+            stdout_partial = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
+            stderr_partial = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
+            raise RuntimeError(
+                f"command timed out after 30 seconds\n"
+                f"partial stdout:\n{stdout_partial}\n"
+                f"partial stderr:\n{stderr_partial}"
+            )
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
         if len(stdout) > MAX_OUTPUT:

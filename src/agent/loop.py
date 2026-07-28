@@ -441,11 +441,18 @@ class Agent:
                             traj.emit(EventType.error, turn=turn, payload={"kind": "concurrent_execution_error", "message": str(e)})
                             traj.emit(EventType.run_end, payload={"reason": "concurrent_execution_error"})
                             return
-                        for block, result in zip(allowed_tool_uses, con_results):
+                        result_by_id = {r.tool_use_id: r for r in con_results}
+                        for block in allowed_tool_uses:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
-                            content = self._truncate_tool_content(result.content)
-                            traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": result.tool_use_id, "content": content, "is_error": result.is_error})
-                            tool_results.append(ToolResultBlock(tool_use_id=result.tool_use_id, content=content, is_error=result.is_error))
+                            result = result_by_id.get(block.id)
+                            if result is None:
+                                content = f"[missing result for tool: {block.name}]"
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": True})
+                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, is_error=True))
+                            else:
+                                content = self._truncate_tool_content(result.content)
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": result.tool_use_id, "content": content, "is_error": result.is_error})
+                                tool_results.append(ToolResultBlock(tool_use_id=result.tool_use_id, content=content, is_error=result.is_error))
                     else:
                         for block in allowed_tool_uses:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
