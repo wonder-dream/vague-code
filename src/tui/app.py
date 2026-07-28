@@ -74,6 +74,7 @@ class XClawApp(App):
         agent = Agent(self._config, self._backend)
         agent._on_permission = self._thread_permission
         agent.on_tool_result = self._thread_on_tool_result
+        agent.on_state_change = self._thread_on_state_change
         self._agent = agent
 
         handle = agent.start(self._task, self._workdir)
@@ -120,6 +121,25 @@ class XClawApp(App):
     def _on_tool_result(self, tool_name: str, content: str, is_error: bool) -> None:
         conv = self.query_one("#conversation", ConversationView)
         conv.add_tool_result(tool_name, content, is_error)
+
+    def _thread_on_state_change(self, kind: str, payload: dict) -> None:
+        self.call_from_thread(self._on_state_change, kind, payload)
+
+    def _on_state_change(self, kind: str, payload: dict) -> None:
+        status = self.query_one("#status-bar", StatusBar)
+        if kind == "turn_start":
+            status.turn_info = f"Turn {payload['turn']}/{self._config.max_turns}"
+        elif kind == "llm_response":
+            usage = payload.get("usage", {})
+            inp = usage.get("input_tokens", 0)
+            out = usage.get("output_tokens", 0)
+            status.token_info = f"In: {inp:,}  Out: {out:,}"
+        elif kind == "compression":
+            before = payload.get("before", 0)
+            after = payload.get("after", 0)
+            saved = before - after
+            if saved > 0:
+                status.update(f"Comp: saved {saved:,} tokens")
 
     # ── Actions ──────────────────────────────────────────────────────────────
 

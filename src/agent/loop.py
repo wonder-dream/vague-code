@@ -164,6 +164,7 @@ class Agent:
         self.backend = backend
         self._on_permission = None
         self.on_tool_result = None
+        self.on_state_change: Callable[[str, dict], None] | None = None
         self._memory_store = None
         if config.memory.enabled:
             try:
@@ -243,6 +244,7 @@ class Agent:
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
                 traj.emit(EventType.turn_start, turn=turn)
+                self._fire_state_change("turn_start", {"turn": turn})
 
                 call_config = {"model": self.config.model, "stream": self.config.transport.stream}
 
@@ -288,6 +290,18 @@ class Agent:
                         "budget": budget,
                         "skip_thinking": skip_thinking,
                         "utilization": round(total / budget, 4) if budget > 0 else 0.0,
+                    })
+                if reports:
+                    r_latest = reports[-1]
+                    self._fire_state_change("compression", {
+                        "layer": r_latest.layer,
+                        "before": r_latest.before_tokens,
+                        "after": r_latest.after_tokens,
+                        "budget": budget,
+                    })
+                else:
+                    self._fire_state_change("compression", {
+                        "layer": "budget", "utilization": 0.0, "budget": budget,
                     })
 
                 # Memory: auto_compact distillation
@@ -351,6 +365,10 @@ class Agent:
                     "stop_reason": resp.stop_reason.value,
                     "usage": resp.usage.to_dict(),
                     "blocks": [b.to_dict() for b in resp.message.content],
+                })
+                self._fire_state_change("llm_response", {
+                    "turn": turn, "usage": resp.usage.to_dict(),
+                    "stop_reason": resp.stop_reason.value,
                 })
 
                 if resp.stop_reason in (StopReason.end_turn, StopReason.stop_sequence):
@@ -488,6 +506,10 @@ class Agent:
         except Exception:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    def _fire_state_change(self, kind: str, payload: dict) -> None:
+        if self.on_state_change:
+            self.on_state_change(kind, payload)
 
     def _fire_on_tool_result(self, tool_name: str, content: str, is_error: bool) -> None:
         if self.on_tool_result:
