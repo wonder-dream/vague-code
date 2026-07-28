@@ -56,6 +56,8 @@ _SAFE_COMMANDS: tuple[str, ...] = (
     r"^\s*date\b",
     r"^\s*printenv\b",
     r"^\s*type\b",
+    r"^\s*cp\b",
+    r"^\s*mv\b",
 )
 
 _DANGEROUS_COMMANDS: tuple[str, ...] = (
@@ -64,8 +66,6 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"^\s*dd\b",
     r"^\s*chmod\b",
     r"^\s*chown\b",
-    r"^\s*mv\b",
-    r"^\s*cp\b",
     r"^\s*ln\b",
     r"^\s*kill\b",
     r"^\s*killall\b",
@@ -140,6 +140,8 @@ def evaluate(
     if rules:
         op_repr = operation.tool_name + " " + str(operation.input)
         for rule in rules:
+            if not rule.pattern:
+                continue
             if re.search(rule.pattern, op_repr):
                 return rule.action
 
