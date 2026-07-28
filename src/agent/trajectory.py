@@ -64,7 +64,7 @@ class Event:
                 f"falling back to repr() — roundtrip will be lossy.",
                 stacklevel=2,
             )
-            payload_json = json.dumps(self.payload, ensure_ascii=False, default=repr)
+            payload_json = json.dumps(self.payload, ensure_ascii=False, default=str)
         return (self.run_id, self.turn, self.ts, self.type.value, payload_json)
 
 
@@ -161,6 +161,12 @@ class Trajectory:
                 comp_keys = {f.name for f in dc_fields(CC)}
                 filtered_c = {k: v for k, v in compression_data.items() if k in comp_keys}
                 config.compression = CC(**filtered_c)
+            memory_data = config_data.get("memory")
+            if memory_data and isinstance(memory_data, dict):
+                from src.agent.config import MemoryConfig as MC
+                mem_keys = {f.name for f in dc_fields(MC)}
+                filtered_m = {k: v for k, v in memory_data.items() if k in mem_keys}
+                config.memory = MC(**filtered_m)
             traj = cls(run_id=run_id, config=config)
             for row in conn.execute(
                 "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",

@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 class MemoryStore:
     def __init__(self, db_path: str):
         self._db_path = db_path
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
 
@@ -70,12 +70,12 @@ class MemoryStore:
         if not terms:
             return []
         like_clauses = " OR ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
-        params = [f"%{t.replace('%', '\\%').replace('_', '\\_')}%" for t in terms]
+        params = [f"%{t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%" for t in terms]
         try:
             rows = self.conn.execute(
                 f"SELECT content, kind, confidence, created_at "
                 f"FROM memories WHERE {like_clauses} "
-                f"ORDER BY use_count DESC, last_used_at DESC LIMIT ?",
+                f"ORDER BY (use_count * 100.0 / MAX(1, ROUND((julianday('now') - julianday(last_used_at)) * 1440 + 1))) DESC, last_used_at DESC LIMIT ?",
                 (*params, k),
             ).fetchall()
         except sqlite3.OperationalError:
