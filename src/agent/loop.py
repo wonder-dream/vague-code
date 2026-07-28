@@ -408,21 +408,14 @@ class Agent:
                     tool_results: list[Block] = []
 
                     # Permission check pre-pass (covers ALL tools)
-                    from src.agent.permission import Decision, PermissionMode, Operation, evaluate
+                    from src.agent.permission import Decision, PermissionMode
                     perm_mode = PermissionMode(self.config.permission_mode)
                     allowed_tool_uses: list[ToolUseBlock] = []
                     for block in tool_uses:
-                        op = Operation(tool_name=block.name, input=block.input,
-                                       command=block.input.get("command", "") if block.name == "bash" else "")
-                        perm_decision = evaluate(perm_mode, op, rules=self._permission_rules)
-                        traj.emit(EventType.permission_check, turn=turn, payload={
-                            "tool": block.name, "decision": perm_decision.value,
-                            "command": (op.command or "")[:200],
-                        })
-                        if perm_decision == Decision.DENY:
-                            content = f"Permission denied: mode {perm_mode.value} blocks this operation"
-                            if perm_mode == PermissionMode.SAFE:
-                                content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+                        decision, content, is_error = self._check_tool_permission(
+                            block, perm_mode, turn, traj, check_confirm=True,
+                        )
+                        if decision == Decision.DENY:
                             traj.emit(EventType.tool_call, turn=turn, payload={
                                 "id": block.id, "name": block.name, "input": block.input,
                             })
@@ -433,25 +426,6 @@ class Agent:
                                 tool_use_id=block.id, content=content, is_error=True,
                             ))
                             continue
-                        if perm_decision == Decision.CONFIRM:
-                            if self._on_permission:
-                                perm_decision = self._on_permission(op, perm_decision)
-                            else:
-                                perm_decision = Decision.DENY  # default safe
-                            if perm_decision == Decision.DENY:
-                                content = "Permission denied"
-                                if not self._on_permission:
-                                    content = "Permission denied: no interactive confirmation available"
-                                traj.emit(EventType.tool_call, turn=turn, payload={
-                                    "id": block.id, "name": block.name, "input": block.input,
-                                })
-                                traj.emit(EventType.tool_result, turn=turn, payload={
-                                    "tool_use_id": block.id, "content": content, "is_error": True,
-                                })
-                                tool_results.append(ToolResultBlock(
-                                    tool_use_id=block.id, content=content, is_error=True,
-                                ))
-                                continue
                         allowed_tool_uses.append(block)
 
                     if not allowed_tool_uses:
@@ -517,6 +491,51 @@ class Agent:
         except Exception:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    def _check_tool_permission(
+        self,
+        block: ToolUseBlock,
+        perm_mode,
+        turn: int,
+        traj: Trajectory,
+        *,
+        check_confirm: bool = True,
+    ) -> tuple:
+        """Evaluate permission for a single tool block.
+
+        Returns (decision, content, is_error).
+        decision is ALLOW → content="", is_error=False.
+        decision is DENY → content is the human-readable error, is_error=True.
+        """
+        from src.agent.permission import Decision, PermissionMode, Operation, evaluate
+        op = Operation(
+            tool_name=block.name, input=block.input,
+            command=block.input.get("command", "") if block.name == "bash" else "",
+        )
+        decision = evaluate(perm_mode, op, rules=self._permission_rules)
+        traj.emit(EventType.permission_check, turn=turn, payload={
+            "tool": block.name, "decision": decision.value,
+            "command": (op.command or "")[:200],
+        })
+
+        if decision == Decision.DENY:
+            content = f"Permission denied: mode {perm_mode.value} blocks this operation"
+            if perm_mode == PermissionMode.SAFE:
+                content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+            return Decision.DENY, content, True
+
+        if decision == Decision.CONFIRM and check_confirm:
+            if self._on_permission:
+                decision = self._on_permission(op, decision)
+            else:
+                decision = Decision.DENY
+            if decision == Decision.DENY:
+                content = "Permission denied"
+                if not self._on_permission:
+                    content = "Permission denied: no interactive confirmation available"
+                return Decision.DENY, content, True
+
+        return Decision.ALLOW, "", False
 
     def add_permission_rule(self, pattern: str, action: str = "allow") -> None:
         from src.agent.permission import Decision, PermissionRule
@@ -628,17 +647,14 @@ class Agent:
             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
 
             # Permission check (same as _run_gen pre-pass)
-            from src.agent.permission import Decision, PermissionMode, Operation, evaluate
+            from src.agent.permission import Decision, PermissionMode
             perm_mode = PermissionMode(self.config.permission_mode)
-            op = Operation(tool_name=block.name, input=block.input,
-                           command=block.input.get("command", "") if block.name == "bash" else "")
-            if evaluate(perm_mode, op, rules=self._permission_rules) == Decision.DENY:
-                err = f"Permission denied: mode {perm_mode.value} blocks this operation"
-                traj.emit(EventType.permission_check, turn=turn, payload={
-                    "tool": block.name, "decision": Decision.DENY.value, "command": (op.command or "")[:200],
-                })
-                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
-                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
+            decision, content, is_error = self._check_tool_permission(
+                block, perm_mode, turn, traj, check_confirm=False,
+            )
+            if decision == Decision.DENY:
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": True})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, is_error=True))
                 continue
 
             handler = bound_tools.get(block.name)
