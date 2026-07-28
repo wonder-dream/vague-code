@@ -24,7 +24,7 @@ class LayerReport:
     detail: dict = field(default_factory=dict)
 
 
-_READ_TOOLS = frozenset({"read", "glob", "grep"})
+_READ_TOOLS = frozenset({"read", "read_file", "glob", "grep"})
 
 _HEAD_LINES = 20
 _TAIL_LINES = 10
