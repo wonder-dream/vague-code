@@ -165,6 +165,7 @@ class Agent:
         self._on_permission = None
         self.on_tool_result = None
         self.on_state_change: Callable[[str, dict], None] | None = None
+        self._permission_rules: list = []
         self._memory_store = None
         if config.memory.enabled:
             try:
@@ -403,7 +404,7 @@ class Agent:
                     for block in tool_uses:
                         op = Operation(tool_name=block.name, input=block.input,
                                        command=block.input.get("command", "") if block.name == "bash" else "")
-                        perm_decision = evaluate(perm_mode, op)
+                        perm_decision = evaluate(perm_mode, op, rules=self._permission_rules)
                         traj.emit(EventType.permission_check, turn=turn, payload={
                             "tool": block.name, "decision": perm_decision.value,
                             "command": (op.command or "")[:200],
@@ -506,6 +507,13 @@ class Agent:
         except Exception:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    def add_permission_rule(self, pattern: str, action: str = "allow") -> None:
+        from src.agent.permission import Decision, PermissionRule
+        self._permission_rules.append(PermissionRule(
+            pattern=pattern,
+            action=Decision.ALLOW if action == "allow" else Decision.DENY,
+        ))
 
     def _fire_state_change(self, kind: str, payload: dict) -> None:
         if self.on_state_change:
@@ -614,7 +622,7 @@ class Agent:
             perm_mode = PermissionMode(self.config.permission_mode)
             op = Operation(tool_name=block.name, input=block.input,
                            command=block.input.get("command", "") if block.name == "bash" else "")
-            if evaluate(perm_mode, op) == Decision.DENY:
+            if evaluate(perm_mode, op, rules=self._permission_rules) == Decision.DENY:
                 err = f"Permission denied: mode {perm_mode.value} blocks this operation"
                 traj.emit(EventType.permission_check, turn=turn, payload={
                     "tool": block.name, "decision": Decision.DENY.value, "command": (op.command or "")[:200],
