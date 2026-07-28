@@ -198,6 +198,7 @@ class Trajectory:
     def to_messages(self) -> list[Message]:
         messages: list[Message] = []
         pending_tool_results: list[ToolResultBlock] = []
+        seen_tool_result_ids: set[str] = set()
 
         def flush_results():
             if pending_tool_results:
@@ -213,7 +214,8 @@ class Trajectory:
                     sys_text = SystemPrompt(workdir).build()
                     messages.append(Message(role="system", content=sys_text))
                 task = ev.payload.get("task", "")
-                messages.append(Message(role="user", content=task))
+                if task and task.strip():
+                    messages.append(Message(role="user", content=task.strip()))
             elif ev.type == EventType.llm_response:
                 flush_results()
                 blocks: list[Block] = []
@@ -227,10 +229,14 @@ class Trajectory:
                 if blocks:
                     messages.append(Message(role="assistant", content=blocks))
             elif ev.type == EventType.tool_result:
+                tid = ev.payload.get("tool_use_id", "")
+                if tid and tid in seen_tool_result_ids:
+                    continue
+                seen_tool_result_ids.add(tid)
                 try:
                     pending_tool_results.append(
                         ToolResultBlock(
-                            tool_use_id=ev.payload.get("tool_use_id", ""),
+                            tool_use_id=tid,
                             content=ev.payload.get("content", ""),
                             is_error=ev.payload.get("is_error", False),
                         )

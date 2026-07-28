@@ -647,6 +647,7 @@ class Agent:
                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
 
         messages.append(Message(role="user", content=tool_results))
+        self._checkpoint(traj)
         return True
 
     def _stream_from(

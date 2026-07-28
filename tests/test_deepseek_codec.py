@@ -29,10 +29,12 @@ def test_encode_empty_messages_raises():
         encode_request([], None, None)
 
 
-def test_encode_assistant_thinking_only_raises():
+def test_encode_assistant_thinking_only_does_not_crash():
     msg = Message(role="assistant", content=[ThinkingBlock(text="hmm...")])
-    with pytest.raises(ValueError, match="assistant message has no text"):
-        encode_request([msg])
+    body = encode_request([msg])
+    asst_msgs = [m for m in body["messages"] if m["role"] == "assistant"]
+    assert len(asst_msgs) == 1
+    assert asst_msgs[0].get("content") == ""
 
 
 def test_encode_text_only():
