@@ -181,7 +181,7 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
             item_count += 1
             # Safety: stop after scanning too many items (deep directory trees)
             if item_count > 5000:
-                result.append(f"... truncated at 5000 directory items")
+                result.append("... truncated at 5000 directory items")
                 break
             if not file.is_file():
                 continue

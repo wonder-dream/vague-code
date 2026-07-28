@@ -6,7 +6,10 @@ import uuid
 from collections.abc import Iterator
 from io import StringIO
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from src.agent.permission import Decision, Operation
 
 from src.agent.backend import ModelBackend
 from src.agent.config import AgentConfig

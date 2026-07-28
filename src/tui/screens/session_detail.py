@@ -91,7 +91,7 @@ class SessionDetail(ModalScreen):
                 conn.commit()
                 conn.close()
                 self.dismiss("deleted")
-            except Exception as e:
+            except Exception:
                 self.dismiss("error")
         elif event.button.id == "sd-back":
             self.dismiss(None)
