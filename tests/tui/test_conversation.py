@@ -97,6 +97,18 @@ class TestConversationView:
         # Should not crash
         assert True
 
+    async def test_clear_resets_state(self, app) -> None:
+        conv = app.query_one("#conv", ConversationView)
+        conv.start_thinking()
+        conv.add_thinking_delta("some thought")
+        conv.end_thinking()
+        conv.append_text("hello")
+        assert len(conv._blocks) > 0
+        conv.clear()
+        assert len(conv._blocks) == 0
+        assert conv._current_focus is None
+        assert conv._streaming_block is None
+
     async def test_multiple_thinking_blocks_independent(self, app) -> None:
         conv = app.query_one("#conv", ConversationView)
         conv.start_thinking()

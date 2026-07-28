@@ -194,6 +194,16 @@ class ConversationView(VerticalScroll):
         self.mount(Static("─" * 40, classes="separator"))
         self.scroll_end(animate=False)
 
+    def clear(self) -> None:
+        self.remove_children()
+        self._thinking_content.clear()
+        self._thinking_widget = None
+        self._tool_widget = None
+        self._tool_args.clear()
+        self._streaming_block = None
+        self._blocks.clear()
+        self._current_focus = None
+
     def add_task_message(self, text: str) -> None:
         self.mount(Static(f"[bold]> {text}[/]", classes="text-delta"))
         self.scroll_end(animate=False)

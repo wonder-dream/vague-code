@@ -40,14 +40,38 @@ class TestStatusBar:
         status.mode_info = "Mode: auto"
         assert status.mode_info == "Mode: auto"
 
-    async def test_update_called(self, app) -> None:
-        """Setting reactive properties calls _update."""
+    async def test_run_state_idle(self, app) -> None:
+        status = app.query_one("#status", StatusBar)
+        assert status.run_state == "idle"
+
+    async def test_run_state_running(self, app) -> None:
+        status = app.query_one("#status", StatusBar)
+        status.run_state = "running"
+        assert status.run_state == "running"
+        rendered = str(status.render()) if status.render() else ""
+        assert "\u25cf" in rendered  # running icon
+
+    async def test_run_state_done(self, app) -> None:
+        status = app.query_one("#status", StatusBar)
+        status.run_state = "done"
+        rendered = str(status.render()) if status.render() else ""
+        assert "\u2713" in rendered  # checkmark icon
+
+    async def test_compression_info_reactive(self, app) -> None:
+        status = app.query_one("#status", StatusBar)
+        status.compression_info = "Reclaimed: 12,345"
+        assert status.compression_info == "Reclaimed: 12,345"
+
+    async def test_update_renders_all(self, app) -> None:
         status = app.query_one("#status", StatusBar)
         status.turn_info = "Turn 10/20"
         status.token_info = "Tok: 5K"
         status.mode_info = "Mode: safe"
-        rendered = status.render()
-        rendered_str = str(rendered) if rendered else ""
-        assert "Turn 10/20" in rendered_str
-        assert "Tok: 5K" in rendered_str
-        assert "Mode: safe" in rendered_str
+        status.run_state = "done"
+        status.compression_info = "Reclaimed: 999"
+        rendered = str(status.render()) if status.render() else ""
+        assert "Turn 10/20" in rendered
+        assert "Tok: 5K" in rendered
+        assert "Mode: safe" in rendered
+        assert "\u2713" in rendered
+        assert "Reclaimed: 999" in rendered

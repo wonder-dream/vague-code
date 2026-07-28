@@ -57,6 +57,7 @@ class XClawApp(App):
         self._visitor: TextualStreamVisitor | None = None
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
         self._trajectory = None
+        self._total_reclaimed = 0
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -102,6 +103,7 @@ class XClawApp(App):
             agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
         self._agent = agent
 
+        self.call_from_thread(self._on_agent_started)
         handle = agent.start(self._task, self._workdir)
         for ev in handle:
             if worker.is_cancelled:
@@ -112,6 +114,9 @@ class XClawApp(App):
         traj = handle.trajectory
         self.call_from_thread(self._on_run_complete, traj)
 
+    def _on_agent_started(self) -> None:
+        self.query_one("#status-bar", StatusBar).run_state = "running"
+
     def _on_stream_event(self, ev: StreamEvent) -> None:
         if self._visitor is None:
             return
@@ -121,8 +126,11 @@ class XClawApp(App):
         status = self.query_one("#status-bar", StatusBar)
         run_end = [e for e in traj.events if e.type == EventType.run_end]
         reason = run_end[0].payload.get("reason", "?") if run_end else "?"
-        status.update(f"Run finished — reason: {reason}")
+        status.run_state = "done"
+        status.turn_info = f"Done — {reason}"
         self._trajectory = traj
+        sidebar = self.query_one("#sidebar", Sidebar)
+        sidebar.refresh()
 
     def _thread_permission(self, op: Operation, decision: Decision) -> Decision:
         future = asyncio.run_coroutine_threadsafe(
@@ -169,7 +177,8 @@ class XClawApp(App):
             after = payload.get("after", 0)
             saved = before - after
             if saved > 0:
-                status.update(f"Comp: saved {saved:,} tokens")
+                self._total_reclaimed += saved
+                status.compression_info = f"Reclaimed: {self._total_reclaimed:,}"
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
@@ -177,8 +186,12 @@ class XClawApp(App):
         for w in self.workers:
             if w.state.name == "RUNNING":
                 w.cancel()
-        self.query_one("#status-bar", StatusBar).update("Stopped by user")
+        status = self.query_one("#status-bar", StatusBar)
+        status.run_state = "idle"
+        status.turn_info = "Stopped by user"
         self._trajectory = None
+        sidebar = self.query_one("#sidebar", Sidebar)
+        sidebar.refresh()
 
     def action_focus_input(self) -> None:
         self.query_one("#command-input", CommandInput).focus()
@@ -210,38 +223,35 @@ class XClawApp(App):
 
     # ── Sidebar message handling ────────────────────────────────────────────
 
-    def on_sidebar_session_selected(self, message: Sidebar.SessionSelected) -> None:
-        self._resume_run_id = message.run_id
+    async def on_sidebar_session_selected(self, message: Sidebar.SessionSelected) -> None:
         for w in self.workers:
             if w.state.name == "RUNNING":
                 w.cancel()
-        self.push_screen(
-            SessionDetail(message.run_id, self._config.db_path),
-            callback=self._on_session_detail_result,
+        result = await self.push_screen_wait(
+            SessionDetail(message.run_id, self._config.db_path)
         )
+        if result == "resume":
+            await self._do_resume(message.run_id)
+        elif result == "deleted":
+            self.query_one("#sidebar", Sidebar).refresh()
 
-    def _on_session_detail_result(self, action: str | None) -> None:
-        if action != "resume":
-            return
-        run_id = getattr(self, "_resume_run_id", "")
-        if not run_id:
-            return
+    async def _do_resume(self, run_id: str) -> None:
         try:
-            from src.agent.backend import create_deepseek_backend
             from src.agent.trajectory import Trajectory
             traj = Trajectory.from_db(run_id, self._config.db_path)
             conv = self.query_one("#conversation", ConversationView)
-            conv.remove_children()
+            conv.clear()
             agent = Agent(self._config, self._backend)
             agent._on_permission = self._thread_permission
             agent.on_tool_result = self._thread_on_tool_result
             agent.on_state_change = self._thread_on_state_change
+            for rule in self._load_permission_rules():
+                agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
             self._agent = agent
             self._trajectory = agent.resume(traj)
             self.call_from_thread(self._on_run_complete, self._trajectory)
         except Exception as e:
             self.notify(f"Resume failed: {e}", severity="error")
-        self._resume_run_id = ""
 
     # ── Command handling ─────────────────────────────────────────────────────
 
@@ -252,6 +262,16 @@ class XClawApp(App):
             return
         if text.startswith("/"):
             self._handle_slash(text)
+        elif not any(w.state.name == "RUNNING" for w in self.workers):
+            conv = self.query_one("#conversation", ConversationView)
+            conv.clear()
+            conv.add_task_message(text)
+            self._task = text
+            self._total_reclaimed = 0
+            self._trajectory = None
+            self._start_agent()
+        else:
+            self.notify("Agent is running — press Ctrl+C to stop first", severity="warning")
 
     def _handle_slash(self, text: str) -> None:
         parts = text.split(maxsplit=1)
@@ -269,9 +289,19 @@ class XClawApp(App):
                 self._start_agent()
             else:
                 self.notify(f"Unknown mode: {arg}", severity="error")
+        elif cmd == "/save":
+            if self._trajectory is None:
+                self.notify("No trajectory to save", severity="error")
+            else:
+                path = arg or f"runs/{self._trajectory.run_id}.jsonl"
+                try:
+                    self._trajectory.export_jsonl(path)
+                    self.notify(f"Saved to: {path}")
+                except Exception as e:
+                    self.notify(f"Save failed: {e}", severity="error")
         elif cmd == "/clear":
             conv = self.query_one("#conversation", ConversationView)
-            conv.remove_children()
+            conv.clear()
         elif cmd == "/help":
             self.push_screen(HelpScreen())
         elif cmd == "/quit":
