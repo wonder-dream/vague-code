@@ -78,7 +78,8 @@ class XClawApp(App):
             if self._rules_path.is_file():
                 return json.loads(self._rules_path.read_text(encoding="utf-8"))
         except Exception:
-            pass
+            import warnings
+            warnings.warn(f"Failed to load permission rules from {self._rules_path}", stacklevel=2)
         return []
 
     def _save_permission_rule(self, pattern: str, action: str = "allow") -> None:
@@ -90,7 +91,8 @@ class XClawApp(App):
                 json.dumps(rules, ensure_ascii=False, indent=2), encoding="utf-8",
             )
         except Exception:
-            pass
+            import warnings
+            warnings.warn(f"Failed to save permission rules to {self._rules_path}", stacklevel=2)
 
     @work(thread=True, exclusive=True)
     def _start_agent(self) -> None:

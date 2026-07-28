@@ -162,8 +162,8 @@ class Agent:
     ):
         self.config = config
         self.backend = backend
-        self._on_permission = None
-        self.on_tool_result = None
+        self._on_permission: Callable[[Operation, Decision], Decision] | None = None
+        self.on_tool_result: Callable[[str, str, bool], None] | None = None
         self.on_state_change: Callable[[str, dict], None] | None = None
         self._permission_rules: list = []
         self._memory_store = None
