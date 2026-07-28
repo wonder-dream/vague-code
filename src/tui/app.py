@@ -6,6 +6,7 @@ import threading
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.containers import Horizontal
 from textual.worker import get_current_worker
 
 from src.agent.backend import ModelBackend
@@ -28,6 +29,9 @@ class XClawApp(App):
     BINDINGS = [
         Binding("ctrl+c", "stop_agent", "Stop"),
         Binding("t", "toggle_thinking", "Think"),
+        Binding("e", "toggle_expand", "Expand"),
+        Binding("tab", "select_next", "Next"),
+        Binding("shift+tab", "select_prev", "Prev"),
         Binding("slash", "focus_input", "Cmd"),
         Binding("escape", "cancel", "Back"),
         Binding("f1", "show_help", "Help", show=False),
@@ -51,8 +55,9 @@ class XClawApp(App):
         self._trajectory = None
 
     def compose(self) -> ComposeResult:
-        yield Sidebar(id="sidebar", db_path=self._config.db_path)
-        yield ConversationView(id="conversation")
+        with Horizontal():
+            yield Sidebar(id="sidebar", db_path=self._config.db_path)
+            yield ConversationView(id="conversation")
         yield StatusBar(id="status-bar")
         yield CommandInput(id="command-input")
 
@@ -141,6 +146,18 @@ class XClawApp(App):
     def action_show_help(self) -> None:
         self.push_screen(HelpScreen())
 
+    def action_toggle_expand(self) -> None:
+        conv = self.query_one("#conversation", ConversationView)
+        conv.toggle_current_expand()
+
+    def action_select_next(self) -> None:
+        conv = self.query_one("#conversation", ConversationView)
+        conv.select_next()
+
+    def action_select_prev(self) -> None:
+        conv = self.query_one("#conversation", ConversationView)
+        conv.select_prev()
+
     # ── Command handling ─────────────────────────────────────────────────────
 
     def on_command_input_submitted(self, message: CommandInput.Submitted) -> None:
@@ -150,8 +167,6 @@ class XClawApp(App):
             return
         if text.startswith("/"):
             self._handle_slash(text)
-        elif self._agent and self._agent._on_permission is None:
-            pass
 
     def _handle_slash(self, text: str) -> None:
         parts = text.split(maxsplit=1)

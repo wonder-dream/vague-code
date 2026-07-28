@@ -1,21 +1,50 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+
 from textual.containers import VerticalScroll
 from textual.widgets import Static
 
 from src.agent.ir import RetryNotice
 
 
+@dataclass
+class _FoldableBlock:
+    widget: Static
+    kind: str  # "thinking" | "tool_result" | "text"
+    full_content: str = ""
+    summary: str = ""
+    collapsed: bool = True
+    tool_name: str = ""
+    is_error: bool = False
+
+
+HEAD_LINES = 10
+TAIL_LINES = 5
+
+
+def _head_tail(content: str, head_n: int, tail_n: int) -> str:
+    lines = content.splitlines(keepends=True)
+    n = len(lines)
+    if head_n + tail_n >= n:
+        return content
+    head = "".join(lines[:head_n])
+    tail = "".join(lines[-tail_n:])
+    return f"{head}\n...({n - head_n - tail_n} lines)...\n{tail}"
+
+
 class ConversationView(VerticalScroll):
-    """Scrollable conversation view that renders stream events in real time."""
+    """Scrollable conversation view with foldable thinking and tool result blocks."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._thinking_content: list[str] = []
-        self._thinking_block: Static | None = None
-        self._tool_block: Static | None = None
+        self._thinking_widget: Static | None = None
+        self._tool_widget: Static | None = None
         self._tool_args: list[str] = []
         self._streaming_block: Static | None = None
+        self._blocks: list[_FoldableBlock] = []
+        self._current_focus: int | None = None
 
     def _get_or_create_stream(self) -> Static:
         if self._streaming_block is None:
@@ -33,42 +62,94 @@ class ConversationView(VerticalScroll):
 
     def add_thinking_delta(self, delta: str) -> None:
         self._thinking_content.append(delta)
-        self._update_thinking_placeholder()
 
     def end_thinking(self) -> None:
-        if not self._thinking_content:
-            return
         text = "".join(self._thinking_content)
-        self._thinking_block = Static(
-            f"[dim]<thinking> — {len(text)//4} tokens, press T to expand[/]",
-            classes="thinking-block",
-        )
-        self.mount(self._thinking_block)
+        if not text:
+            return
+        summary = f"[dim]<thinking> — {len(text)//4} tokens, press T to expand[/]"
+        self._thinking_widget = Static(summary, classes="thinking-block collapsed")
+        self.mount(self._thinking_widget)
+        self._blocks.append(_FoldableBlock(
+            widget=self._thinking_widget,
+            kind="thinking",
+            full_content=text,
+            summary=summary,
+            collapsed=True,
+        ))
         self._thinking_content.clear()
+        self.scroll_end(animate=False)
 
-    def _update_thinking_placeholder(self) -> None:
-        pass
+    def _find_last_thinking_block(self) -> int | None:
+        for i in range(len(self._blocks) - 1, -1, -1):
+            if self._blocks[i].kind == "thinking":
+                return i
+        return None
 
     def toggle_thinking(self) -> None:
-        if self._thinking_block is None:
+        idx = self._find_last_thinking_block()
+        if idx is None:
             return
-        text = self._thinking_block.renderable
-        full = "".join(self._thinking_content) if self._thinking_content else ""
-        if not full:
-            return
-        if "expanded" in (self._thinking_block.classes or ""):
-            self._thinking_block.classes = "thinking-block"
-            self._thinking_block.update(f"[dim]<thinking> — {len(full)//4} tokens, press T to expand[/]")
+        self._toggle_block(idx)
+
+    def _toggle_block(self, idx: int) -> None:
+        blk = self._blocks[idx]
+        if blk.collapsed:
+            full = blk.full_content
+            style = "dim" if blk.kind == "thinking" else ""
+            display = f"[{style}]{full}[/{style}]" if style else full
+            blk.widget.update(display)
+            blk.widget.classes = f"{blk.kind}-block expanded"
         else:
-            self._thinking_block.classes = "thinking-block expanded"
-            self._thinking_block.update(f"[dim]{full}[/dim]")
+            blk.widget.update(blk.summary)
+            blk.widget.classes = f"{blk.kind}-block collapsed"
+        blk.collapsed = not blk.collapsed
         self.scroll_end(animate=False)
+
+    def _foldable_indices(self) -> list[int]:
+        return [i for i, b in enumerate(self._blocks) if b.kind in ("thinking", "tool_result")]
+
+    def select_next(self) -> None:
+        indices = self._foldable_indices()
+        if not indices:
+            return
+        if self._current_focus is None:
+            self._set_focus(indices[0])
+        else:
+            cur = indices.index(self._current_focus) if self._current_focus in indices else -1
+            nxt = indices[(cur + 1) % len(indices)]
+            self._set_focus(nxt)
+
+    def select_prev(self) -> None:
+        indices = self._foldable_indices()
+        if not indices:
+            return
+        if self._current_focus is None:
+            self._set_focus(indices[-1])
+        else:
+            cur = indices.index(self._current_focus) if self._current_focus in indices else 0
+            prv = indices[(cur - 1) % len(indices)]
+            self._set_focus(prv)
+
+    def _set_focus(self, idx: int) -> None:
+        if self._current_focus is not None and self._current_focus < len(self._blocks):
+            old = self._blocks[self._current_focus]
+            old.widget.classes = old.widget.classes.replace(" focused", "")
+        self._current_focus = idx
+        blk = self._blocks[idx]
+        blk.widget.classes += " focused"
+        self.scroll_to_widget(blk.widget)
+
+    def toggle_current_expand(self) -> None:
+        if self._current_focus is None or self._current_focus >= len(self._blocks):
+            return
+        self._toggle_block(self._current_focus)
 
     def start_tool(self, name: str) -> None:
         self._streaming_block = None
-        args_preview = f"[bold blue]🔧 {name}(...)[/]"
-        self._tool_block = Static(args_preview, classes="tool-call")
-        self.mount(self._tool_block)
+        self._tool_widget = Static(f"[bold blue]🔧 {name}(...)[/]", classes="tool-call")
+        self.mount(self._tool_widget)
+        self._tool_args = []
         self.scroll_end(animate=False)
 
     def append_tool_args(self, delta: str) -> None:
@@ -76,11 +157,24 @@ class ConversationView(VerticalScroll):
 
     def add_tool_result(self, tool_name: str, content: str, is_error: bool) -> None:
         cls = "tool-result-error" if is_error else "tool-result"
-        summary = content[:200].replace("\n", " ")
-        widget = Static(f"  {'✗' if is_error else '✓'} {tool_name}: {summary}", classes=cls)
+        summary = _head_tail(content, HEAD_LINES, TAIL_LINES)
+        display_summary = summary.replace("\n", "\n  ").strip()
+        icon = "✗" if is_error else "✓"
+        header = f"  {icon} {tool_name}"
+        if len(content) > 200:
+            header += " — press E to expand"
+        self._tool_widget = None
+        widget = Static(f"{header}\n  {display_summary}", classes=cls)
         self.mount(widget)
-        self._tool_block = None
-        self._tool_args.clear()
+        self._blocks.append(_FoldableBlock(
+            widget=widget,
+            kind="tool_result",
+            full_content=content,
+            summary=widget.renderable,
+            collapsed=True,
+            tool_name=tool_name,
+            is_error=is_error,
+        ))
         self.scroll_end(animate=False)
 
     def add_retry_notice(self, ev: RetryNotice) -> None:

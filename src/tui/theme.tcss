@@ -4,8 +4,41 @@ Screen {
     color: #c9d1d9;
 }
 
-#conversation {
+Horizontal {
     height: 1fr;
+}
+
+#sidebar {
+    width: 25%;
+    background: #161b22;
+    border-right: solid #30363d;
+    overflow-y: auto;
+    padding: 0 1;
+}
+
+.sidebar-header {
+    text-style: bold;
+    color: #58a6ff;
+    margin: 1 0 0 0;
+}
+
+.sidebar-item {
+    color: #8b949e;
+    padding: 0 0 0 1;
+}
+
+.sidebar-muted {
+    color: #484f58;
+    text-style: italic;
+    padding: 0 0 0 1;
+}
+
+.sidebar-spacer {
+    height: 1;
+}
+
+#conversation {
+    width: 1fr;
     background: #0d1117;
     padding: 0 1;
     overflow-y: auto;
@@ -13,12 +46,17 @@ Screen {
 
 #conversation > .text-delta {
     color: #c9d1d9;
-    text-style: none;
 }
 
 #conversation > .thinking-block {
     color: #8b949e;
     text-style: italic;
+    margin: 0 0 0 1;
+}
+
+#conversation > .thinking-block.focused {
+    border-left: solid #58a6ff;
+    padding-left: 1;
 }
 
 #conversation > .tool-call {
@@ -32,9 +70,19 @@ Screen {
     margin: 0 0 0 1;
 }
 
+#conversation > .tool-result.focused {
+    border-left: solid #3fb950;
+    padding-left: 1;
+}
+
 #conversation > .tool-result-error {
     color: #f85149;
     margin: 0 0 0 1;
+}
+
+#conversation > .tool-result-error.focused {
+    border-left: solid #f85149;
+    padding-left: 1;
 }
 
 #conversation > .retry-notice {
@@ -44,7 +92,6 @@ Screen {
 
 #conversation > .separator {
     color: #21262d;
-    text-style: bold;
 }
 
 #status-bar {
@@ -66,4 +113,40 @@ Screen {
 
 #command-input:focus {
     border: solid #58a6ff;
+}
+
+/* Permission dialog */
+#permission-dialog {
+    padding: 1 2;
+    border: solid #30363d;
+    width: 50;
+    background: #161b22;
+}
+
+#perm-title {
+    text-style: bold;
+    color: #d29922;
+    margin: 0 0 1 0;
+}
+
+#perm-tool {
+    color: #c9d1d9;
+}
+
+#perm-detail {
+    color: #8b949e;
+    margin: 0 0 1 0;
+}
+
+#perm-buttons {
+    align: center bottom;
+    padding: 1 0 0 0;
+}
+
+/* Session detail dialog */
+#session-detail {
+    padding: 1 2;
+    border: solid #30363d;
+    width: 60;
+    background: #161b22;
 }
