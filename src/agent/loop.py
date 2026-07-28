@@ -163,6 +163,7 @@ class Agent:
         self.config = config
         self.backend = backend
         self._on_permission = None
+        self.on_tool_result = None
         self._memory_store = None
         if config.memory.enabled:
             try:
@@ -446,10 +447,12 @@ class Agent:
                                 content = f"[missing result for tool: {block.name}]"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, is_error=True))
+                                self._fire_on_tool_result(block.name, content, True)
                             else:
                                 content = self._truncate_tool_content(result.content)
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": result.tool_use_id, "content": content, "is_error": result.is_error})
                                 tool_results.append(ToolResultBlock(tool_use_id=result.tool_use_id, content=content, is_error=result.is_error))
+                                self._fire_on_tool_result(block.name, content, result.is_error)
                     else:
                         for block in allowed_tool_uses:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
@@ -458,15 +461,18 @@ class Agent:
                                 error_msg = f"Unknown tool: {block.name}"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                                self._fire_on_tool_result(block.name, error_msg, True)
                                 continue
                             try:
                                 content = self._truncate_tool_content(handler(block.input))
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+                                self._fire_on_tool_result(block.name, content, False)
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
+                                self._fire_on_tool_result(block.name, error_msg, True)
 
                     messages.append(Message(role="user", content=tool_results))
                     turn_box[0] += 1
@@ -482,6 +488,10 @@ class Agent:
         except Exception:
             import warnings
             warnings.warn(f"Checkpoint persist failed for run {traj.run_id}", stacklevel=2)
+
+    def _fire_on_tool_result(self, tool_name: str, content: str, is_error: bool) -> None:
+        if self.on_tool_result:
+            self.on_tool_result(tool_name, content, is_error)
 
     @staticmethod
     def _truncate_tool_content(content: str, max_chars: int = 50_000) -> str:

@@ -15,6 +15,12 @@ from src.cli.renderer import RichStreamVisitor
 
 
 def main(argv: list[str] | None = None) -> None:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv and argv[0] == "tui":
+        _tui_main(argv[1:])
+        return
+
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
     except (AttributeError, OSError):
@@ -119,6 +125,59 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         traj.export_jsonl(str(export_path))
         print(f"  Trajectory exported: {export_path}", file=sys.stderr)
+
+
+def _tui_main(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(prog="xcode tui", description="XClaw TUI mode")
+    parser.add_argument("task", nargs="?", default="", help="Task description for the agent")
+    parser.add_argument("workdir", nargs="?", default=".", help="Workspace root directory")
+    parser.add_argument("--model", default="deepseek-v4-flash", help="Model name")
+    parser.add_argument("--max-turns", type=int, default=20, help="Maximum turns")
+    parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
+    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
+                        help="Model provider (default: deepseek)")
+    parser.add_argument("--timeout-s", type=float, default=120.0,
+                        help="Per-turn LLM call timeout (seconds)")
+    parser.add_argument("--retry-max-attempts", type=int, default=5,
+                        help="Maximum number of retry attempts")
+    parser.add_argument("--retry-base-s", type=float, default=2.0,
+                        help="Base delay for exponential backoff (seconds)")
+    parser.add_argument("--retry-max-delay-s", type=float, default=120.0,
+                        help="Maximum delay between retries (seconds)")
+
+    args = parser.parse_args(argv)
+
+    api_key = _resolve_api_key(args.provider)
+    if not api_key:
+        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
+        print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
+        sys.exit(1)
+
+    config = AgentConfig(
+        model=args.model,
+        max_turns=args.max_turns,
+        db_path=args.db_path,
+    )
+    config.transport.timeout_s = args.timeout_s
+    config.transport.retry_max_attempts = args.retry_max_attempts
+    config.transport.retry_base_s = args.retry_base_s
+    config.transport.retry_max_delay_s = args.retry_max_delay_s
+
+    if args.provider == "anthropic":
+        backend = create_anthropic_backend(
+            api_key=api_key,
+            base_url="https://api.deepseek.com/anthropic",
+            timeout_s=config.transport.timeout_s,
+        )
+    else:
+        backend = create_deepseek_backend(
+            api_key=api_key,
+            base_url="https://api.deepseek.com",
+            timeout_s=config.transport.timeout_s,
+        )
+
+    from src.tui import main as tui_main
+    tui_main(task=args.task, workdir=args.workdir, config=config, backend=backend)
 
 
 def _resolve_api_key(provider: str) -> str | None:

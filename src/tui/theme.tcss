@@ -1,0 +1,69 @@
+Screen {
+    layout: vertical;
+    background: #0d1117;
+    color: #c9d1d9;
+}
+
+#conversation {
+    height: 1fr;
+    background: #0d1117;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+#conversation > .text-delta {
+    color: #c9d1d9;
+    text-style: none;
+}
+
+#conversation > .thinking-block {
+    color: #8b949e;
+    text-style: italic;
+}
+
+#conversation > .tool-call {
+    color: #58a6ff;
+    text-style: bold;
+    margin: 1 0 0 0;
+}
+
+#conversation > .tool-result {
+    color: #3fb950;
+    margin: 0 0 0 1;
+}
+
+#conversation > .tool-result-error {
+    color: #f85149;
+    margin: 0 0 0 1;
+}
+
+#conversation > .retry-notice {
+    color: #d29922;
+    text-style: italic;
+}
+
+#conversation > .separator {
+    color: #21262d;
+    text-style: bold;
+}
+
+#status-bar {
+    dock: bottom;
+    height: 1;
+    background: #161b22;
+    color: #8b949e;
+    padding: 0 1;
+}
+
+#command-input {
+    dock: bottom;
+    height: 3;
+    background: #0d1117;
+    border: solid #30363d;
+    color: #c9d1d9;
+    padding: 0 1;
+}
+
+#command-input:focus {
+    border: solid #58a6ff;
+}
