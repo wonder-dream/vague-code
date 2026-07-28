@@ -93,9 +93,12 @@ def _merge_consecutive_same_role(messages: list[Message]) -> list[Message]:
     current = messages[0]
     for next_msg in messages[1:]:
         if next_msg.role == current.role:
+            merged = current.content + next_msg.content
+            thinking_blocks = [b for b in merged if isinstance(b, ThinkingBlock)]
+            other_blocks = [b for b in merged if not isinstance(b, ThinkingBlock)]
             current = Message(
                 role=current.role,
-                content=current.content + next_msg.content,
+                content=thinking_blocks + other_blocks,
             )
         else:
             result.append(current)

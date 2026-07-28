@@ -48,9 +48,9 @@ def _find_pairs(messages: list[Message]) -> list[tuple[int, int]]:
 
 # ── Helper: extract path from read-tool input ──────────────────────────────
 
-def _extract_path(tool_block: ToolUseBlock) -> str | None:
+def _extract_paths(tool_block: ToolUseBlock) -> list[str]:
     if tool_block.name not in _READ_TOOLS:
-        return None
+        return []
     raw = None
     for key in ("path", "paths", "pattern"):
         v = tool_block.input.get(key)
@@ -58,10 +58,10 @@ def _extract_path(tool_block: ToolUseBlock) -> str | None:
             raw = v
             break
     if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
         return raw
-    if isinstance(raw, list) and raw:
-        return str(raw[0])
-    return None
+    return []
 
 
 # ── Layer 1: stale_snip ────────────────────────────────────────────────────
@@ -106,13 +106,14 @@ def stale_snip(
                 block_indices[block.tool_use_id] = bi
 
         for bi, tool_block in tool_blocks:
-            path = _extract_path(tool_block)
-            if path is None:
+            paths = _extract_paths(tool_block)
+            if not paths:
                 continue
             result_block = result_map.get(tool_block.id)
             if result_block is None or result_block.is_error:
                 continue
-            path_map.setdefault((tool_block.name, path), []).append((user_idx, block_indices[tool_block.id], result_block))
+            for path in paths:
+                path_map.setdefault((tool_block.name, path), []).append((user_idx, block_indices[tool_block.id], result_block))
 
     affected = 0
     for (tool_name, path), entries in path_map.items():

@@ -270,6 +270,11 @@ class Agent:
                         "message": str(e),
                     })
                     reports = []
+                    try:
+                        from src.agent.context_compress import truncate
+                        messages, _ = truncate(messages, budget, self._tool_specs, skip_thinking)
+                    except Exception:
+                        pass
                 if reports:
                     for r in reports:
                         traj.emit(EventType.compression, turn=turn, payload={
