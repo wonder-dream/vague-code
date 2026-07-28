@@ -47,16 +47,20 @@ def _pattern_prefix(pattern: str) -> str:
     return trimmed or ""
 
 
+def _normalize_path(path: str) -> str:
+    return path.replace("\\", "/")
+
+
 def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
     name = call.name
     inp = call.input
 
     if name == "read_file":
-        path = inp.get("path", "")
+        path = _normalize_path(inp.get("path", ""))
         return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.READ)
 
     if name == "write_file":
-        path = inp.get("path", "")
+        path = _normalize_path(inp.get("path", ""))
         target = Path(workdir).resolve() / path
         is_new = not target.exists()
         return ResourceScope(
@@ -66,7 +70,7 @@ def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
         )
 
     if name == "patch":
-        path = inp.get("path", "")
+        path = _normalize_path(inp.get("path", ""))
         return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.WRITE)
 
     if name == "glob":
@@ -75,7 +79,7 @@ def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
         return ResourceScope(path=prefix, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     if name == "grep":
-        path = inp.get("path") or ""
+        path = _normalize_path(inp.get("path") or "")
         return ResourceScope(path=path, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.WRITE)

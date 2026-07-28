@@ -190,20 +190,6 @@ class Agent:
         self._workdir = workdir
         run_id = uuid.uuid4().hex[:12]
         traj = Trajectory(run_id=run_id, config=self.config)
-        traj.emit(EventType.run_start, payload={
-            "task": task,
-            "workdir": workdir,
-            "config": self.config.to_public_dict(),
-            "tools": sorted(self._tool_registry.keys()),
-        })
-
-        try:
-            bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
-        except Exception as e:
-            traj.emit(EventType.error, payload={"kind": "tool_bind_error", "message": str(e)})
-            traj.emit(EventType.run_end, payload={"reason": "tool_bind_error"})
-            self._persist(traj)
-            return RunHandle(iter([]), traj)
 
         from src.agent.context import SystemPrompt
 
@@ -217,6 +203,22 @@ class Agent:
                     p["content"] for p in pinned
                 )
                 system_prompt += pinned_section
+
+        traj.emit(EventType.run_start, payload={
+            "task": task,
+            "workdir": workdir,
+            "system_prompt": system_prompt,
+            "config": self.config.to_public_dict(),
+            "tools": sorted(self._tool_registry.keys()),
+        })
+
+        try:
+            bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
+        except Exception as e:
+            traj.emit(EventType.error, payload={"kind": "tool_bind_error", "message": str(e)})
+            traj.emit(EventType.run_end, payload={"reason": "tool_bind_error"})
+            self._persist(traj)
+            return RunHandle(iter([]), traj)
 
         messages: list[Message] = [
             Message(role="system", content=system_prompt),

@@ -176,7 +176,13 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
 
         result = []
         file_count = 0
+        item_count = 0
         for file in search_root.rglob(include):
+            item_count += 1
+            # Safety: stop after scanning too many items (deep directory trees)
+            if item_count > 5000:
+                result.append(f"... truncated at 5000 directory items")
+                break
             if not file.is_file():
                 continue
             if file_count >= MAX_GREP_FILE_COUNT:

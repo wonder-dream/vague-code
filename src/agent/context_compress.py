@@ -384,13 +384,18 @@ def truncate(
     # Determine must-keep prefix (system + first user task)
     prefix_end = 2 if msgs[0].role == "system" and len(msgs) > 1 and msgs[1].role == "user" else 1
 
+    # Pre-compute per-message tokens (single O(N) pass)
+    from src.agent.context_tokens import per_message_tokens
+    msg_tokens = per_message_tokens(msgs, skip_thinking)
+    tool_tokens = count_tokens([], tools, skip_thinking) if tools else 0
+    prefix_sum = sum(msg_tokens[:prefix_end])
+
     # Guard: if prefix alone exceeds budget, return prefix only (best effort)
-    prefix_tokens = count_tokens(msgs[:prefix_end], tools, skip_thinking)
-    if prefix_tokens >= budget:
+    if prefix_sum + tool_tokens >= budget:
         return msgs[:prefix_end], LayerReport(
             layer="truncate",
             before_tokens=before,
-            after_tokens=prefix_tokens,
+            after_tokens=prefix_sum + tool_tokens,
             affected=len(msgs) - prefix_end,
             skip_thinking=skip_thinking,
         )
@@ -401,10 +406,12 @@ def truncate(
     collected: set[int] = set()
 
     tail_messages: list[Message] = []
+    tail_sum = 0
     for asst_idx, user_idx in reversed(relevant_pairs):
-        test = msgs[:prefix_end] + tail_messages + [msgs[asst_idx], msgs[user_idx]]
-        if count_tokens(test, tools, skip_thinking) < budget:
+        pair_sum = msg_tokens[asst_idx] + msg_tokens[user_idx]
+        if prefix_sum + tail_sum + pair_sum + tool_tokens < budget:
             tail_messages = [msgs[asst_idx], msgs[user_idx]] + tail_messages
+            tail_sum += pair_sum
             collected.add(asst_idx)
             collected.add(user_idx)
         else:
@@ -425,17 +432,17 @@ def truncate(
             and (i + 1) not in collected
         )
         if is_pair:
-            candidates = [msgs[i], msgs[i + 1]]
-            test = msgs[:prefix_end] + tail_messages + candidates
-            if count_tokens(test, tools, skip_thinking) < budget:
-                tail_messages.extend(candidates)
+            pair_sum = msg_tokens[i] + msg_tokens[i + 1]
+            if prefix_sum + tail_sum + pair_sum + tool_tokens < budget:
+                tail_messages.extend([msgs[i], msgs[i + 1]])
+                tail_sum += pair_sum
                 collected.add(i)
                 collected.add(i + 1)
             i += 2
             continue
-        test = msgs[:prefix_end] + tail_messages + [msgs[i]]
-        if count_tokens(test, tools, skip_thinking) < budget:
+        if prefix_sum + tail_sum + msg_tokens[i] + tool_tokens < budget:
             tail_messages.append(msgs[i])
+            tail_sum += msg_tokens[i]
             collected.add(i)
         i += 1
 

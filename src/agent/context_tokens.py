@@ -116,6 +116,18 @@ def _count_rough(
     return total
 
 
+def per_message_tokens(messages: list, skip_thinking: bool = False) -> list[int]:
+    """Token count per message (single pass, usable as cache)."""
+    enc = _get_enc()
+    tokens: list[int] = []
+    for msg in messages:
+        if enc is not None:
+            tokens.append(_count_precise([msg], None, enc, skip_thinking))
+        else:
+            tokens.append(_count_rough([msg], None, skip_thinking))
+    return tokens
+
+
 def compute_budget(model: str, user_max_tokens: int | None = None) -> int:
     window = CONTEXT_WINDOWS.get(model, 64_000)
     budget = int(window * 0.9)

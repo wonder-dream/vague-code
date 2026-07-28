@@ -211,7 +211,10 @@ class Trajectory:
                     continue
                 workdir = ev.payload.get("workdir", "")
                 if workdir and not any(m.role == "system" for m in messages):
-                    sys_text = SystemPrompt(workdir).build()
+                    sys_text = ev.payload.get("system_prompt", "")
+                    if not sys_text:
+                        from src.agent.context import SystemPrompt
+                        sys_text = SystemPrompt(workdir).build()
                     messages.append(Message(role="system", content=sys_text))
                 task = ev.payload.get("task", "")
                 if task and task.strip():
