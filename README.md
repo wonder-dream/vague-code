@@ -10,7 +10,7 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  CLI (Rich Renderer) ──── thin shell                               │
+│  CLI (Rich Renderer) + TUI (Textual) ──── thin shell              │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Agent Runtime (ReAct Loop + Retry + Checkpoint/Resume)             │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
@@ -38,14 +38,59 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 uv sync                           # 安装依赖
 export DEEPSEEK_API_KEY=sk-xxx    # 设置 API Key
 
-# 运行 Agent
+# 运行 Agent（CLI 模式）
 python -m src.cli "Fix the bug in stats.py"
 python -m src.cli --provider anthropic "Refactor auth module"
+
+# 运行 Agent（TUI 模式 — 全屏交互界面）
+xcode tui "Fix the bug in stats.py"
+xcode tui --model deepseek-v4-pro "Analyze the project structure"
 
 # 运行评测
 python -m eval.cli --tasks eval/tasks.json --fake          # 验证框架
 python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash  # 真实 API
 python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融实验
+```
+
+---
+
+## TUI 模式
+
+`xcode tui <task>` 启动全屏交互式终端界面（基于 Textual 框架）。
+
+### 布局
+- **[75%] Conversation View** — 流式 LLM 输出，可折叠 thinking/tool result 块
+- **[25%] Sidebar** — 历史会话列表（点击继续）+ 已注入记忆面板
+- **Status Bar** — 运行状态（● / ✓ / ✗）、轮次、令牌、压缩统计、权限模式
+- **Command Input** — 任务输入 + 斜杠命令
+
+### 键绑定
+
+| 键 | 操作 |
+|-------|--------|
+| `Ctrl+C` | 停止 agent |
+| `T` | 折叠/展开 thinking |
+| `E` | 折叠/展开已聚焦的 tool result |
+| `Tab` / `Shift+Tab` | 在可折叠块之间导航 |
+| `/` | 聚焦命令输入 |
+| `F1` | 帮助 |
+
+### 斜杠命令
+
+| 命令 | 操作 |
+|-------|--------|
+| `/mode <m>` | 设置权限模式 `safe\|normal\|autoedit\|auto` |
+| `/clear` | 清空对话视图 |
+| `/save [path]` | 导出 trajectory 为 JSONL |
+| `/help` | 帮助 |
+| `/quit` | 退出 |
+
+### 权限
+交互式确认对话框：`Y` 允许一次，`Ctrl+Y` 始终允许并持久化规则至 `.agent/permission-rules.json`，`N` 拒绝。
+
+### 选项
+```
+xcode tui <task> [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 ```
 
 ---
