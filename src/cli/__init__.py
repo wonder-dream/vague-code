@@ -80,13 +80,13 @@ def main(argv: list[str] | None = None) -> None:
 
         backend: ModelBackend
         if args.provider == "anthropic":
-            backend = create_anthropic_backend(
+            backend = create_anthropic_backend(  # type: ignore[assignment]
                 api_key=api_key,
                 base_url="https://api.deepseek.com/anthropic",
                 timeout_s=config.transport.timeout_s,
             )
         else:
-            backend = create_deepseek_backend(
+            backend = create_deepseek_backend(  # type: ignore[assignment]
                 api_key=api_key,
                 base_url="https://api.deepseek.com",
                 timeout_s=config.transport.timeout_s,
@@ -170,7 +170,7 @@ def _tui_main(argv: list[str]) -> None:
             timeout_s=config.transport.timeout_s,
         )
     else:
-        backend = create_deepseek_backend(
+        backend = create_deepseek_backend(  # type: ignore[assignment,arg-type]
             api_key=api_key,
             base_url="https://api.deepseek.com",
             timeout_s=config.transport.timeout_s,

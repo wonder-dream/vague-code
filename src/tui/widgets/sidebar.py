@@ -25,7 +25,7 @@ class Sidebar(VerticalScroll):
         self._build_sessions()
         self._build_memory()
 
-    def refresh(self) -> None:
+    def reload(self) -> None:
         self.remove_children()
         self._build_sessions()
         self._build_memory()
@@ -62,12 +62,13 @@ class Sidebar(VerticalScroll):
         self.mount(self._session_list)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if self._session_list is None or self._session_rows_list is None:
+        if self._session_list is None or not self._session_rows_list:
             return
         idx = self._session_list.index
-        if 0 <= idx < len(self._session_rows_list):
-            run_id, _, _ = self._session_rows_list[idx]
-            self.post_message(self.SessionSelected(run_id))
+        if idx is None or idx < 0 or idx >= len(self._session_rows_list):
+            return
+        run_id, _, _ = self._session_rows_list[idx]
+        self.post_message(self.SessionSelected(run_id))
 
     def _build_memory(self) -> None:
         self.mount(Static("", classes="sidebar-spacer"))

@@ -1006,7 +1006,6 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
-    { name = "coverage" },
     { name = "openai" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -1017,6 +1016,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "coverage" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1026,7 +1026,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.117.0" },
-    { name = "coverage", specifier = ">=7.15.2" },
     { name = "openai", specifier = ">=2.46.0" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.1.0" },
@@ -1037,6 +1036,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "coverage", specifier = ">=7.15.2" },
     { name = "mypy", specifier = ">=2.3.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },

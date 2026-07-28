@@ -10,10 +10,15 @@ from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.worker import get_current_worker
 
+from typing import TYPE_CHECKING
+
 from src.agent.backend import ModelBackend
 from src.agent.config import AgentConfig
 from src.agent.ir import StreamEvent, dispatch_event
 from src.agent.loop import Agent, EventType
+
+if TYPE_CHECKING:
+    from src.agent.trajectory import Trajectory
 from src.agent.permission import Decision, Operation
 from src.tui.screens.help import HelpScreen
 from src.tui.screens.permission import PermissionDialog
@@ -49,13 +54,13 @@ class XClawApp(App):
         super().__init__()
         self._config = config
         self._backend = backend
-        self._task = task
+        self._agent_task: str = task
         self._workdir = workdir
         self._loop: asyncio.AbstractEventLoop | None = None
         self._agent: Agent | None = None
         self._visitor: TextualStreamVisitor | None = None
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
-        self._trajectory = None
+        self._trajectory: Trajectory | None = None
         self._total_reclaimed = 0
         self._resume_run_id: str = ""
 
@@ -70,7 +75,7 @@ class XClawApp(App):
         self._loop = asyncio.get_running_loop()
         conv = self.query_one("#conversation", ConversationView)
         self._visitor = TextualStreamVisitor(conv)
-        conv.add_task_message(self._task)
+        conv.add_task_message(self._agent_task)
         self._start_agent()
 
     def _load_permission_rules(self) -> list[dict]:
@@ -106,7 +111,7 @@ class XClawApp(App):
         self._agent = agent
 
         self.call_from_thread(self._on_agent_started)
-        handle = agent.start(self._task, self._workdir)
+        handle = agent.start(self._agent_task, self._workdir)
         for ev in handle:
             if worker.is_cancelled:
                 handle.close()
@@ -132,7 +137,7 @@ class XClawApp(App):
         status.turn_info = f"Done — {reason}"
         self._trajectory = traj
         sidebar = self.query_one("#sidebar", Sidebar)
-        sidebar.refresh()
+        sidebar.reload()
 
     def _thread_permission(self, op: Operation, decision: Decision) -> Decision:
         if self._loop is None:
@@ -198,7 +203,7 @@ class XClawApp(App):
         status.turn_info = "Stopped by user"
         self._trajectory = None
         sidebar = self.query_one("#sidebar", Sidebar)
-        sidebar.refresh()
+        sidebar.reload()
 
     def action_focus_input(self) -> None:
         self.query_one("#command-input", CommandInput).focus()
@@ -244,7 +249,7 @@ class XClawApp(App):
             self._resume_run_id = message.run_id
             self._start_resume_agent()
         elif result == "deleted":
-            self.query_one("#sidebar", Sidebar).refresh()
+            self.query_one("#sidebar", Sidebar).reload()
 
     @work(thread=True, exclusive=True)
     def _start_resume_agent(self) -> None:
@@ -283,7 +288,7 @@ class XClawApp(App):
             conv = self.query_one("#conversation", ConversationView)
             conv.clear()
             conv.add_task_message(text)
-            self._task = text
+            self._agent_task = text
             self._total_reclaimed = 0
             self._trajectory = None
             self._start_agent()
