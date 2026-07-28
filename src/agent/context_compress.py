@@ -8,6 +8,7 @@ from src.agent.ir import (
     Message,
     StopReason,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -173,11 +174,21 @@ def microcompact(
                     head, tail, total_lines = _head_tail(block.content, _HEAD_LINES, _TAIL_LINES)
                     head_n = len(head.splitlines(keepends=True))
                     tail_n = len(tail.splitlines(keepends=True)) if tail else 0
-                    compacted = (
-                        f"[compacted: {len(block.content)} chars, {total_lines} lines]"
-                        f"\n--- head ({head_n} lines) ---\n{head}"
-                        f"\n--- tail ({tail_n} lines) ---\n{tail}"
-                    )
+
+                    if head_n + tail_n >= total_lines and len(block.content) > max_chars:
+                        half = max_chars // 2
+                        compacted = (
+                            f"[compacted: {len(block.content)} chars, {total_lines} lines]"
+                            f"\n{block.content[:half]}"
+                            f"\n...[{total_lines} lines, {len(block.content)} total chars]..."
+                            f"\n{block.content[-half:]}"
+                        )
+                    else:
+                        compacted = (
+                            f"[compacted: {len(block.content)} chars, {total_lines} lines]"
+                            f"\n--- head ({head_n} lines) ---\n{head}"
+                            f"\n--- tail ({tail_n} lines) ---\n{tail}"
+                        )
                     if len(compacted) < len(block.content):
                         block.meta["compacted"] = {
                             "original_chars": len(block.content),
@@ -258,6 +269,9 @@ def auto_compact(
         for b in msg.content:
             if isinstance(b, TextBlock):
                 parts.append(b.text)
+            elif isinstance(b, ThinkingBlock):
+                truncated = b.text[:200] + "..." if len(b.text) > 200 else b.text
+                parts.append(f"[thinking: {truncated}]")
             elif isinstance(b, ToolUseBlock):
                 parts.append(f"[tool: {b.name}({b.input})]")
             elif isinstance(b, ToolResultBlock):
