@@ -124,13 +124,16 @@ def classify_llm_error(exc: BaseException) -> RetryDecision:
     )
 
 
-def estimate_input_tokens(messages: list[Message], tools: list[ToolSpec] | None = None) -> int:
+def estimate_input_tokens(messages: list[Message], tools: list[ToolSpec] | None = None, skip_thinking: bool = False) -> int:
     total = 0
     for msg in messages:
         total += 4
         for block in msg.content:
-            if isinstance(block, (TextBlock, ThinkingBlock)):
+            if isinstance(block, TextBlock):
                 total += len(block.text) // 4 + 4
+            elif isinstance(block, ThinkingBlock):
+                if not skip_thinking:
+                    total += len(block.text) // 4 + 4
             elif isinstance(block, ToolUseBlock):
                 total += len(block.name) // 4 + len(json.dumps(block.input, ensure_ascii=False)) // 4 + 8
             elif isinstance(block, ToolResultBlock):

@@ -116,7 +116,7 @@ def test_write_file_creates_file(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "new.txt", "content": "hello"})
-    assert "bytes" in result
+    assert "chars" in result
     assert (ws / "new.txt").read_text(encoding="utf-8") == "hello"
 
 
@@ -133,7 +133,7 @@ def test_write_file_overwrite_true_succeeds(tmp_path):
     (ws / "existing.txt").write_text("old", encoding="utf-8")
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "existing.txt", "content": "new", "overwrite": True})
-    assert "bytes" in result
+    assert "chars" in result
     assert (ws / "existing.txt").read_text(encoding="utf-8") == "new"
 
 
@@ -141,7 +141,7 @@ def test_write_file_creates_parent_dirs(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "a/b/c/deep.txt", "content": "deep"})
-    assert "bytes" in result
+    assert "chars" in result
     assert (ws / "a/b/c/deep.txt").read_text(encoding="utf-8") == "deep"
 
 
@@ -180,13 +180,12 @@ def test_write_file_null_content(tmp_path):
         handler({"path": "x.txt", "content": None})
 
 
-def test_write_file_byte_count_chinese(tmp_path):
+def test_write_file_char_count(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     chinese = "你好世界"
     result = handler({"path": "chinese.txt", "content": chinese})
-    expected_bytes = len(chinese.encode("utf-8"))
-    assert str(expected_bytes) in result
+    assert f"Wrote {len(chinese)} chars" in result
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -345,13 +344,13 @@ def test_patch_path_traversal(tmp_path):
         handler({"path": "../outside.txt", "old_str": "x", "new_str": "y"})
 
 
-def test_patch_byte_count_chinese(tmp_path):
+def test_patch_char_count(tmp_path):
     ws = _ws(tmp_path)
     (ws / "f.txt").write_text("你好世界", encoding="utf-8")
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
     result = handler({"path": "f.txt", "old_str": "你好", "new_str": "hello"})
     after = (ws / "f.txt").read_text(encoding="utf-8")
-    assert str(len(after.encode("utf-8"))) in result
+    assert f"Wrote {len(after)} chars" in result
 
 
 def test_patch_rejects_large_file(tmp_path):

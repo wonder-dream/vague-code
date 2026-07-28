@@ -79,7 +79,7 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
-        return f"Wrote {len(content.encode("utf-8"))} bytes to {path_str}"
+        return f"Wrote {len(content)} chars to {path_str}"
     return handler
 
 def _glob_factory(workdir: str) -> Callable[[dict], str]:
@@ -143,7 +143,7 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
         else:
             new_content = content.replace(old_str, new_str, 1)
         target.write_text(new_content, encoding="utf-8")
-        return f"Wrote {len(new_content.encode("utf-8"))} bytes to {path_str}"
+        return f"Wrote {len(new_content)} chars to {path_str}"
     return handler
 
 def _grep_factory(workdir: str) -> Callable[[dict], str]:

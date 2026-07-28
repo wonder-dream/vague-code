@@ -351,7 +351,7 @@ class Agent:
                             "delay_s": delay,
                             "reason": decision.reason,
                             "exception": type(e).__name__,
-                            "estimated_input_tokens": estimate_input_tokens(messages, self._tool_specs),
+                            "estimated_input_tokens": estimate_input_tokens(messages, self._tool_specs, skip_thinking=skip_thinking),
                         })
                         yield RetryNotice(attempt=retry_index + 1, delay_s=delay, reason=decision.reason)
                         time.sleep(delay)
