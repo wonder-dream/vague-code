@@ -24,6 +24,7 @@ xcode = "src.cli:main"
 dev = [
     "mypy>=2.3.0",
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "ruff>=0.15.22",
 ]
 
@@ -44,6 +45,7 @@ ignore_errors = true
 
 [tool.pytest.ini_options]
 norecursedirs = "_target_bug"
+asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["."]

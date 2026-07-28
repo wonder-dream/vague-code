@@ -54,7 +54,8 @@ class ConversationView(VerticalScroll):
 
     def append_text(self, delta: str) -> None:
         block = self._get_or_create_stream()
-        block.update((block.renderable or "") + delta)
+        current = block._renderable if hasattr(block, '_renderable') else ""
+        block.update(str(current) + delta)
         self.scroll_end(animate=False)
 
     def start_thinking(self) -> None:
@@ -99,10 +100,12 @@ class ConversationView(VerticalScroll):
             style = "dim" if blk.kind == "thinking" else ""
             display = f"[{style}]{full}[/{style}]" if style else full
             blk.widget.update(display)
-            blk.widget.classes = f"{blk.kind}-block expanded"
+            blk.widget.remove_class("collapsed")
+            blk.widget.add_class("expanded")
         else:
             blk.widget.update(blk.summary)
-            blk.widget.classes = f"{blk.kind}-block collapsed"
+            blk.widget.remove_class("expanded")
+            blk.widget.add_class("collapsed")
         blk.collapsed = not blk.collapsed
         self.scroll_end(animate=False)
 
@@ -134,10 +137,10 @@ class ConversationView(VerticalScroll):
     def _set_focus(self, idx: int) -> None:
         if self._current_focus is not None and self._current_focus < len(self._blocks):
             old = self._blocks[self._current_focus]
-            old.widget.classes = old.widget.classes.replace(" focused", "")
+            old.widget.remove_class("focused")
         self._current_focus = idx
         blk = self._blocks[idx]
-        blk.widget.classes += " focused"
+        blk.widget.add_class("focused")
         self.scroll_to_widget(blk.widget)
 
     def toggle_current_expand(self) -> None:
@@ -164,13 +167,14 @@ class ConversationView(VerticalScroll):
         if len(content) > 200:
             header += " — press E to expand"
         self._tool_widget = None
-        widget = Static(f"{header}\n  {display_summary}", classes=cls)
+        display_text = f"{header}\n  {display_summary}"
+        widget = Static(display_text, classes=cls)
         self.mount(widget)
         self._blocks.append(_FoldableBlock(
             widget=widget,
             kind="tool_result",
             full_content=content,
-            summary=widget.renderable,
+            summary=display_text,
             collapsed=True,
             tool_name=tool_name,
             is_error=is_error,
