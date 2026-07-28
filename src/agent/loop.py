@@ -184,6 +184,7 @@ class Agent:
         return handle.trajectory
 
     def start(self, task: str, workdir: str) -> RunHandle:
+        self._workdir = workdir
         run_id = uuid.uuid4().hex[:12]
         traj = Trajectory(run_id=run_id, config=self.config)
         traj.emit(EventType.run_start, payload={
@@ -325,7 +326,7 @@ class Agent:
                                 })
                             else:
                                 traj.emit(EventType.error, turn=turn, payload={"kind": decision.error_kind, "message": str(e)})
-                            traj.emit(EventType.run_end, payload={"reason": decision.terminal_reason})
+                            traj.emit(EventType.run_end, payload={"reason": decision.error_kind})
                             return
 
                         delay = policy.delay(retry_index)
@@ -430,11 +431,7 @@ class Agent:
 
                     if self.config.concurrent_tools and len(allowed_tool_uses) > 1:
                         from src.agent.concurrency import execute_concurrent
-                        workdir = ""
-                        for traj_ev in traj.events:
-                            if traj_ev.type == EventType.run_start:
-                                workdir = traj_ev.payload.get("workdir", "")
-                                break
+                        workdir = getattr(self, "_workdir", "")
                         try:
                             con_results = execute_concurrent(allowed_tool_uses, bound_tools, workdir)
                         except Exception as e:
@@ -473,6 +470,7 @@ class Agent:
 
                     messages.append(Message(role="user", content=tool_results))
                     turn_box[0] += 1
+                    self._checkpoint(traj)
 
             traj.emit(EventType.run_end, payload={"reason": "max_turns"})
         finally:

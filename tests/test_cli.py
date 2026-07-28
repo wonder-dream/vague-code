@@ -334,7 +334,7 @@ class TestCliMockPipeline:
         main(["hi", ".", "--no-retry", "--verbose"])
         result = capsys.readouterr()
         # Agent completes with error, no SystemExit
-        assert "finished, reason: llm_error" in result.err
+        assert "finished, reason: rate_limit" in result.err
 
     def test_non_retryable_error_no_retry(self, monkeypatch, capsys):
         import httpx
@@ -361,7 +361,7 @@ class TestCliMockPipeline:
         main(["hi", ".", "--verbose"])
         result = capsys.readouterr()
         # Exhausted: completes with error, shows retry notices on stdout
-        assert "finished, reason: llm_error" in result.err
+        assert "finished, reason: rate_limit" in result.err
         assert "retry:" in result.out
 
 

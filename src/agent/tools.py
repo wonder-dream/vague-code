@@ -218,7 +218,7 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
         else:
             cwd_path = root
         if not command.strip().lower().startswith("chcp"):
-            command = f"chcp 65001 >nul && {command}"
+            command = f"chcp 65001 >nul & {command}"
         proc = subprocess.Popen(
             command,
             shell=True,

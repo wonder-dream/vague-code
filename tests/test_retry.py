@@ -72,12 +72,12 @@ class TestRetryPolicyDelay:
             delays = [policy.delay(i) for i in range(8)]
             assert delays == [2, 4, 8, 16, 32, 64, 120, 120]
 
-    def test_delay_full_jitter_can_be_zero(self):
+    def test_delay_has_minimum_floor(self):
         policy = RetryPolicy(max_attempts=3)
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(random, "uniform", lambda lo, hi: 0.0)
-            assert policy.delay(0) == 0.0
-            assert policy.delay(1) == 0.0
+            assert policy.delay(0) == 0.5
+            assert policy.delay(1) == 0.5
 
     def test_delay_negative_max_attempts_raises(self):
         with pytest.raises(ValueError, match="retry_max_attempts"):

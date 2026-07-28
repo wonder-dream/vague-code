@@ -567,7 +567,7 @@ def test_agent_loop_catches_non_api_exceptions(tmp_path):
     error = [e for e in traj.events if e.type == EventType.error][0]
     assert error.payload["kind"] == "codec_error"
     assert error.payload["message"] == "codec exploded"
-    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert traj.events[-1].payload["reason"] == "codec_error"
 
 
 def test_persist_failure_writes_recovery_jsonl(tmp_path, monkeypatch):
@@ -846,7 +846,7 @@ def test_retry_disabled(monkeypatch):
     assert any(e.type == EventType.retry for e in traj.events) is False
     error = [e for e in traj.events if e.type == EventType.error][0]
     assert error.payload["kind"] == "rate_limit"
-    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert traj.events[-1].payload["reason"] == "rate_limit"
     assert backend.call_count == 1
 
 
@@ -866,7 +866,7 @@ def test_retry_exhausted(monkeypatch):
     assert error.payload["kind"] == "retry_exhausted"
     assert error.payload["attempts"] == 2
     assert error.payload["last_error_kind"] == "rate_limit"
-    assert traj.events[-1].payload["reason"] == "llm_error"
+    assert traj.events[-1].payload["reason"] == "rate_limit"
     assert backend.call_count == 3
 
 

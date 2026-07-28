@@ -65,9 +65,11 @@ class RetryPolicy:
             max_delay_s=tc.retry_max_delay_s,
         )
 
+    _MIN_DELAY_S: float = 0.5
+
     def delay(self, retry_index: int) -> float:
         cap = min(self.max_delay_s, self.base_s * (2 ** retry_index))
-        return random.uniform(0, cap)
+        return max(self._MIN_DELAY_S, random.uniform(0, cap))
 
 
 def classify_llm_error(exc: BaseException) -> RetryDecision:
