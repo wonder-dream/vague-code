@@ -1,6 +1,6 @@
 # Known Issues & Unfixed Bugs
 
-Last updated: 2026-07-27
+Last updated: 2026-07-28
 
 此文档记录三轮审计后确认但不急修的 LOW-MEDIUM 优先级问题，供后续迭代参考。
 
@@ -139,7 +139,28 @@ Last updated: 2026-07-27
 
 ---
 
-## 已修复记录（本批）
+## 本批修复（2026-07-28 压测）
+
+| 修复 | Bug | 文件 | commit |
+|------|-----|------|--------|
+| 超时异常变量污染（B5） | 🔴 | `concurrency.py` | `b986b0f` |
+| 冲突感知组跳过（B6） | 🟡 | `concurrency.py` | `b986b0f` |
+| dict-based lookup 代替 zip（B1） | 🔴 | `loop.py` | `b986b0f` |
+| Bash 超时输出保留（B8） | 🔴 | `tools.py` | `b986b0f` |
+| 空 rule pattern 跳过（B13） | 🔴 | `permission.py` | `bf28a55` |
+| cp/mv 安全分类（B14） | 🟡 | `permission.py` | `bf28a55` |
+| LIKE 转义顺序（B18） | 🟡 | `memory.py` | `be5435a` |
+| 并发安全连接（B19） | 🟢 | `memory.py` | `be5435a` |
+| 时间衰减排序（B20） | 🟢 | `memory.py` | `be5435a` |
+| from_db 恢复 memory 配置（B21） | 🟡 | `trajectory.py` | `be5435a` |
+| str() 替代 repr() fallback（B22） | 🟢 | `trajectory.py` | `be5435a` |
+| run_end 错误分类保持（B2） | 🟡 | `loop.py` | `e9749a4` |
+| workdir 属性化（B3） | 🟡 | `loop.py` | `e9749a4` |
+| tool 后 checkpoint（B4） | 🟡 | `loop.py` | `e9749a4` |
+| chcp & 代替 &&（B9） | 🟡 | `tools.py` | `e9749a4` |
+| retry 最小延迟 0.5s（B23） | 🟢 | `retry.py` | `e9749a4` |
+
+## 历史修复记录
 
 | 修复 | 文件 | commit |
 |------|------|--------|
@@ -169,7 +190,6 @@ Last updated: 2026-07-27
 
 | # | 领域 | 类型 | 触发条件 | 修复代价 | 优先级 |
 |---|------|------|----------|----------|--------|
-|---|------|------|----------|----------|--------|
 | 1 | stale_snip | 功能少回收 | 多路径 grep | 中 | 低 |
 | 2 | stale_snip | 防御缺失 | malformed 输入 | 低 | 低 |
 | 3 | truncate | 消息时序 | budget 紧张 | 高 | 低 |
@@ -178,3 +198,7 @@ Last updated: 2026-07-27
 | 6 | truncate | 性能 | 超长会话 | 中 | WEEK 4 前 |
 | 7 | trajectory | 事件噪声 | resume 中断 | 零（文档） | 低 |
 | 8 | scripts | 工具缺失 | 评测 | 中 | WEEK 3/4 |
+| 9 | concurrency scope | Windows 路径 | `_pattern_prefix` 不处理 `\\` 分隔符 | 低 | 低 |
+| 10 | glob | 性能 | `path.resolve()` 每次匹配 stat 调用 | 低 | 低 |
+| 11 | patch | 防御缺失 | `.read_text()` 无 `UnicodeDecodeError` 保护 | 低 | 低 |
+| 12 | grep | 性能 | `rglob` 无限递归深度（`node_modules` 等） | 低 | 低 |
