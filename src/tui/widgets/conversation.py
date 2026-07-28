@@ -41,6 +41,7 @@ class ConversationView(VerticalScroll):
         self._thinking_content: list[str] = []
         self._thinking_widget: Static | None = None
         self._tool_widget: Static | None = None
+        self._tool_name: str = ""
         self._tool_args: list[str] = []
         self._streaming_block: Static | None = None
         self._blocks: list[_FoldableBlock] = []
@@ -97,8 +98,12 @@ class ConversationView(VerticalScroll):
         blk = self._blocks[idx]
         if blk.collapsed:
             full = blk.full_content
-            style = "dim" if blk.kind == "thinking" else ""
-            display = f"[{style}]{full}[/{style}]" if style else full
+            if blk.kind == "tool_result":
+                icon = "✗" if blk.is_error else "✓"
+                display = f"  {icon} {blk.tool_name}\n  {full}"
+            else:
+                style = "dim" if blk.kind == "thinking" else ""
+                display = f"[{style}]{full}[/{style}]" if style else full
             blk.widget.update(display)
             blk.widget.remove_class("collapsed")
             blk.widget.add_class("expanded")
@@ -150,6 +155,7 @@ class ConversationView(VerticalScroll):
 
     def start_tool(self, name: str) -> None:
         self._streaming_block = None
+        self._tool_name = name
         self._tool_widget = Static(f"[bold blue]🔧 {name}(...)[/]", classes="tool-call")
         self.mount(self._tool_widget)
         self._tool_args = []
@@ -157,6 +163,12 @@ class ConversationView(VerticalScroll):
 
     def append_tool_args(self, delta: str) -> None:
         self._tool_args.append(delta)
+        if self._tool_widget:
+            combined = "".join(self._tool_args)
+            preview = combined[:80] + ("..." if len(combined) > 80 else "")
+            self._tool_widget.update(
+                f"[bold blue]🔧 {self._tool_name}({preview})[/]"
+            )
 
     def add_tool_result(self, tool_name: str, content: str, is_error: bool) -> None:
         cls = "tool-result-error" if is_error else "tool-result"
@@ -199,6 +211,7 @@ class ConversationView(VerticalScroll):
         self._thinking_content.clear()
         self._thinking_widget = None
         self._tool_widget = None
+        self._tool_name = ""
         self._tool_args.clear()
         self._streaming_block = None
         self._blocks.clear()

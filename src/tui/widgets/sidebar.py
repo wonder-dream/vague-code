@@ -26,10 +26,9 @@ class Sidebar(VerticalScroll):
         self._build_memory()
 
     def refresh(self) -> None:
-        if self._session_list is not None:
-            self._session_list.remove()
-            self._session_list = None
+        self.remove_children()
         self._build_sessions()
+        self._build_memory()
 
     def _build_sessions(self) -> None:
         self.mount(Static("[bold]Recent Sessions[/]", classes="sidebar-header"))

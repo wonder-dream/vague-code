@@ -13,11 +13,7 @@ from src.agent.ir import (
     ToolUseEnd,
     ToolUseStart,
 )
-
-if __name__ == "__main__":
-    from src.tui.widgets.conversation import ConversationView
-else:
-    ConversationView = None  # type: ignore[misc]
+from src.tui.widgets.conversation import ConversationView
 
 
 class TextualStreamVisitor(NullVisitor):

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 from pathlib import Path
 
 from textual import work
@@ -58,6 +57,7 @@ class XClawApp(App):
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
         self._trajectory = None
         self._total_reclaimed = 0
+        self._resume_run_id: str = ""
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -133,11 +133,16 @@ class XClawApp(App):
         sidebar.refresh()
 
     def _thread_permission(self, op: Operation, decision: Decision) -> Decision:
-        future = asyncio.run_coroutine_threadsafe(
-            self._show_permission_async(op),
-            self._loop,
-        )
-        return future.result()
+        if self._loop is None:
+            return Decision.DENY
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._show_permission_async(op),
+                self._loop,
+            )
+            return future.result(timeout=120.0)
+        except Exception:
+            return Decision.DENY
 
     async def _show_permission_async(self, op: Operation) -> Decision:
         dialog = PermissionDialog(op)
@@ -231,16 +236,22 @@ class XClawApp(App):
             SessionDetail(message.run_id, self._config.db_path)
         )
         if result == "resume":
-            await self._do_resume(message.run_id)
+            conv = self.query_one("#conversation", ConversationView)
+            conv.clear()
+            self._total_reclaimed = 0
+            self._resume_run_id = message.run_id
+            self._start_resume_agent()
         elif result == "deleted":
             self.query_one("#sidebar", Sidebar).refresh()
 
-    async def _do_resume(self, run_id: str) -> None:
+    @work(thread=True, exclusive=True)
+    def _start_resume_agent(self) -> None:
+        worker = get_current_worker()
+        if worker.is_cancelled:
+            return
         try:
             from src.agent.trajectory import Trajectory
-            traj = Trajectory.from_db(run_id, self._config.db_path)
-            conv = self.query_one("#conversation", ConversationView)
-            conv.clear()
+            traj = Trajectory.from_db(self._resume_run_id, self._config.db_path)
             agent = Agent(self._config, self._backend)
             agent._on_permission = self._thread_permission
             agent.on_tool_result = self._thread_on_tool_result
@@ -248,10 +259,14 @@ class XClawApp(App):
             for rule in self._load_permission_rules():
                 agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
             self._agent = agent
-            self._trajectory = agent.resume(traj)
-            self.call_from_thread(self._on_run_complete, self._trajectory)
+            self.call_from_thread(self._on_agent_started)
+            traj = agent.resume(traj)
+            self._trajectory = traj
+            self.call_from_thread(self._on_run_complete, traj)
         except Exception as e:
-            self.notify(f"Resume failed: {e}", severity="error")
+            self.call_from_thread(
+                lambda e=e: self.notify(f"Resume failed: {e}", severity="error")
+            )
 
     # ── Command handling ─────────────────────────────────────────────────────
 
@@ -281,11 +296,14 @@ class XClawApp(App):
         if cmd == "/mode":
             if arg in ("safe", "normal", "autoedit", "auto"):
                 self._config.permission_mode = arg
-                self.query_one("#status-bar", StatusBar).mode_info = f"Mode: {arg}"
-                self.notify(f"Permission mode set to: {arg}")
+                status = self.query_one("#status-bar", StatusBar)
+                status.mode_info = f"Mode: {arg}"
                 for w in self.workers:
                     if w.state.name == "RUNNING":
                         w.cancel()
+                status.run_state = "idle"
+                status.turn_info = "Restarting..."
+                self._total_reclaimed = 0
                 self._start_agent()
             else:
                 self.notify(f"Unknown mode: {arg}", severity="error")

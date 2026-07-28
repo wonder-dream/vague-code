@@ -34,7 +34,11 @@ class PermissionDialog(ModalScreen[Decision]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "perm-allow-always":
             self.always_allow = True
-        self.dismiss(Decision.ALLOW if "allow" in (event.button.id or "") else Decision.DENY)
+            self.dismiss(Decision.ALLOW)
+        elif event.button.id == "perm-allow":
+            self.dismiss(Decision.ALLOW)
+        elif event.button.id == "perm-deny":
+            self.dismiss(Decision.DENY)
 
     def on_key(self, event) -> None:
         if event.key in ("y", "Y"):
