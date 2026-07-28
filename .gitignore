@@ -17,3 +17,6 @@ eval/__pycache__/
 src/tui/__pycache__/
 
 tests/tui/__pycache__/
+
+src/tui/screens/__pycache__/
+src/tui/widgets/__pycache__/
