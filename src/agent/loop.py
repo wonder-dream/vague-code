@@ -275,8 +275,11 @@ class Agent:
                     try:
                         from src.agent.context_compress import truncate
                         messages, _ = truncate(messages, budget, self._tool_specs, skip_thinking)
-                    except Exception:
-                        pass
+                    except Exception as _ce:
+                        traj.emit(EventType.error, turn=turn, payload={
+                            "kind": "truncation_fallback_failed",
+                            "message": str(_ce),
+                        })
                 if reports:
                     for r in reports:
                         traj.emit(EventType.compression, turn=turn, payload={
@@ -698,8 +701,11 @@ class Agent:
                 recovery_path.parent.mkdir(parents=True, exist_ok=True)
                 traj.export_jsonl(recovery_path)
                 warnings.warn(f"Trajectory exported to recovery file: {recovery_path}", stacklevel=2)
-            except Exception:
-                pass
+            except Exception as _re:
+                traj.emit(EventType.error, payload={
+                    "kind": "persist_recovery_failed",
+                    "message": str(_re),
+                })
             last = traj.events[-1] if traj.events else None
             if last and last.type != EventType.run_end:
                 traj.emit(EventType.run_end, payload={"reason": "persist_failed"})
