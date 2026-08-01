@@ -5,7 +5,6 @@ from src.agent.context_tokens import count_tokens
 from src.agent.ir import (
     Block,
     Message,
-    TextBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -37,7 +36,7 @@ def test_same_path_twice() -> None:
     result, report = stale_snip(msgs, keep_recent=0)
     assert report.affected == 1
     assert result[1].content[0].meta.get("stale") is True
-    assert "stale" in result[1].content[0].content
+    assert "已过期" in result[1].content[0].content
     assert result[3].content[0].meta.get("stale") is None
 
 
@@ -49,8 +48,8 @@ def test_triple_read_middle_stale() -> None:
     )
     result, report = stale_snip(msgs, keep_recent=0)
     assert report.affected == 2
-    assert "stale" in result[1].content[0].content
-    assert "stale" in result[3].content[0].content
+    assert "已过期" in result[1].content[0].content
+    assert "已过期" in result[3].content[0].content
     assert "stale" not in result[5].content[0].content
 
 
@@ -87,7 +86,7 @@ def test_mixed_read_and_other_tools() -> None:
     result, report = stale_snip(msgs, keep_recent=0)
     # edit should not be treated as a read that makes stale_snip skip
     assert report.affected == 1
-    assert "stale" in result[1].content[0].content
+    assert "已过期" in result[1].content[0].content
 
 
 def test_glob_path_tracked() -> None:
@@ -101,7 +100,7 @@ def test_glob_pattern_snipped() -> None:
     msgs = _glob_pair("c1", "*.py", "old list") + _glob_pair("c2", "*.py", "new list")
     result, report = stale_snip(msgs, keep_recent=0)
     assert report.affected == 1
-    assert "stale" in result[1].content[0].content
+    assert "已过期" in result[1].content[0].content
     assert "stale" not in result[3].content[0].content
 
 
@@ -122,7 +121,7 @@ def test_multiple_tools_in_one_message() -> None:
     ]
     result, report = stale_snip(msgs, keep_recent=0)
     assert report.affected == 1
-    assert "stale" in result[1].content[0].content
+    assert "已过期" in result[1].content[0].content
     assert "stale" not in result[1].content[1].content  # b.py still current
 
 
@@ -138,7 +137,7 @@ def test_interleaved_non_read_tool() -> None:
     result, report = stale_snip(msgs, keep_recent=0)
     # 'edit' tool does NOT make the read stale — read is still stale from c1→c3
     assert report.affected == 1
-    assert "stale" in result[1].content[0].content
+    assert "已过期" in result[1].content[0].content
 
 
 def test_reentry_idempotent() -> None:
@@ -149,7 +148,7 @@ def test_reentry_idempotent() -> None:
     # and preserve the original stale message content
     result2, report2 = stale_snip(result1, keep_recent=0)
     assert report2.affected == 0
-    assert "[stale:" in result2[1].content[0].content
+    assert "[已过期:" in result2[1].content[0].content
 
 
 def test_tokens_decreased() -> None:

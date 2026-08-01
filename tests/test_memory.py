@@ -35,13 +35,29 @@ def test_ingest_empty_content() -> None:
     assert not store.ingest("   ")
 
 
-def test_get_pinned() -> None:
+def test_recent_episodic() -> None:
     store = _make_store()
-    store.ingest("User prefers dark mode in editor.", kind="pinned")
-    store.ingest("A random episodic fact.", kind="episodic")
-    pinned = store.get_pinned()
-    assert len(pinned) == 1
-    assert "dark mode" in pinned[0]["content"]
+    store.ingest("Older episodic fact.", kind="episodic")
+    store.ingest("Newer episodic fact.", kind="episodic")
+    store.ingest("Not episodic.", kind="pinned")
+    recent = store.recent(kind="episodic", limit=5)
+    assert len(recent) == 2
+    assert "Newer" in recent[0]["content"]  # newest first
+    assert "Not episodic" not in " ".join(r["content"] for r in recent)
+
+
+def test_recent_limits() -> None:
+    store = _make_store()
+    for i in range(5):
+        store.ingest(f"fact {i}", kind="episodic")
+    recent = store.recent(kind="episodic", limit=2)
+    assert len(recent) == 2
+    assert recent[0]["content"] == "fact 4"
+
+
+def test_recent_empty_db() -> None:
+    store = _make_store()
+    assert store.recent(kind="episodic", limit=5) == []
 
 
 def test_search_no_results() -> None:
@@ -71,13 +87,13 @@ def test_persist_reload() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         db_path = str(Path(tmp) / "memory.db")
         store1 = MemoryStore(db_path)
-        store1.ingest("Test memory persistence.", kind="pinned")
+        store1.ingest("Test memory persistence.", kind="episodic")
         store1.close()
 
         store2 = MemoryStore(db_path)
-        pinned = store2.get_pinned()
-        assert len(pinned) == 1
-        assert "persistence" in pinned[0]["content"]
+        recent = store2.recent(kind="episodic", limit=5)
+        assert len(recent) == 1
+        assert "persistence" in recent[0]["content"]
         store2.close()
 
 

@@ -1,11 +1,6 @@
 from __future__ import annotations
 
-from src.agent.context_compress import (
-    compress_chain,
-    stale_snip,
-    microcompact,
-    truncate,
-)
+from src.agent.context_compress import compress_chain
 from src.agent.config import CompressionConfig
 from src.agent.context_tokens import compute_budget, count_tokens
 from src.agent.ir import (
@@ -96,7 +91,6 @@ def test_auto_compact_triggered():
 
 
 def test_truncation_triggered():
-    backend = _FakeBackend()
     msgs = _make_session(10)
     budget = count_tokens(msgs[:4], skip_thinking=True) + 20
     cfg = CompressionConfig(

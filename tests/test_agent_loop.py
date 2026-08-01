@@ -130,7 +130,7 @@ def test_start_includes_system_message():
     msgs = traj.to_messages()
     assert len(msgs) >= 2
     assert msgs[0].role == "system"
-    assert "You are Xcode" in msgs[0].content[0].text
+    assert "XClaw" in msgs[0].content[0].text
     assert msgs[1].role == "user"
 
 
@@ -425,6 +425,7 @@ def test_empty_tools_registry():
 
     config = AgentConfig(max_turns=5)
     config.memory.enabled = False  # disable memory_search tool spec injection
+    config.repo_map.enabled = False  # disable code_search tool spec injection
     agent = Agent(config, _RecordingBackend(), tools={})
     assert agent._tool_specs == []
     agent.run("x", ".")
@@ -486,7 +487,7 @@ def test_read_file_rejects_null_byte_path(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
-    with pytest.raises(ValueError, match="null"):
+    with pytest.raises(ValueError, match="空字节|null"):
         handler({"path": "foo\x00.txt"})
 
 
@@ -502,7 +503,7 @@ def test_read_file_truncates_large_file(tmp_path):
         handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
         result = handler({"path": "big.txt"})
         assert len(result) > 1000
-        assert "truncated" in result
+        assert "截断" in result
     finally:
         tmod.MAX_READ_BYTES = original_max
 

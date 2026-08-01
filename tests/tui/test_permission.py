@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from textual.app import App, ComposeResult
 
-from src.agent.permission import Decision, Operation
+from src.agent.permission import Operation
 from src.tui.screens.permission import PermissionDialog
 
 

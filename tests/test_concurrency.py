@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
+from typing import Callable
 
 from src.agent.concurrency import (
     OpType,
@@ -13,7 +13,7 @@ from src.agent.concurrency import (
     execute_concurrent,
     schedule,
 )
-from src.agent.ir import ToolResultBlock, ToolUseBlock
+from src.agent.ir import ToolUseBlock
 
 
 # ── _pattern_prefix ─────────────────────────────────────────────────────────
@@ -89,6 +89,30 @@ def test_scope_bash() -> None:
     s = _extract_scope(call, "/ws")
     assert s.op_type == OpType.WRITE
     assert s.scope_type == ScopeType.WORKSPACE
+
+
+def test_scope_code_search() -> None:
+    call = ToolUseBlock(id="c1", name="code_search", input={"query": "calculate"})
+    s = _extract_scope(call, "/ws")
+    assert s.op_type == OpType.READ
+    assert s.scope_type == ScopeType.EXACT
+    assert s.path == ""
+
+
+def test_scope_code_search_with_path() -> None:
+    call = ToolUseBlock(id="c1", name="code_search", input={"query": "foo", "path": "src/"})
+    s = _extract_scope(call, "/ws")
+    assert s.op_type == OpType.READ
+    assert s.scope_type == ScopeType.EXACT
+    assert s.path == "src/"
+
+
+def test_code_search_reads_do_not_conflict() -> None:
+    a = _extract_scope(
+        ToolUseBlock(id="c1", name="code_search", input={"query": "foo"}), "/ws")
+    b = _extract_scope(
+        ToolUseBlock(id="c1", name="code_search", input={"query": "bar"}), "/ws")
+    assert not _scopes_conflict(a, b)
 
 
 def test_scope_unknown_tool() -> None:
@@ -224,7 +248,7 @@ def test_execute_unknown_tool() -> None:
     results = execute_concurrent([call], {}, "/ws")
     assert len(results) == 1
     assert results[0].is_error
-    assert "Unknown" in results[0].content
+    assert "未知工具" in results[0].content
 
 
 def test_execute_handler_raises_exception() -> None:
@@ -257,16 +281,14 @@ def test_execute_failure_propagation() -> None:
     assert results[0].is_error
     assert "RuntimeError" in results[0].content
     assert results[1].is_error
-    assert "skipped" in results[1].content
+    assert "已跳过" in results[1].content
 
 
 def test_execute_concurrent_faster_than_serial(tmp_path: Path) -> None:
-    # Two slow handlers that sleep — they should overlap in time
+    # Can't easily test concurrency without bash isolation or using read-only
+    # Just verify it runs without error
     calls = [
         ToolUseBlock(id="c1", name="bash", input={"command": "sleep"}),  # will be WORKSPACE → serial
     ]
-    handlers = {"read_file": lambda inp: time.sleep(0.3) or "ok"}
-    # Can't easily test concurrency without bash isolation or using read-only
-    # Just verify it runs without error
     results = execute_concurrent(calls, {}, str(tmp_path))
     assert len(results) == 1
