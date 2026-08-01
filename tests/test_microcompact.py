@@ -34,7 +34,7 @@ def test_long_content_compacted() -> None:
     result, report = microcompact(msgs, max_chars=100, keep_recent=0)
     assert report.affected == 1
     compacted = result[1].content[0].content
-    assert "[compacted:" in compacted
+    assert "[已压缩:" in compacted
     assert "--- head" in compacted
     assert "--- tail" in compacted
     assert "line 1" in compacted  # head preserved
@@ -63,8 +63,8 @@ def test_keep_recent_immune() -> None:
     result, report = microcompact(msgs, max_chars=100, keep_recent=1)
     assert report.affected == 1
     # First pair (c1) should be compacted, second (c2) protected
-    assert "[compacted:" in result[1].content[0].content
-    assert "[compacted:" not in result[3].content[0].content
+    assert "[已压缩:" in result[1].content[0].content
+    assert "[已压缩:" not in result[3].content[0].content
 
 
 def test_mixed_content_types() -> None:

@@ -38,7 +38,7 @@ def test_read_file_not_found(tmp_path):
 def test_read_file_empty_path(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="需要提供路径"):
         handler({"path": ""})
 
 
@@ -62,7 +62,7 @@ def test_read_file_path_traversal_blocked(tmp_path):
 def test_read_file_rejects_null_byte(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
-    with pytest.raises(ValueError, match="null"):
+    with pytest.raises(ValueError, match="空字节|null"):
         handler({"path": "foo\x00.txt"})
 
 
@@ -76,8 +76,8 @@ def test_read_file_truncates_large_file(tmp_path):
         tmod.MAX_READ_BYTES = 1000
         handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
         result = handler({"path": "big.txt"})
-        assert "truncated" in result
-        assert "total file size" in result
+        assert "截断" in result
+        assert "文件总大小" in result
     finally:
         tmod.MAX_READ_BYTES = orig
 
@@ -102,7 +102,7 @@ def test_read_file_byte_truncation_chinese(tmp_path):
         tmod.MAX_READ_BYTES = 100
         handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
         result = handler({"path": "chinese.txt"})
-        assert "truncated at " in result
+        assert "截断于" in result
         assert "100" in result
     finally:
         tmod.MAX_READ_BYTES = orig
@@ -116,7 +116,7 @@ def test_write_file_creates_file(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "new.txt", "content": "hello"})
-    assert "chars" in result
+    assert "字符" in result
     assert (ws / "new.txt").read_text(encoding="utf-8") == "hello"
 
 
@@ -133,7 +133,7 @@ def test_write_file_overwrite_true_succeeds(tmp_path):
     (ws / "existing.txt").write_text("old", encoding="utf-8")
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "existing.txt", "content": "new", "overwrite": True})
-    assert "chars" in result
+    assert "字符" in result
     assert (ws / "existing.txt").read_text(encoding="utf-8") == "new"
 
 
@@ -141,7 +141,7 @@ def test_write_file_creates_parent_dirs(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "a/b/c/deep.txt", "content": "deep"})
-    assert "chars" in result
+    assert "字符" in result
     assert (ws / "a/b/c/deep.txt").read_text(encoding="utf-8") == "deep"
 
 
@@ -155,14 +155,14 @@ def test_write_file_path_traversal_blocked(tmp_path):
 def test_write_file_null_byte_path(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
-    with pytest.raises(ValueError, match="null"):
+    with pytest.raises(ValueError, match="空字节|null"):
         handler({"path": "bad\x00.txt", "content": "nope"})
 
 
 def test_write_file_empty_path(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="需要提供路径"):
         handler({"path": "", "content": "x"})
 
 
@@ -185,7 +185,7 @@ def test_write_file_char_count(tmp_path):
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     chinese = "你好世界"
     result = handler({"path": "chinese.txt", "content": chinese})
-    assert f"Wrote {len(chinese)} chars" in result
+    assert f"已将 {len(chinese)} 字符写入" in result
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -240,7 +240,7 @@ def test_glob_null_pattern(tmp_path):
 def test_glob_empty_pattern(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["glob"].bind(str(ws))
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="需要提供模式"):
         handler({"pattern": ""})
 
 
@@ -252,7 +252,7 @@ def test_glob_truncation(tmp_path):
     result = handler({"pattern": "*.py"})
     lines = result.splitlines()
     assert len(lines) <= 1001
-    assert "truncated" in result
+    assert "截断" in result
 
 
 def test_glob_blocks_path_traversal(tmp_path):
@@ -285,7 +285,7 @@ def test_patch_old_str_not_found(tmp_path):
     ws = _ws(tmp_path)
     (ws / "f.txt").write_text("hello", encoding="utf-8")
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
-    with pytest.raises(ValueError, match="not found"):
+    with pytest.raises(ValueError, match="未找到字符串"):
         handler({"path": "f.txt", "old_str": "xyz", "new_str": "abc"})
 
 
@@ -293,7 +293,7 @@ def test_patch_multiple_occurrences(tmp_path):
     ws = _ws(tmp_path)
     (ws / "f.txt").write_text("a a a", encoding="utf-8")
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
-    with pytest.raises(ValueError, match="more context"):
+    with pytest.raises(ValueError, match="请添加更多上下文"):
         handler({"path": "f.txt", "old_str": "a", "new_str": "b"})
 
 
@@ -309,7 +309,7 @@ def test_patch_old_str_empty(tmp_path):
     ws = _ws(tmp_path)
     (ws / "f.txt").write_text("hello", encoding="utf-8")
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="需要提供 old_str"):
         handler({"path": "f.txt", "old_str": "", "new_str": "x"})
 
 
@@ -350,7 +350,7 @@ def test_patch_char_count(tmp_path):
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
     result = handler({"path": "f.txt", "old_str": "你好", "new_str": "hello"})
     after = (ws / "f.txt").read_text(encoding="utf-8")
-    assert f"Wrote {len(after)} chars" in result
+    assert f"已将 {len(after)} 字符写入" in result
 
 
 def test_patch_rejects_large_file(tmp_path):
@@ -360,7 +360,7 @@ def test_patch_rejects_large_file(tmp_path):
     f.write_text(big_content, encoding="utf-8")
     assert f.stat().st_size > 1_048_576
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
-    with pytest.raises(ValueError, match="too large"):
+    with pytest.raises(ValueError, match="文件过大"):
         handler({"path": "big.py", "old_str": "x = 1", "new_str": "y = 1"})
 
 
@@ -389,7 +389,7 @@ def test_grep_invalid_regex(tmp_path):
     (ws / "f.txt").write_text("hello", encoding="utf-8")
     handler = DEFAULT_TOOLS["grep"].bind(str(ws))
     result = handler({"pattern": r"["})
-    assert "Invalid regex" in result
+    assert "正则表达式格式错误" in result
 
 
 def test_grep_multiple_matches_in_file(tmp_path):
@@ -458,7 +458,7 @@ def test_grep_null_pattern(tmp_path):
 def test_grep_empty_pattern(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["grep"].bind(str(ws))
-    with pytest.raises(ValueError, match="non-empty"):
+    with pytest.raises(ValueError, match="非空字符串"):
         handler({"pattern": ""})
 
 
@@ -503,7 +503,7 @@ def test_grep_output_truncation(tmp_path):
         result = handler({"pattern": r"^x_"})
         lines = result.splitlines()
         assert len(lines) <= 12
-        assert "truncated" in result
+        assert "截断" in result
     finally:
         tmod.MAX_GREP_RESULTS = orig
 
@@ -540,7 +540,7 @@ def test_grep_file_count_truncation(tmp_path):
         tmod.MAX_GREP_FILE_COUNT = 50
         handler = DEFAULT_TOOLS["grep"].bind(str(ws))
         result = handler({"pattern": r"^x_"})
-        assert "truncated at 50 files" in result
+        assert "已截断于 50 个文件" in result
     finally:
         tmod.MAX_GREP_FILE_SIZE = orig_size
         tmod.MAX_GREP_FILE_COUNT = orig_count
@@ -555,28 +555,28 @@ def test_bash_simple_command(tmp_path):
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     result = handler({"command": "echo hello"})
     assert "hello" in result
-    assert "exit code: 0" in result
+    assert "退出码: 0" in result
 
 
 def test_bash_exit_code_in_output(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     result = handler({"command": "echo hello"})
-    assert "exit code: 0" in result
+    assert "退出码: 0" in result
 
 
 def test_bash_nonzero_exit_code(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     result = handler({"command": "cmd /c exit 1"})
-    assert "exit code: 1" in result
+    assert "退出码: 1" in result
 
 
 def test_bash_stderr_captured(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     result = handler({"command": "echo error 1>&2"})
-    assert "stderr" in result
+    assert "标准错误输出" in result
     assert "error" in result
 
 
@@ -600,7 +600,7 @@ def test_bash_timeout_raises(tmp_path, monkeypatch):
 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     monkeypatch.setattr(subprocess, "run", lambda *a, **kw: type("R", (), {"returncode": 0})())
-    with pytest.raises(RuntimeError, match="timed out"):
+    with pytest.raises(RuntimeError, match="超时"):
         handler({"command": "echo hi"})
 
 
@@ -612,7 +612,7 @@ def test_bash_output_truncation(tmp_path):
         tmod.MAX_OUTPUT = 10
         handler = DEFAULT_TOOLS["bash"].bind(str(ws))
         result = handler({"command": "echo hello world"})
-        assert "truncated" in result
+        assert "截断" in result
     finally:
         tmod.MAX_OUTPUT = orig
 
@@ -644,7 +644,7 @@ def test_bash_null_command(tmp_path):
 def test_bash_empty_command(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
-    with pytest.raises(ValueError, match="required"):
+    with pytest.raises(ValueError, match="需要提供命令"):
         handler({"command": ""})
 
 

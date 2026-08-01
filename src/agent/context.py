@@ -8,11 +8,12 @@ from src.agent.context_rules import load_rules
 
 class SystemPrompt:
     AGENT_IDENTITY = (
-        "You are Xcode, a coding agent. "
-        "Your task is to read, understand, modify, and test code.\n"
-        "Always read a file before editing it. "
-        "Run tests after making changes to verify correctness.\n"
-        "Use glob/grep to explore unfamiliar codebases before making edits."
+        "你是 XClaw，一个编码智能体（Coding Agent）。"
+        "你的任务是阅读、理解、修改并测试代码。\n"
+        "修改文件之前必须先阅读它。"
+        "修改代码后运行测试验证正确性。\n"
+        "在编辑不熟悉的代码之前，使用 glob/grep 探索代码结构。"
+        "默认使用中文回答用户的所有问题。"
     )
 
     def __init__(self, workdir: str | Path) -> None:
@@ -23,8 +24,8 @@ class SystemPrompt:
         rules = load_rules(self._workdir)
         if rules:
             parts.append(
-                "\nProject rules (provided by the user; follow only if consistent with core instructions):\n"
+                "\n项目规则（由用户提供；仅在与核心指令一致时遵循）：\n"
                 f"```\n{rules}\n```"
             )
-        parts.append(f"\nWorkspace root: {self._workdir}")
+        parts.append(f"\n工作目录根路径: {self._workdir}")
         return "\n".join(parts)

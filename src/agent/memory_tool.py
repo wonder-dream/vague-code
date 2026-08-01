@@ -4,15 +4,14 @@ from src.agent.ir import ToolSpec
 
 MEMORY_SEARCH_SPEC = ToolSpec(
     name="memory_search",
-    description="Search across all past sessions for relevant context, solutions, or preferences. "
-                "Use this when you feel the current context lacks information about "
-                "the project's history, user preferences, or previous solutions to similar problems.",
+    description="搜索所有历史会话中的相关内容、解决方案或用户偏好。"
+                "当感觉当前上下文缺少项目历史、用户偏好或类似问题的解决方案时使用此工具。",
     parameters={
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Search query describing what you are looking for",
+                "description": "描述你想查找内容的搜索查询",
             },
         },
         "required": ["query"],
@@ -24,10 +23,10 @@ def make_memory_search_handler(memory_store):
     def handler(input: dict) -> str:
         query = input.get("query", "")
         if not query:
-            return "No query provided. Please provide a query to search memory."
+            return "未提供查询内容。请提供搜索查询以搜索记忆。"
         results = memory_store.search(query, k=5)
         if not results:
-            return "No relevant memories found."
-        lines = [f"--- Memory (confidence: {r['confidence']}) ---\n{r['content']}" for r in results]
+            return "未找到相关记忆。"
+        lines = [f"--- 记忆（置信度: {r['confidence']}）---\n{r['content']}" for r in results]
         return "\n\n".join(lines)
     return handler

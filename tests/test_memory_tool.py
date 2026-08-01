@@ -10,14 +10,14 @@ def test_handler_returns_results() -> None:
     handler = make_memory_search_handler(store)
     result = handler({"query": "TypeScript"})
     assert "TypeScript" in result
-    assert "Memory" in result
+    assert "记忆" in result
 
 
 def test_handler_empty_query() -> None:
     store = MemoryStore(":memory:")
     handler = make_memory_search_handler(store)
     result = handler({"query": ""})
-    assert "No query provided" in result
+    assert "未提供查询内容" in result
 
 
 def test_handler_no_results() -> None:
@@ -25,7 +25,7 @@ def test_handler_no_results() -> None:
     store.ingest("Python is great.")
     handler = make_memory_search_handler(store)
     result = handler({"query": "Rust"})
-    assert "No relevant" in result
+    assert "未找到相关记忆" in result
 
 
 def test_handler_multiple_results() -> None:

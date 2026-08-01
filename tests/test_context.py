@@ -8,13 +8,13 @@ from src.agent.context import SystemPrompt
 def test_identity_section_present() -> None:
     sp = SystemPrompt(Path.cwd())
     result = sp.build()
-    assert "You are Xcode" in result
+    assert "XClaw" in result
 
 
 def test_session_includes_workdir() -> None:
     sp = SystemPrompt("/home/project")
     result = sp.build()
-    assert "Workspace root:" in result
+    assert "工作目录根路径:" in result
     assert "project" in result
 
 

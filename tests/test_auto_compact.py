@@ -71,7 +71,7 @@ def test_rebuild_structure() -> None:
     result, report = auto_compact(msgs, backend, "test-model", keep_turns=2)
     assert report.affected > 0
     assert result[0].role == "system"
-    assert "[Session summary]" in result[1].content[0].text
+    assert "[会话摘要]" in result[1].content[0].text
     assert "All green" in result[-1].content[0].text
     assert report.detail.get("original_messages", 0) > 0
 

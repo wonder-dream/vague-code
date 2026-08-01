@@ -50,7 +50,7 @@ def _print_separator(title: str) -> None:
 def verify_text_only(backend) -> None:
     _print_separator("Test 1: 纯文本往返")
     messages = [
-        Message(role="user", content="Say 'Hello from Anthropic codec!' in Chinese."),
+        Message(role="user", content="用中文说'你好，来自 Anthropic codec！'。"),
     ]
     config = {"model": "deepseek-v4-flash", "max_tokens": 800, "temperature": 0.0}
     response = backend.complete(messages, config=config)
@@ -72,18 +72,18 @@ def verify_tool_call(backend) -> None:
     tools = [
         ToolSpec(
             name="read_file",
-            description="Read the content of a file at the given path",
+            description="读取指定路径的文件内容",
             parameters={
                 "type": "object",
                 "properties": {
-                    "path": {"type": "string", "description": "File path"},
+                    "path": {"type": "string", "description": "文件路径"},
                 },
                 "required": ["path"],
             },
         ),
     ]
     messages = [
-        Message(role="user", content="Read the file 'hello.txt'."),
+        Message(role="user", content="读取 'hello.txt' 文件。"),
     ]
     config = {"model": "deepseek-v4-flash", "max_tokens": 2000, "temperature": 0.0}
     response = backend.complete(messages, tools=tools, config=config)
@@ -108,7 +108,7 @@ def verify_tool_call(backend) -> None:
 def verify_stream_text(backend) -> None:
     _print_separator("Test 3: 流式文本输出")
     messages = [
-        Message(role="user", content="Count from 1 to 5, separated by commas."),
+        Message(role="user", content="从 1 数到 5，用逗号分隔。"),
     ]
     config = {"model": "deepseek-v4-flash", "max_tokens": 500, "temperature": 0.0}
 

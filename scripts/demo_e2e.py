@@ -150,7 +150,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
     config = AgentConfig(max_turns=12)
     agent = Agent(config, DemoBackend())
-    traj = agent.run("Fix all bugs", tmpdir)
+    traj = agent.run("修复所有 Bug", tmpdir)
 
     print("=" * 60)
     print("  EXECUTION TRAJECTORY")
