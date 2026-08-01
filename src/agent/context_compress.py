@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from enum import Enum
 
 from src.agent.context_tokens import count_tokens
 from src.agent.ir import (
@@ -26,6 +27,8 @@ class LayerReport:
 
 
 _READ_TOOLS = frozenset({"read", "read_file", "glob", "grep"})
+
+_SUBTASK_ACTION_TOOLS = frozenset({"read_file", "write_file", "patch", "glob", "grep"})
 
 _HEAD_LINES = 20
 _TAIL_LINES = 10
@@ -122,7 +125,7 @@ def stale_snip(
         for _, _, result_block in entries[:-1]:
             result_block.meta["stale"] = True
             result_block.meta["original_stale_content"] = result_block.content
-            result_block.content = f"[stale: superseded by later {tool_name} of {path}]"
+            result_block.content = f"[已过期: 被后续 {tool_name} 的 {path} 覆盖]"
             affected += 1
 
     after = count_tokens(msgs, tools, skip_thinking=skip_thinking)
@@ -179,14 +182,14 @@ def microcompact(
                     if head_n + tail_n >= total_lines and len(block.content) > max_chars:
                         half = max_chars // 2
                         compacted = (
-                            f"[compacted: {len(block.content)} chars, {total_lines} lines]"
+                            f"[已压缩: {len(block.content)} 字符, {total_lines} 行]"
                             f"\n{block.content[:half]}"
-                            f"\n...[{total_lines} lines, {len(block.content)} total chars]..."
+                            f"\n...[{total_lines} 行, 共 {len(block.content)} 字符]..."
                             f"\n{block.content[-half:]}"
                         )
                     else:
                         compacted = (
-                            f"[compacted: {len(block.content)} chars, {total_lines} lines]"
+                            f"[已压缩: {len(block.content)} 字符, {total_lines} 行]"
                             f"\n--- head ({head_n} lines) ---\n{head}"
                             f"\n--- tail ({tail_n} lines) ---\n{tail}"
                         )
@@ -208,13 +211,245 @@ def microcompact(
     )
 
 
+# ── Layer 2.5: structured_snip (trajectory-driven) ─────────────────────────
+
+@dataclass
+class _Subtask:
+    """A closed read→modify→verify cycle identified from trajectory events."""
+
+    start_turn: int
+    end_turn: int
+    tool_use_ids: set[str]
+
+
+def _norm_event(ev) -> dict:
+    """Normalize an Event (dataclass) or a plain dict into a uniform shape."""
+    if isinstance(ev, dict):
+        etype = ev.get("type")
+        if isinstance(etype, Enum):
+            etype = etype.value
+        return {
+            "type": str(etype),
+            "turn": ev.get("turn"),
+            "payload": ev.get("payload") or {},
+        }
+    etype = getattr(ev, "type", None)
+    if isinstance(etype, Enum):
+        etype = etype.value
+    return {
+        "type": str(etype),
+        "turn": getattr(ev, "turn", None),
+        "payload": getattr(ev, "payload", None) or {},
+    }
+
+
+def _tool_use_id(ev: dict) -> str | None:
+    payload = ev["payload"]
+    tid = payload.get("id") or payload.get("tool_use_id")
+    return tid if isinstance(tid, str) else None
+
+
+def _is_success_bash(ev: dict) -> bool:
+    """True if this tool_result reflects a successful bash (exit 0, not an error)."""
+    if ev["type"] != "tool_result":
+        return False
+    payload = ev["payload"]
+    if payload.get("is_error"):
+        return False
+    content = payload.get("content") or ""
+    return "退出码: 0" in content
+
+
+def _is_action_tool(name: str) -> bool:
+    return name in _SUBTASK_ACTION_TOOLS
+
+
+def _detect_subtasks(events: list) -> list[_Subtask]:
+    """Scan trajectory events and return closed read→modify→verify subtasks.
+
+    A subtask opens at the first action tool after the previous successful bash
+    (or the first turn), and closes at a successful bash (exit 0, not error).
+    Turns opened but not yet closed are "in progress" and are excluded.
+    """
+    normalized = [_norm_event(ev) for ev in events]
+
+    # tool_use_id -> (turn, name, input)
+    calls: dict[str, tuple[int, str, dict]] = {}
+
+    # per-turn: which action tools ran, and did a successful bash occur
+    turn_actions: dict[int, set[str]] = {}
+    turn_success_bash: set[int] = set()
+
+    for ev in normalized:
+        tid = _tool_use_id(ev)
+        if not tid:
+            continue
+        turn = ev["turn"]
+        if turn is None:
+            continue
+        if ev["type"] == "tool_call":
+            name = ev["payload"].get("name") or ""
+            calls[tid] = (turn, name, ev["payload"].get("input") or {})
+        elif ev["type"] == "tool_result":
+            if tid in calls:
+                turn, name, _inp = calls[tid]
+                if _is_action_tool(name):
+                    turn_actions.setdefault(turn, set()).add(name)
+                if _is_success_bash(ev) and name == "bash":
+                    turn_success_bash.add(turn)
+
+    if not turn_actions:
+        return []
+
+    subtasks: list[_Subtask] = []
+    work_start: int | None = None
+
+    for turn in sorted(set(list(turn_actions.keys()) + list(turn_success_bash))):
+        if turn in turn_actions and work_start is None:
+            work_start = turn
+        if turn in turn_success_bash:
+            if work_start is not None:
+                subtask_ids = {
+                    tid for tid, (t, _n, _i) in calls.items() if work_start <= t <= turn
+                }
+                subtasks.append(_Subtask(work_start, turn, subtask_ids))
+            work_start = None
+
+    return subtasks
+
+
+def _subtask_summary(calls: dict[str, tuple[int, str, dict]], subtask: _Subtask) -> list[str]:
+    """Generate semantic summary lines for a subtask from tool call inputs."""
+    lines: list[str] = []
+    ordered = sorted(
+        ((tid, info) for tid, info in calls.items() if tid in subtask.tool_use_ids),
+        key=lambda item: (item[1][0], 0),
+    )
+    for tid, (turn, name, inp) in ordered:
+        if name == "read_file":
+            lines.append(f"  read_file: {inp.get('path', '?')}")
+        elif name == "glob":
+            lines.append(f"  glob: {inp.get('pattern', '?')}")
+        elif name == "grep":
+            lines.append(f"  grep: {inp.get('pattern', '?')}")
+        elif name == "write_file":
+            lines.append(f"  write_file: {inp.get('path', '?')}")
+        elif name == "patch":
+            old_s = str(inp.get("old_str", ""))[:40]
+            new_s = str(inp.get("new_str", ""))[:40]
+            lines.append(f"  patch: {inp.get('path', '?')} {old_s!r} -> {new_s!r}")
+        elif name == "bash":
+            cmd = str(inp.get("command", ""))[:80]
+            lines.append(f"  bash: {cmd}")
+    return lines
+
+
+def structured_snip(
+    messages: list[Message],
+    events: list | None = None,
+    keep_recent: int = 3,
+    tools: list | None = None,
+    skip_thinking: bool = True,
+) -> tuple[list[Message], LayerReport]:
+    """Replace completed read→modify→verify subtasks with a structured summary.
+
+    Zero LLM cost: uses only the structured trajectory events (tool_call /
+    tool_result payloads). Closed subtasks older than the most recent
+    ``keep_recent`` are collapsed into a single user summary message, keeping
+    tool_use/tool_result pairs atomic. When ``events`` is None (backward
+    compatible call sites) the layer passes through untouched.
+    """
+    msgs = deepcopy(messages)
+    before = count_tokens(msgs, tools, skip_thinking=skip_thinking)
+
+    if not events:
+        return msgs, LayerReport(
+            layer="structured_snip",
+            before_tokens=before,
+            after_tokens=before,
+            affected=0,
+            skip_thinking=skip_thinking,
+            detail={"skipped": "no_events"},
+        )
+
+    normalized = [_norm_event(ev) for ev in events]
+    calls: dict[str, tuple[int, str, dict]] = {}
+    for ev in normalized:
+        tid = _tool_use_id(ev)
+        if tid and ev["type"] == "tool_call":
+            calls[tid] = (
+                ev["turn"] or 0,
+                ev["payload"].get("name") or "",
+                ev["payload"].get("input") or {},
+            )
+
+    subtasks = _detect_subtasks(events)
+    if not subtasks:
+        return msgs, LayerReport(
+            layer="structured_snip",
+            before_tokens=before,
+            after_tokens=before,
+            affected=0,
+            skip_thinking=skip_thinking,
+            detail={"skipped": "no_closed_subtasks"},
+        )
+
+    compressible = subtasks[:-keep_recent] if keep_recent > 0 else subtasks
+
+    pairs = _find_pairs(msgs)
+    affected = 0
+
+    # Compress newest-first so pair indices stay valid while slicing.
+    for subtask in reversed(compressible):
+        # Collect message-pair indices whose assistant ToolUseBlocks all belong
+        # to this subtask (i.e. the whole pair is inside the closed cycle).
+        matched: list[tuple[int, int]] = []
+        for asst_idx, user_idx in pairs:
+            asst_msg = msgs[asst_idx]
+            block_ids = {
+                b.id for b in asst_msg.content if isinstance(b, ToolUseBlock)
+            }
+            if block_ids and block_ids <= subtask.tool_use_ids:
+                matched.append((asst_idx, user_idx))
+        if not matched:
+            continue
+
+        summary_lines = _subtask_summary(calls, subtask)
+        if not summary_lines:
+            continue
+
+        first_a, _ = matched[0]
+        _, last_u = matched[-1]
+        header = f"[已完成子任务 (turn {subtask.start_turn}-{subtask.end_turn})]"
+        summary_text = header + "\n" + "\n".join(summary_lines)
+        summary_block = TextBlock(text=summary_text)
+        summary_block.meta["compacted_by"] = "structured_snip"
+        summary_block.meta["turn_range"] = [subtask.start_turn, subtask.end_turn]
+        msgs = msgs[:first_a] + [Message(role="user", content=[summary_block])] + msgs[last_u + 1:]
+        affected += len(matched)
+        pairs = _find_pairs(msgs)
+
+    after = count_tokens(msgs, tools, skip_thinking=skip_thinking)
+    return msgs, LayerReport(
+        layer="structured_snip",
+        before_tokens=before,
+        after_tokens=after,
+        affected=affected,
+        skip_thinking=skip_thinking,
+        detail={
+            "subtasks_detected": len(subtasks),
+            "subtasks_compressed": sum(1 for s in compressible),
+        },
+    )
+
+
 # ── Layer 3: auto_compact ──────────────────────────────────────────────────
 
 _SUMMARIZE_PROMPT = (
-    "You are a summarization engine. Summarize the coding session below concisely.\n"
-    "Include: the user's original task, what has been done so far, "
-    "key file paths and changes made, pending work, and any errors or blockers.\n"
-    "The summary will be used to continue the session."
+    "你是一个摘要引擎。简洁地总结以下编码会话。\n"
+    "包含：用户的原始任务、目前已完成的工作、"
+    "关键文件路径和修改内容、待完成的工作、以及任何错误或阻塞。\n"
+    "该摘要将用于继续会话。"
 )
 
 
@@ -315,7 +550,7 @@ def auto_compact(
             summary_text += block.text
 
     if resp.stop_reason == StopReason.max_tokens:
-        summary_text += "\n[summary truncated]"
+        summary_text += "\n[摘要已截断]"
 
     if not summary_text.strip():
         return msgs, LayerReport(
@@ -330,7 +565,7 @@ def auto_compact(
     reconstructed: list[Message] = []
     if system:
         reconstructed.append(system)
-    reconstructed.append(Message(role="user", content=[TextBlock(text=f"[Session summary]\n{summary_text}")]))
+    reconstructed.append(Message(role="user", content=[TextBlock(text=f"[会话摘要]\n{summary_text}")]))
     reconstructed.extend(msgs[keep_start:])
 
     after = count_tokens(reconstructed, tools, skip_thinking=skip_thinking)
@@ -452,7 +687,7 @@ def truncate(
     # Determine if a truncation marker can fit
     if dropped > 0:
         for _ in range(len(tail_messages) + 5):
-            marker_text = f"[truncated: dropped {dropped} messages to fit token budget]"
+            marker_text = f"[截断: 丢弃 {dropped} 条消息]"
             marker = Message(role="user", content=[TextBlock(text=marker_text)])
             test_m = reconstructed + [marker] + tail_messages
             if count_tokens(test_m, tools, skip_thinking) <= budget:
@@ -494,6 +729,7 @@ def compress_chain(
     backend=None,
     model: str = "",
     skip_thinking: bool = True,
+    events: list | None = None,
 ) -> tuple[list[Message], list[LayerReport]]:
 
     if not cfg.enabled:
@@ -512,13 +748,21 @@ def compress_chain(
         reports.append(report)
         new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
-    # Layer 3: auto_compact (util > auto_compact_threshold AND backend available)
+    # Layer 3: structured_snip (util > structured_snip_threshold AND events available)
+    if events is not None and new_total > budget * cfg.structured_snip_threshold:
+        messages, report = structured_snip(
+            messages, events, cfg.structured_snip_keep_recent, tools, skip_thinking,
+        )
+        reports.append(report)
+        new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
+
+    # Layer 4: auto_compact (util > auto_compact_threshold AND backend available)
     if backend is not None and new_total > budget * cfg.auto_compact_threshold:
         messages, report = auto_compact(messages, backend, model, cfg.auto_compact_keep_turns, tools, skip_thinking)
         reports.append(report)
         new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
-    # Layer 4: truncate (still over budget)
+    # Layer 5: truncate (still over budget)
     if new_total > budget:
         messages, report = truncate(messages, budget, tools, skip_thinking=skip_thinking)
         reports.append(report)

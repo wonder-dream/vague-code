@@ -8,7 +8,7 @@ from textual.widgets import Label, ListItem, ListView, Static
 
 
 class Sidebar(VerticalScroll):
-    """Sidebar panel with interactive session list and pinned memory."""
+    """Sidebar panel with interactive session list and recent episodic memory."""
 
     class SessionSelected(Message):
         def __init__(self, run_id: str) -> None:
@@ -76,11 +76,13 @@ class Sidebar(VerticalScroll):
         try:
             from src.agent.memory import MemoryStore
             store = MemoryStore("runs/memory.db")
-            pinned = store.get_pinned()
-            if pinned:
-                for p in pinned:
-                    text = p["content"][:60].replace("\n", " ")
-                    self.mount(Static(f"  [P] {text}", classes="sidebar-item"))
+            recents = store.recent(kind="episodic", limit=3)
+            if recents:
+                for r in recents:
+                    text = r["content"][:60].replace("\n", " ")
+                    self.mount(Static(f"  [E] {text}", classes="sidebar-item"))
+            else:
+                self.mount(Static("  (no memory)", classes="sidebar-muted"))
             store.close()
         except Exception:
             self.mount(Static("  (no memory)", classes="sidebar-muted"))

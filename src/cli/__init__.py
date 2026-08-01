@@ -53,6 +53,9 @@ def main(argv: list[str] | None = None) -> None:
                         help="Per-turn LLM call timeout (seconds)")
     parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
                         help="Model provider (default: deepseek)")
+    parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map symbol index")
+    parser.add_argument("--repo-map-tokens", type=int, default=1000,
+                        help="Max tokens for the injected repo map (default: 1000)")
     parser.add_argument("--verbose", action="store_true", help="Show model info")
 
     args = parser.parse_args(argv)
@@ -77,6 +80,8 @@ def main(argv: list[str] | None = None) -> None:
                 retry_max_delay_s=args.retry_max_delay_s,
             ),
         )
+        config.repo_map.enabled = not args.no_repo_map
+        config.repo_map.max_map_tokens = args.repo_map_tokens
 
         backend: ModelBackend
         if args.provider == "anthropic":

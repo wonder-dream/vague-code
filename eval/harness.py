@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import tempfile
 from pathlib import Path
 from typing import Any
 
-from eval.matrix import EvalCell, TaskResult, cell_label
+from eval.matrix import EvalCell, TaskResult
 
 
 def load_tasks(tasks_path: str) -> list[dict[str, Any]]:
@@ -31,9 +30,11 @@ def _extract_stats(trajectory_path: str) -> dict[str, Any]:
     stats: dict[str, Any] = {
         "total_turns": 0,
         "tool_calls": 0,
+        "code_search_calls": 0,
         "compression_events": 0,
         "stale_snip_reclaimed": 0,
         "microcompact_reclaimed": 0,
+        "structured_snip_reclaimed": 0,
         "auto_compact_reclaimed": 0,
         "truncate_reclaimed": 0,
         "total_input_tokens": 0,
@@ -48,6 +49,8 @@ def _extract_stats(trajectory_path: str) -> dict[str, Any]:
             stats["total_turns"] += 1
         elif etype == "tool_call":
             stats["tool_calls"] += 1
+            if payload.get("name") == "code_search":
+                stats["code_search_calls"] += 1
         elif etype == "compression":
             stats["compression_events"] += 1
             layer = payload.get("layer", "")
@@ -105,7 +108,6 @@ def run_eval(
     for cell in matrix:
         for task in tasks[:1] if use_fake else tasks:
             instance_id = task["instance_id"]
-            label = f"{instance_id}__{cell_label(cell)}"
 
             try:
                 workdir = _set_workdir(task, workdir_base)
@@ -124,9 +126,9 @@ def run_eval(
                 memory=MemoryConfig(enabled=False),
             )
             config.compression.enabled = cell.compression
+            config.repo_map.enabled = cell.repo_map
 
             if use_fake:
-                from src.agent.loop import Agent as _  # ensure importable
                 from src.agent.ir import Message
 
                 class _FakeBackend:

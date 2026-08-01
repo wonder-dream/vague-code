@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from eval.matrix import EvalCell, TaskResult
 
 
 def _cell_key(cell: EvalCell) -> str:
-    return f"compression={'1' if cell.compression else '0'}_concurrency={'1' if cell.concurrency else '0'}"
+    return (f"compression={'1' if cell.compression else '0'}"
+            f"_concurrency={'1' if cell.concurrency else '0'}"
+            f"_repo_map={'1' if cell.repo_map else '0'}")
 
 
 def generate_report(results: list[TaskResult], output_path: str) -> None:
@@ -24,22 +25,22 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
 
     # 汇总表
     lines.append("## 汇总\n")
-    lines.append("| 压缩 | 并发 | 重复 | 通过率 | 平均轮次 | 平均 input tokens | stale回收 | micro回收 | auto回收 | truncate回收 |")
-    lines.append("|------|------|------|--------|----------|-------------------|-----------|-----------|----------|--------------|")
+    lines.append("| 压缩 | 并发 | RepoMap | 重复 | 通过率 | 平均轮次 | 平均 input tokens | code_search | stale回收 | micro回收 | ssnip回收 | auto回收 | truncate回收 |")
+    lines.append("|------|------|---------|------|--------|----------|-------------------|-------------|-----------|-----------|-----------|----------|--------------|")
 
     for key in sorted(by_cell.keys()):
         cell_results = by_cell[key]
         cell = cell_results[0].cell
         passed = [r for r in cell_results if r.passed is True]
-        failed = [r for r in cell_results if r.passed is False]
 
         total_tokens = sum(r.stats.get("total_input_tokens", 0) for r in cell_results)
-        total_output = sum(r.stats.get("total_output_tokens", 0) for r in cell_results)
         total_turns = sum(r.stats.get("total_turns", 0) for r in cell_results)
         n = len(cell_results)
 
+        code_search = sum(r.stats.get("code_search_calls", 0) for r in cell_results)
         stale = sum(r.stats.get("stale_snip_reclaimed", 0) for r in cell_results)
         micro = sum(r.stats.get("microcompact_reclaimed", 0) for r in cell_results)
+        ssnip = sum(r.stats.get("structured_snip_reclaimed", 0) for r in cell_results)
         auto_ = sum(r.stats.get("auto_compact_reclaimed", 0) for r in cell_results)
         trun = sum(r.stats.get("truncate_reclaimed", 0) for r in cell_results)
 
@@ -49,8 +50,8 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
 
         lines.append(
             f"| {'✓' if cell.compression else '✗'} | {'✓' if cell.concurrency else '✗'} "
-            f"| {cell.repeat} | {pass_rate} | {avg_turns} | {avg_tokens} "
-            f"| {stale:,} | {micro:,} | {auto_:,} | {trun:,} |"
+            f"| {'✓' if cell.repo_map else '✗'} | {cell.repeat} | {pass_rate} | {avg_turns} | {avg_tokens} "
+            f"| {code_search:,} | {stale:,} | {micro:,} | {ssnip:,} | {auto_:,} | {trun:,} |"
         )
 
     # 每任务的细节

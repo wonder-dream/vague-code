@@ -32,16 +32,16 @@ def _read_file_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         path_str = input.get("path", "")
         if path_str is None:
-            raise ValueError("path must be a non-empty string, got null")
+            raise ValueError("路径必须是非空字符串，收到 null")
         if not path_str:
-            raise ValueError("path is required")
+            raise ValueError("需要提供路径")
         if "\x00" in path_str:
-            raise ValueError("path contains null byte")
+            raise ValueError("路径包含空字节")
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
-            raise PermissionError(f"Path traversal detected: {path_str}")
+            raise PermissionError(f"检测到路径穿越: {path_str}")
         if not target.is_file():
-            raise FileNotFoundError(f"File not found: {path_str}")
+            raise FileNotFoundError(f"文件未找到: {path_str}")
         file_size = target.stat().st_size
         if file_size > MAX_READ_BYTES:
             with target.open("rb") as f:
@@ -49,8 +49,8 @@ def _read_file_factory(workdir: str) -> Callable[[dict], str]:
             content = raw.decode("utf-8-sig", errors="replace")
             return (
                     content
-                    + f"\n\n[... output truncated at {MAX_READ_BYTES:_} bytes, "
-                    + f"total file size: {file_size:_} bytes]"
+                    + f"\n\n[... 输出截断于 {MAX_READ_BYTES:_} 字节, "
+                    + f"文件总大小: {file_size:_} 字节]"
             )
         return target.read_text(encoding="utf-8-sig")
 
@@ -62,24 +62,24 @@ def _write_file_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         path_str = input.get("path", "")
         if path_str is None:
-            raise ValueError("path must be a non-empty string, got null")
+            raise ValueError("路径必须是非空字符串，收到 null")
         if not path_str:
-            raise ValueError("path is required")
+            raise ValueError("需要提供路径")
         if "\x00" in path_str:
-            raise ValueError("path contains null byte")
+            raise ValueError("路径包含空字节")
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
-            raise PermissionError(f"Path traversal detected: {path_str}")
+            raise PermissionError(f"检测到路径穿越: {path_str}")
         overwrite = input.get("overwrite", DEFAULT_MAX_OVERWRITE)
         if target.exists() and not overwrite:
-            raise FileExistsError(f"File already exists: {path_str}. Set overwrite=true to replace it.")
+            raise FileExistsError(f"文件已存在: {path_str}。设置 overwrite=true 覆盖。")
         content = input.get("content", "")
         if content is None:
-            raise ValueError("content must be a non-empty string, got null")
+            raise ValueError("内容必须是非空字符串，收到 null")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
 
-        return f"Wrote {len(content)} chars to {path_str}"
+        return f"已将 {len(content)} 字符写入 {path_str}"
     return handler
 
 def _glob_factory(workdir: str) -> Callable[[dict], str]:
@@ -88,9 +88,9 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         pattern = input.get("pattern", "")
         if pattern is None:
-            raise ValueError("pattern must be a non-empty string, got null")
+            raise ValueError("模式必须是非空字符串，收到 null")
         if not pattern:
-            raise ValueError("pattern is required")
+            raise ValueError("需要提供模式")
         result = []
         for path in root.glob(pattern):
             if not path.resolve().is_relative_to(root):
@@ -99,7 +99,7 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
 
         if len(result) > MAX_GLOB_RESULTS:
             result = result[:MAX_GLOB_RESULTS]
-            result.append(f"... {MAX_GLOB_RESULTS} results shown, output truncated")
+            result.append(f"... 已显示 {MAX_GLOB_RESULTS} 条结果，输出已截断")
 
         return '\n'.join(result)
     return handler
@@ -110,40 +110,40 @@ def _patch_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         path_str = input.get("path", "")
         if path_str is None:
-            raise ValueError("path must be a non-empty string, got null")
+            raise ValueError("路径必须是非空字符串，收到 null")
         if not path_str:
-            raise ValueError("path is required")
+            raise ValueError("需要提供路径")
         if "\x00" in path_str:
-            raise ValueError("path contains null byte")
+            raise ValueError("路径包含空字节")
         target = (root / path_str).resolve()
         if not target.is_relative_to(root):
-            raise PermissionError(f"Path traversal detected: {path_str}")
+            raise PermissionError(f"检测到路径穿越: {path_str}")
         if not target.is_file():
-            raise FileNotFoundError(f"File not found: {path_str}")
+            raise FileNotFoundError(f"文件未找到: {path_str}")
         MAX_PATCH_BYTES = 1_048_576
         if target.stat().st_size > MAX_PATCH_BYTES:
             raise ValueError(
-                f"File too large for patch ({target.stat().st_size:_} bytes). "
-                f"Maximum is {MAX_PATCH_BYTES:_} bytes. Use write_file to replace the entire file instead."
+                f"文件过大，无法使用 patch（{target.stat().st_size:_} 字节）。"
+                f"最大限制为 {MAX_PATCH_BYTES:_} 字节。请使用 write_file 替换整个文件。"
             )
         old_str = input.get("old_str", "")
         if old_str is None:
-            raise ValueError("old_str must be a non-empty string, got null")
+            raise ValueError("old_str 必须是非空字符串，收到 null")
         if not old_str:
-            raise ValueError("old_str is required")
+            raise ValueError("需要提供 old_str")
         new_str = input.get("new_str", "")
         if new_str is None:
-            raise ValueError("new_str must be a string, got null")
+            raise ValueError("new_str 必须是字符串，收到 null")
         content = target.read_text(encoding="utf-8-sig")
         count = content.count(old_str)
         if count == 0:
-            raise ValueError(f"String not found: {old_str}")
+            raise ValueError(f"未找到字符串: {old_str}")
         elif count > 1:
-            raise ValueError(f"found {count} occurrences, add more context")
+            raise ValueError(f"发现 {count} 处匹配，请添加更多上下文")
         else:
             new_content = content.replace(old_str, new_str, 1)
         target.write_text(new_content, encoding="utf-8")
-        return f"Wrote {len(new_content)} chars to {path_str}"
+        return f"已将 {len(new_content)} 字符写入 {path_str}"
     return handler
 
 def _grep_factory(workdir: str) -> Callable[[dict], str]:
@@ -152,27 +152,27 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         pattern = input.get("pattern")
         if pattern is None:
-            raise ValueError("pattern must be a string, got null")
+            raise ValueError("模式必须是字符串，收到 null")
         if not pattern:
-            raise ValueError("pattern must be a non-empty string")
+            raise ValueError("模式必须是非空字符串")
         path_str = input.get("path")
         if path_str is None:
             path_str = ""
         if "\x00" in path_str:
-            raise ValueError("path contains null byte")
+            raise ValueError("路径包含空字节")
         if not path_str:
             search_root = root
         else:
             search_root = (root / path_str).resolve()
         if not search_root.is_relative_to(root):
-            raise PermissionError(f"Path traversal detected: {path_str}")
+            raise PermissionError(f"检测到路径穿越: {path_str}")
         include = input.get("include")
         if include is None:
             include = "*"
         try:
             compiled = re.compile(pattern)
         except re.error as e:
-            return f"Invalid regex pattern: {e}"
+            return f"正则表达式格式错误: {e}"
 
         result = []
         file_count = 0
@@ -181,12 +181,12 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
             item_count += 1
             # Safety: stop after scanning too many items (deep directory trees)
             if item_count > 5000:
-                result.append("... truncated at 5000 directory items")
+                result.append("... 已截断于 5000 个目录项")
                 break
             if not file.is_file():
                 continue
             if file_count >= MAX_GREP_FILE_COUNT:
-                result.append(f"... truncated at {MAX_GREP_FILE_COUNT} files")
+                result.append(f"... 已截断于 {MAX_GREP_FILE_COUNT} 个文件")
                 break
             file_count += 1
             if file.stat().st_size > MAX_GREP_FILE_SIZE:
@@ -204,7 +204,7 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
                         result.append(f"{rel}:{i}: {line}")
         if len(result) > MAX_GREP_RESULTS:
             result = result[:MAX_GREP_RESULTS]
-            result.append(f"... {MAX_GREP_RESULTS} results shown, output truncated")
+            result.append(f"... 已显示 {MAX_GREP_RESULTS} 条结果，输出已截断")
         return "\n".join(result)
     return handler
 
@@ -213,9 +213,9 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
     def handler(input: dict) -> str:
         command = input.get("command", "")
         if command is None:
-            raise ValueError("command must be a non-empty string, got null")
+            raise ValueError("命令必须是非空字符串，收到 null")
         if not command:
-            raise ValueError("command is required")
+            raise ValueError("需要提供命令")
         cwd_str = input.get("cwd")
         if cwd_str:
             cwd_path = (root / cwd_str).resolve()
@@ -246,26 +246,26 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
             stdout_partial = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
             stderr_partial = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
             raise RuntimeError(
-                f"command timed out after 30 seconds\n"
-                f"partial stdout:\n{stdout_partial}\n"
-                f"partial stderr:\n{stderr_partial}"
+                f"命令在 30 秒后超时\n"
+                f"部分标准输出:\n{stdout_partial}\n"
+                f"部分标准错误输出:\n{stderr_partial}"
             )
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
         if len(stdout) > MAX_OUTPUT:
-            stdout = stdout[:MAX_OUTPUT] + f"\n\n[... stdout truncated at {MAX_OUTPUT:_} bytes]"
+            stdout = stdout[:MAX_OUTPUT] + f"\n\n[... 标准输出截断于 {MAX_OUTPUT:_} 字节]"
         if len(stderr) > MAX_OUTPUT:
-            stderr = stderr[:MAX_OUTPUT] + f"\n\n[... stderr truncated at {MAX_OUTPUT:_} bytes]"
-        return f"exit code: {proc.returncode}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+            stderr = stderr[:MAX_OUTPUT] + f"\n\n[... 标准错误输出截断于 {MAX_OUTPUT:_} 字节]"
+        return f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n标准错误输出:\n{stderr}"
     return handler
 
 READ_FILE_SPEC = ToolSpec(
     name="read_file",
-    description="Read the contents of a file. The path must be relative to the workspace root.",
+    description="读取文件内容。路径必须相对于工作目录根路径。",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "File path relative to workspace root"},
+            "path": {"type": "string", "description": "相对于工作目录根路径的文件路径"},
         },
         "required": ["path"],
     },
@@ -273,13 +273,13 @@ READ_FILE_SPEC = ToolSpec(
 
 WRITE_FILE_SPEC = ToolSpec(
     name="write_file",
-    description="write the contents of a file. The path must be relative to the workspace root.",
+    description="写入文件内容。路径必须相对于工作目录根路径。",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "File path relative to workspace root"},
-            "content": {"type": "string", "description": "Content to write to the file"},
-            "overwrite": {"type": "boolean", "description": "Set to true to overwrite an existing file (default: false)"},
+            "path": {"type": "string", "description": "相对于工作目录根路径的文件路径"},
+            "content": {"type": "string", "description": "要写入文件的内容"},
+            "overwrite": {"type": "boolean", "description": "设为 true 覆盖已有文件（默认: false）"},
         },
         "required": ["path", "content"],
     },
@@ -287,11 +287,11 @@ WRITE_FILE_SPEC = ToolSpec(
 
 GLOB_SPEC = ToolSpec(
     name="glob",
-    description="Find files matching a glob pattern. Supports * and ** wildcards. The pattern is relative to the workspace root.",
+    description="搜索匹配 glob 模式的文件。支持 * 和 ** 通配符。路径相对于工作目录根路径。",
     parameters={
         "type": "object",
         "properties": {
-            "pattern": {"type": "string", "description": "Glob pattern relative to workspace root"},
+            "pattern": {"type": "string", "description": "相对于工作目录根路径的 glob 模式"},
         },
         "required": ["pattern"],
     },
@@ -299,13 +299,13 @@ GLOB_SPEC = ToolSpec(
 
 PATCH_SPEC = ToolSpec(
     name="patch",
-    description="Performs exact string replacements in an existing file. Replaces the first occurrence of old_str with new_str. Returns an error if old_str is found multiple times — add more surrounding context to make it unique.",
+    description="对已有文件执行精确字符串替换。将第一次出现的 old_str 替换为 new_str。如果 old_str 出现多次则返回错误——请添加更多上下文以使其唯一。",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "File path relative to workspace root"},
-            "old_str": {"type": "string", "description": "The exact text to find and replace"},
-            "new_str": {"type": "string", "description": "The text to replace it with"},
+            "path": {"type": "string", "description": "相对于工作目录根路径的文件路径"},
+            "old_str": {"type": "string", "description": "要查找和替换的精确文本"},
+            "new_str": {"type": "string", "description": "替换后的文本"},
         },
         "required": ["path", "old_str", "new_str"],
     },
@@ -313,13 +313,13 @@ PATCH_SPEC = ToolSpec(
 
 GREP_SPEC = ToolSpec(
     name="grep",
-    description="Search for a regex pattern in file contents. Returns matching lines with file path and line number.",
+    description="在文件内容中搜索正则表达式模式。返回匹配行及其文件路径和行号。",
     parameters={
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Directory to search (default: workspace root)"},
-            "pattern": {"type": "string", "description": "The regex pattern to search for in file contents"},
-            "include": {"type": "string", "description": "File glob pattern to filter files (e.g. '*.py')"},
+            "path": {"type": "string", "description": "搜索目录（默认: 工作目录根路径）"},
+            "pattern": {"type": "string", "description": "要在文件内容中搜索的正则表达式模式"},
+            "include": {"type": "string", "description": "文件过滤 glob 模式（如 '*.py'）"},
         },
         "required": ["pattern"],
     },
@@ -327,16 +327,48 @@ GREP_SPEC = ToolSpec(
 
 BASH_SPEC = ToolSpec(
     name="bash",
-    description="Execute a shell command and return its output. Returns stdout and stderr separately.",
+    description="执行 shell 命令并返回其输出。分别返回标准输出和标准错误输出。",
     parameters={
         "type": "object",
         "properties": {
-            "command": {"type": "string", "description": "The shell command to execute"},
-            "cwd": {"type": "string", "description": "Working directory for the command (default: workspace root)"},
+            "command": {"type": "string", "description": "要执行的 shell 命令"},
+            "cwd": {"type": "string", "description": "命令的工作目录（默认: 工作目录根路径）"},
         },
         "required": ["command"],
     },
 )
+
+CODE_SEARCH_SPEC = ToolSpec(
+    name="code_search",
+    description="在工作区代码库中按符号名（函数/类/方法）搜索定义位置。"
+                "返回 file:line: signature 列表。当需要定位某个函数或类在哪里定义时使用。",
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "要搜索的符号名或正则表达式"},
+            "path": {"type": "string", "description": "过滤文件路径（可选）"},
+        },
+        "required": ["query"],
+    },
+)
+
+
+def make_code_search_handler(repo_index):
+    def handler(input: dict) -> str:
+        query = input.get("query", "")
+        if not query:
+            return "需要提供搜索查询内容。"
+        path = input.get("path") or None
+        results = repo_index.search(query, k=20, path=path)
+        if not results:
+            return f"未找到与 {query!r} 匹配的符号。"
+        lines = [f"{s.file}:{s.line}: {s.signature}" for s in results]
+        if len(lines) > MAX_GREP_RESULTS:
+            lines = lines[:MAX_GREP_RESULTS]
+            lines.append(f"... 已显示 {MAX_GREP_RESULTS} 条结果，输出已截断")
+        return "\n".join(lines)
+    return handler
+
 
 DEFAULT_TOOLS: dict[str, Tool] = {
     "read_file": Tool(spec=READ_FILE_SPEC, factory=_read_file_factory),

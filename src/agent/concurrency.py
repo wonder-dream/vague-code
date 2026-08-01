@@ -82,6 +82,10 @@ def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
         path = _normalize_path(inp.get("path") or "")
         return ResourceScope(path=path, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
+    if name == "code_search":
+        path = _normalize_path(inp.get("path") or "")
+        return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.READ)
+
     return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.WRITE)
 
 
@@ -163,7 +167,7 @@ def execute_concurrent(
                 for call in group:
                     results[call.id] = ToolResultBlock(
                         tool_use_id=call.id,
-                        content="[skipped: cancelled due to upstream failure]",
+                        content="[已跳过：因上游失败取消]",
                         is_error=True,
                     )
                 continue
@@ -176,7 +180,7 @@ def execute_concurrent(
                 if handler is None:
                     results[call.id] = ToolResultBlock(
                         tool_use_id=call.id,
-                        content=f"Unknown tool: {call.name}",
+                        content=f"未知工具: {call.name}",
                         is_error=True,
                     )
                     group_failed = True
@@ -203,7 +207,7 @@ def execute_concurrent(
                     if call.id not in results:
                         results[call.id] = ToolResultBlock(
                             tool_use_id=call.id,
-                            content=f"[timed out after {_CONCURRENT_TIMEOUT}s]",
+                            content=f"[超过 {_CONCURRENT_TIMEOUT} 秒超时]",
                             is_error=True,
                         )
 

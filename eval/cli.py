@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
-from pathlib import Path
 
 from eval.harness import load_tasks, run_eval
 from eval.matrix import build_matrix

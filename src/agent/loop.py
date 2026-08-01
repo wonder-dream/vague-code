@@ -170,6 +170,7 @@ class Agent:
         self.on_state_change: Callable[[str, dict], None] | None = None
         self._permission_rules: list = []
         self._memory_store = None
+        self._repo_index: object | None = None
         if config.memory.enabled:
             try:
                 from src.agent.memory import MemoryStore
@@ -196,16 +197,25 @@ class Agent:
 
         from src.agent.context import SystemPrompt
 
-        system_prompt = SystemPrompt(workdir).build()
+        # Repo map: build symbol index + optional injection (degradable)
+        self._repo_index = None
+        repo_map_text = ""
+        if self.config.repo_map.enabled:
+            try:
+                from src.agent.repomap import RepoIndex
+                index = RepoIndex(workdir=workdir, max_files=self.config.repo_map.max_files)
+                index.build()
+                if index.size > 0:
+                    self._repo_index = index
+                    repo_map_text = index.to_map_text(self.config.repo_map.max_map_tokens)
+            except Exception as e:
+                import warnings
+                warnings.warn(f"Failed to build repo index: {e}", stacklevel=2)
+                self._repo_index = None
 
-        # Memory: inject pinned memories
-        if self._memory_store and self.config.memory.inject_pinned:
-            pinned = self._memory_store.get_pinned()
-            if pinned:
-                pinned_section = "\n\n## Persistent knowledge (from past sessions)\n" + "\n---\n".join(
-                    p["content"] for p in pinned
-                )
-                system_prompt += pinned_section
+        system_prompt = SystemPrompt(workdir).build()
+        if repo_map_text:
+            system_prompt += "\n\n## 代码库符号地图\n" + repo_map_text
 
         traj.emit(EventType.run_start, payload={
             "task": task,
@@ -234,6 +244,12 @@ class Agent:
             self._tool_specs.append(MEMORY_SEARCH_SPEC)
             memory_search_handler = make_memory_search_handler(self._memory_store)
             bound_tools["memory_search"] = memory_search_handler
+
+        # Repo map: register code_search tool when index is available
+        if self._repo_index is not None:
+            from src.agent.tools import CODE_SEARCH_SPEC, make_code_search_handler
+            self._tool_specs.append(CODE_SEARCH_SPEC)
+            bound_tools["code_search"] = make_code_search_handler(self._repo_index)
 
         gen = self._run_gen(traj, messages, [0], bound_tools)
         return RunHandle(gen, traj)
@@ -268,7 +284,9 @@ class Agent:
                     messages, reports = compress_chain(
                         messages, self._tool_specs, cfg, budget,
                         backend=self.backend, model=self.config.model,
-                        skip_thinking=skip_thinking)
+                        skip_thinking=skip_thinking,
+                        events=traj.events,
+                    )
                 except Exception as e:
                     traj.emit(EventType.error, turn=turn, payload={
                         "kind": "compression_error",
@@ -450,7 +468,7 @@ class Agent:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
                             result = result_by_id.get(block.id)
                             if result is None:
-                                content = f"[missing result for tool: {block.name}]"
+                                content = f"[工具 {block.name} 缺少结果]"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, is_error=True))
                                 self._fire_on_tool_result(block.name, content, True)
@@ -464,7 +482,7 @@ class Agent:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
                             handler = bound_tools.get(block.name)
                             if handler is None:
-                                error_msg = f"Unknown tool: {block.name}"
+                                error_msg = f"未知工具: {block.name}"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
                                 self._fire_on_tool_result(block.name, error_msg, True)
@@ -522,9 +540,9 @@ class Agent:
         })
 
         if decision == Decision.DENY:
-            content = f"Permission denied: mode {perm_mode.value} blocks this operation"
+            content = f"权限不足：当前模式 {perm_mode.value} 禁止此操作"
             if perm_mode == PermissionMode.SAFE:
-                content += "\n\nTip: Switch to a higher-permission mode with `/mode normal`."
+                content += "\n\n提示：使用 `/mode normal` 切换到更高权限模式。"
             return Decision.DENY, content, True
 
         if decision == Decision.CONFIRM and check_confirm:
@@ -533,9 +551,9 @@ class Agent:
             else:
                 decision = Decision.DENY
             if decision == Decision.DENY:
-                content = "Permission denied"
+                content = "权限不足"
                 if not self._on_permission:
-                    content = "Permission denied: no interactive confirmation available"
+                    content = "权限不足：无交互确认可用"
                 return Decision.DENY, content, True
 
         return Decision.ALLOW, "", False
@@ -559,8 +577,8 @@ class Agent:
     def _truncate_tool_content(content: str, max_chars: int = 50_000) -> str:
         if len(content) > max_chars:
             return content[:max_chars] + (
-                f"\n\n[... output truncated at {max_chars} chars, "
-                f"total: {len(content)} chars]"
+                f"\n\n[... 输出截断于 {max_chars} 字符，"
+                f"总计: {len(content)} 字符]"
             )
         return content
 

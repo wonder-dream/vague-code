@@ -31,6 +31,8 @@ class CompressionConfig:
     microcompact_threshold: float = 0.5
     microcompact_max_chars: int = 4000
     microcompact_keep_recent: int = 3
+    structured_snip_threshold: float = 0.65
+    structured_snip_keep_recent: int = 3
     auto_compact_threshold: float = 0.85
     auto_compact_keep_turns: int = 4
     stale_snip_keep_recent: int = 3
@@ -38,12 +40,16 @@ class CompressionConfig:
     def __post_init__(self) -> None:
         if not 0.0 <= self.microcompact_threshold <= 1.0:
             raise ValueError(f"microcompact_threshold must be in [0,1], got {self.microcompact_threshold}")
+        if not 0.0 <= self.structured_snip_threshold <= 1.0:
+            raise ValueError(f"structured_snip_threshold must be in [0,1], got {self.structured_snip_threshold}")
         if not 0.0 <= self.auto_compact_threshold <= 1.0:
             raise ValueError(f"auto_compact_threshold must be in [0,1], got {self.auto_compact_threshold}")
         if self.microcompact_max_chars < 1:
             raise ValueError(f"microcompact_max_chars must be >= 1, got {self.microcompact_max_chars}")
         if self.microcompact_keep_recent < 0:
             raise ValueError(f"microcompact_keep_recent must be >= 0, got {self.microcompact_keep_recent}")
+        if self.structured_snip_keep_recent < 0:
+            raise ValueError(f"structured_snip_keep_recent must be >= 0, got {self.structured_snip_keep_recent}")
         if self.stale_snip_keep_recent < 0:
             raise ValueError(f"stale_snip_keep_recent must be >= 0, got {self.stale_snip_keep_recent}")
         if self.auto_compact_keep_turns < 0:
@@ -55,8 +61,15 @@ class MemoryConfig:
     enabled: bool = True
     memory_db_path: str = "runs/memory.db"
     search_top_k: int = 5
-    inject_pinned: bool = True
     auto_compact_distill: bool = True
+
+
+@dataclass
+class RepoMapConfig:
+    enabled: bool = True
+    max_map_tokens: int = 1000
+    max_files: int = 2000
+    languages: list[str] = field(default_factory=lambda: ["python"])
 
 
 @dataclass
@@ -69,6 +82,7 @@ class AgentConfig:
     concurrent_tools: bool = False
     permission_mode: str = "normal"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    repo_map: RepoMapConfig = field(default_factory=RepoMapConfig)
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:

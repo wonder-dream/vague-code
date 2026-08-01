@@ -85,11 +85,20 @@ class MemoryStore:
             for r in rows
         ]
 
-    def get_pinned(self) -> list[dict]:
-        rows = self.conn.execute(
-            "SELECT content, confidence FROM memories WHERE kind='pinned' ORDER BY id",
-        ).fetchall()
-        return [{"content": r[0], "confidence": r[1]} for r in rows]
+    def recent(self, kind: str = "episodic", limit: int = 5) -> list[dict]:
+        """Return the most recently stored memories of a given kind."""
+        try:
+            rows = self.conn.execute(
+                "SELECT content, kind, confidence, created_at "
+                "FROM memories WHERE kind=? ORDER BY id DESC LIMIT ?",
+                (kind, limit),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [
+            {"content": r[0], "kind": r[1], "confidence": r[2], "created_at": r[3]}
+            for r in rows
+        ]
 
     def close(self) -> None:
         self.conn.close()
