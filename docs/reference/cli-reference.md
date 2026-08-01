@@ -1,0 +1,133 @@
+# 细纲：cli-reference.md
+
+**预估行数：** ~200 行（表格风格）
+**定位：** API 参考——CLI 界面。
+
+---
+
+## 开头
+
+- **谁需要读：** 命令行用户
+- **前置阅读：** T1（第一个任务）
+- **读完能做什么：** 掌握所有 CLI flag、子命令、环境变量、退出码、TUI 键绑定和斜杠命令
+
+---
+
+## 细纲
+
+### 1. CLI 入口
+
+**代码位置：** `cli/__init__.py:17-128` `main()`
+
+**命令格式：** `xcode [flags] [task] [workdir]`
+
+**子命令路由：** `argv[0] == "tui"` → `_tui_main()`（`cli/__init__.py:20-22`）
+
+### 2. CLI Flag 表
+
+| Flag | 类型 | 默认值 | 代码位置 | 说明 |
+|------|------|--------|---------|------|
+| task | positional | — | `cli/__init__.py:29` | 任务描述 |
+| workdir | positional | `"."` | `cli/__init__.py:30` | 工作目录 |
+| `--resume RUN_ID` | kwarg | — | `cli/__init__.py:31` | 恢复指定 run |
+| `--model` | kwarg | `"deepseek-v4-flash"` | `cli/__init__.py:32` | 模型名 |
+| `--max-turns` | int | 20 | `cli/__init__.py:33` | 最大轮次 |
+| `--db-path` | kwarg | `"runs/runs.db"` | `cli/__init__.py:34` | SQLite 数据库路径 |
+| `--export-jsonl` | kwarg | — | `cli/__init__.py:35` | 导出轨迹到 JSONL |
+| `--stream` / `--no-stream` | bool | `--stream` | `cli/__init__.py:37-40` | 流式输出 |
+| `--retry` / `--no-retry` | bool | `--retry` | `cli/__init__.py:42-45` | 重试 |
+| `--retry-max-attempts` | int | 5 | `cli/__init__.py:46-47` | 最大重试次数 |
+| `--retry-base-s` | float | 2.0 | `cli/__init__.py:48-49` | 退避基数 |
+| `--retry-max-delay-s` | float | 120.0 | `cli/__init__.py:50-51` | 最大退避间隔 |
+| `--timeout-s` | float | 120.0 | `cli/__init__.py:52-53` | 单轮超时 |
+| `--provider` | kwarg | `"deepseek"` | `cli/__init__.py:54-55` | 提供商 |
+| `--no-repo-map` | bool | false | `cli/__init__.py:57-58` | 禁用 repo map 符号索引 |
+| `--repo-map-tokens` | int | 1000 | `cli/__init__.py:59-60` | 注入符号地图的 token 上限 |
+| `--verbose` | bool | false | `cli/__init__.py:61` | 详细输出 |
+
+**互斥组：** `--stream` / `--no-stream`（`cli/__init__.py:36-40`）、`--retry` / `--no-retry`（`cli/__init__.py:41-45`）
+
+### 3. TUI 子命令
+
+**代码位置：** `cli/__init__.py:130-180` `_tui_main()`
+
+| Flag | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| tui `<task>` | positional + 子命令 | — | 启动 TUI 模式 |
+| tui `[workdir]` | positional | `"."` | 工作目录 |
+| `--model` | kwarg | `"deepseek-v4-flash"` | 模型名 |
+| `--max-turns` | int | 20 | 最大轮次 |
+| `--db-path` | kwarg | `"runs/runs.db"` | SQLite 数据库路径 |
+| `--provider` | kwarg | `"deepseek"` | 提供商 |
+| `--timeout-s` | float | 120.0 | 单轮超时 |
+| `--retry-max-attempts` | int | 5 | 最大重试次数 |
+| `--retry-base-s` | float | 2.0 | 退避基数 |
+| `--retry-max-delay-s` | float | 120.0 | 最大重试间隔 |
+
+### 4. 环境变量
+
+| 变量 | 说明 | 位置 |
+|------|------|------|
+| `DEEPSEEK_API_KEY` | DeepSeek API Key | `.env` 或系统环境变量 |
+| `ANTHROPIC_API_KEY` | Anthropic API Key | `.env` 或系统环境变量 |
+
+**优先级：** `.env` 文件 → 系统环境变量（`cli/__init__.py:183-190`）
+
+### 5. 退出码
+
+| 退出码 | 说明 | 触发 |
+|--------|------|------|
+| 0 | 正常 | Agent 正常完成 / resume 完成 |
+| 1 | 错误 | API Key 缺失 / export 路径为目录 / fatal error |
+
+### 6. TUI 键绑定
+
+**来源：** `app.py:36-44`
+
+| 键 | 操作 | 行为 |
+|-------|--------|------|
+| `Ctrl+C` | `stop_agent` | 停止当前 agent |
+| `T` | `toggle_thinking` | 折叠/展开所有 thinking 块 |
+| `E` | `toggle_expand` | 展开/折叠当前聚焦的 tool result |
+| `Tab` | `select_next` | 下一个可折叠块 |
+| `Shift+Tab` | `select_prev` | 上一个可折叠块 |
+| `/` | `focus_input` | 聚焦命令输入框 |
+| `Escape` | `cancel` | 关闭弹窗/返回/聚焦输入 |
+| `F1` | `show_help` | 弹出帮助屏幕 |
+
+### 7. TUI 斜杠命令
+
+**来源：** `app.py:298-335`
+
+| 命令 | 操作 | 说明 |
+|--------|--------|------|
+| `/mode` + `safe/normal/autoedit/auto` | 设置权限模式 | 会重启 agent |
+| `/clear` | 清空对话 | 不清 sidebar 历史 |
+| `/save [path]` | 导出轨迹 | 默认 `runs/{run_id}.jsonl` |
+| `/help` | 帮助 | 弹出 HelpScreen |
+| `/quit` | 退出 | 退出 TUI |
+
+### 8. 使用示例
+
+| 场景 | 命令 |
+|------|------|
+| 修 bug | `xcode "Fix the division by zero" ./project --max-turns 30` |
+| 只读模式 | `xcode --permission-mode safe "Review auth" ./project` |
+| 恢复中断 | `xcode --resume abc123456789` |
+| 导出分析 | `xcode --export-jsonl traj.jsonl --no-stream "task"` |
+| TUI 模式 | `xcode tui "Refactor data layer" ./project` |
+| Anthropic | `xcode --provider anthropic --model claude-sonnet-4-5 "task"` |
+| 评测验证 | `python -m eval.cli --tasks eval/tasks_test.json --fake` |
+| 评测全量 | `python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --repeat 3` |
+
+---
+
+## 结尾
+
+**下一篇推荐：** → troubleshooting.md
+
+---
+
+## 本文件说明
+
+这是文档 `cli-reference.md` 的细纲。实际写作时需与 `cli/__init__.py` 和 `app.py` 源码比对键绑定和斜杠命令。
