@@ -39,11 +39,11 @@
 
 | 指标 | 目标值 | 测量方式 |
 |---|---|---|
-| 核心工具数 | ≥ 12 个 | 工具注册表 |
+| 核心工具数 | 8 个（6 基础 + 2 动态） | 工具注册表 |
 | Benchmark 任务通过率 | ≥ 70%（30 个标准任务） | 评测工具自动跑 |
 | 上下文压缩收益 | 长会话平均 prompt 体积下降 ≥ 30% | 压缩开/关消融实验 |
 | 长会话任务正确率 | 压缩开启后提升 ≥ 15 个百分点 | 消融实验对比 |
-| 危险命令拦截规则 | 16+ 类正则 + 4 模式 × 5 操作类全覆盖 | 权限模块测试 |
+| 危险命令拦截规则 | 24 类正则 + 4 模式 × 5 操作类全覆盖 | 权限模块测试 |
 | 对抗注入拦截率 | ≥ 90% | 对抗任务集自动跑 |
 | 记忆召回质量 | HitRate@10 ≥ 90% | 记忆检索评测脚本 |
 | 自动化测试数 | ≥ 80 条 | pytest |
@@ -62,12 +62,13 @@
 
 | 层 | 选型 | 说明 |
 |---|---|---|
-| 语言 | Python 3.12 + AsyncIO | 异步并发是工具并行的基础 |
+| 语言 | Python 3.12 | 主循环同步，工具并发走 ThreadPoolExecutor（零 asyncio 约束） |
 | CLI | Rich | 流式渲染、进度展示 |
 | 模型接入 | Anthropic / OpenAI 兼容 API | 自定义 IR + 厂商 codec 架构（见 5.7 节） |
 | 持久化 | SQLite | 会话状态、检查点、事件流存储 |
-| 记忆检索 | sqlite-vec 或 FAISS + BM25（sqlite FTS5） | Dense + 稀疏混合召回 |
-| 质量 | pytest、Ruff、Mypy、Bandit | 测试 + 静态检查，同时是评测工具的"过程评估"数据源 |
+| 代码索引 | tree-sitter + tree-sitter-python | repo map 符号索引 + code_search（ADR-0016） |
+| 记忆检索 | SQLite LIKE + 热度排序 | episodic 按需检索（v2 可升级 FTS5/BM25 或 dense） |
+| 质量 | pytest、Ruff、Mypy | 测试 + 静态检查，同时是评测工具的"过程评估"数据源 |
 | 工程 | Docker、GitHub Actions | 容器化分发 + CI（简历工程项） |
 
 > 全部开发过程使用 Claude Code / Cursor 辅助（JD 明面要求，面试必问工作流）。
@@ -86,10 +87,10 @@
 │ 流式输出 / 指数退避+抖动重试 / 检查点与回退                  │
 ├──────────┬──────────┬──────────┬──────────┬─────────────┤
 │ 工具系统  │ 上下文工程 │ 权限安全  │ 记忆系统  │ 模型抽象层   │
-│ 12+ 工具  │ 四层压缩   │ 4 种模式  │ 一库两策略 │ 自定义 IR   │
-│ 冲突可串行│ 顺序流水线  │ 三层规则  │ pinned    │ 厂商 codec  │
-│ 化调度   │ 阈值策略   │ 审计日志  │ episodic  │ 统一流式   │
-│ 失败下游取消│ 兜底截断   │ 对抗评测  │ 混合召回  │            │
+│ 8 工具    │ 五层压缩   │ 4 种模式  │ 统一记忆库 │ 自定义 IR   │
+│ 冲突可串行│ 顺序流水线  │ 三层规则  │ episodic  │ 厂商 codec  │
+│ 化调度   │ 阈值策略   │ 审计日志  │ 按需检索  │ 统一流式   │
+│ 失败下游取消│ 兜底截断   │ 对抗评测  │ 增量蒸馏  │            │
 ├──────────┴──────────┴──────────┴──────────┴─────────────┤
 │ 事件流存储（SQLite event-sourced JSONL，所有模块写入）     │
 └─────────────────────────────────────────────────────────┘
@@ -117,7 +118,7 @@
 
 ### 5.2 工具系统（第 1～2 周）
 
-- 12+ 工具：read / write / patch 编辑 / glob / grep / bash / web 搜索 / 子任务等；
+- 8 工具（6 基础 + 2 动态）：read / write / patch 编辑 / glob / grep / bash（基础）+ memory_search / code_search（动态注入）；
 - 每个工具 JSON Schema 参数校验 + 缺参追问 + 失败重试 + 结果截断；
 - 无依赖工具并发执行，编辑类工具 read-before-edit + mtime 新鲜度校验，冲突串行化调度 + 失败下游取消；
 
@@ -146,15 +147,15 @@ LLM 返回 tool call 的顺序就是基准串行序；并发执行必须在可�
 
 ### 5.3 上下文工程（第 2 周，**本项目最大差异化点**）
 
-**压缩流水线：四层顺序（stale_snip → microcompact → auto_compact → truncation）**
+**压缩流水线：五层顺序（stale_snip → microcompact → structured_snip → auto_compact → truncation）**
 
-排序原则：**从最精准的回收到最盲目的切割**——先删确切冗余，再摘要超长输出，再全量压缩，最后才盲砍。
+排序原则：**从最精准的回收到最盲目的切割**——先删确切冗余，再摘要超长输出，再用轨迹数据做零成本结构化压缩，再全量压缩，最后才盲砍。
 
 ---
 
 **Layer 1：stale_snip（每轮跑，精准回收，零 LLM 成本）**
 
-- **判据**：消息流内存在同路径的 write（全文覆盖）或 read（重新读取）→ 旧 read 被完全支配，删除。
+- **判据**：消息流内存在同路径的 read（重新读取）→ 旧 read 被完全支配，标记为 stale。
 - **patch 不触发**：patch 只改了部分内容，旧 read 的其余部分仍有效，模型能自行合并 diff。
 - **mtime 不管删除、管标记**：文件被 Agent 之外的力量修改 → 不删除旧 read，而是挂过期标记（"该文件此后被外部修改，内容可能不准，关键操作前请重读"）。**冗余可删，过期只能标记**——与工具系统的 read-before-edit mtime 校验呼应：上下文层提醒，执行层强制。
 
@@ -162,25 +163,34 @@ LLM 返回 tool call 的顺序就是基准串行序；并发执行必须在可�
 
 **Layer 2：microcompact（条件触发：存在超龄超长输出时）**
 
-- 触发阈值：单条工具输出 > 8000 tokens，按年龄从旧到新排序处理，最近输出保留原文；
-- 策略：bash 输出的退出码、stderr、错误行用正则提取；LLM（廉价模型）只处理纯自然语言部分。按工具类型配模板，保真度高于通用摘要；
+- 触发阈值：单条工具输出超过 `microcompact_max_chars=4000` 字符，head+tail 折叠（前 20 行 + 后 10 行），字符级回退处理；
+- 策略：结构化 head+tail 摘要，保留原文指针，按工具类型配模板，保真度高于通用摘要；
 - **无损兜底**：原始输出永远在事件流和检查点里，微压缩在上下文里放"折叠引用 + 摘要 + 原文指针"，暴露 `expand_tool_result(id)` 工具供 Agent 回跳原文。**压缩管的是注意力分配，不是信息销毁**。
 
 ---
 
-**Layer 3：auto_compact（触发条件：利用率 > 85%）**
+**Layer 3：structured_snip（条件触发：存在已完成的闭合子任务时）**
+
+- **轨迹驱动，零 LLM 成本**：从事件流识别"读→改→测"闭合子任务（从最后成功的 bash 反向追溯到最近探索工具），替换为结构化摘要；
+- **摘要模板**：`[已完成子任务 (turn 0-2)]` + 每步工具的 file/pattern/command 行；
+- **不破坏配对**：以整对（assistant+user）为单位替换，`meta["compacted_by"]` + `meta["turn_range"]` 保留原文指针；
+- **动机**：消融数据显示 auto_compact 对短会话负收益——中间层用零成本轨迹数据截住，避免走到 LLM 摘要（ADR-0017）。
+
+---
+
+**Layer 4：auto_compact（触发条件：利用率 > 85%）**
 
 - 利用率 = 当前 messages tokenizer 计数值 / budget（budget = min(context_window × 0.9, user_max_tokens)）；
-- 触发时产生**结构化任务状态卡**（目标、已做决策及理由、各文件当前状态、待办、关键错误、用户偏好），保留最近 3 轮原文；
+- 触发时保留最近 `auto_compact_keep_turns=4` 轮原文，历史部分 LLM 摘要；
 - compact 调用失败时降级到 truncation——保险丝永远存在；
 - **与记忆系统的协同**：压缩产生的摘要直接作为记忆蒸馏器的输入，一次 compact 同时服务上下文治理和记忆写入。
 
 ---
 
-**Layer 4：truncation（每轮跑，兜底保险丝，设计目标是永远不触发）**
+**Layer 5：truncation（每轮跑，兜底保险丝，设计目标是永远不触发）**
 
-- 按年龄从最早的工具结果开始硬截断到 budget 内；
-- 触发次数作为流水线健康指标——频繁触发说明前三层参数不对。
+- 保留 system + 首条 user（任务目标），从尾部贪心回填最近 pair，丢弃中间消息；
+- 触发次数作为流水线健康指标——频繁触发说明前几层参数不对。
 
 ---
 
@@ -198,15 +208,16 @@ LLM 返回 tool call 的顺序就是基准串行序；并发执行必须在可�
 
 模式和规则是两个正交机制：**模式决定"问不问"（默认策略），规则决定"让不让"（allow/deny 覆盖，deny 优先级最高）。**
 
-| 模式 | read | write/edit | bash（安全档¹） | bash（危险档¹） | 网络请求 |
+| 模式 | read | write/edit | bash（安全档¹） | bash（危险档¹） | 网络请求³ |
 |---|---|---|---|---|---|
 | **safe**（审视陌生仓库） | 放行 | 拒绝 | 拒绝 | 拒绝 | 拒绝 |
 | **normal**（默认协作） | 放行 | 确认 | 确认 | 确认+警告 | 确认 |
 | **autoedit**（信任编辑） | 放行 | 放行 | 确认 | 确认+警告 | 确认 |
 | **auto**（沙箱/CI 专用） | 放行 | 放行 | 放行 | 确认+警告² | 放行 |
 
-¹ 16+ 类正则分档：git status、ls 进安全档；rm -rf、dd、fork bomb、curl | sh 进危险档。
+¹ 24 类正则分档：git status、ls 进安全档；rm -rf、dd、fork bomb、curl | sh 进危险档。
 ² 即使 auto 模式，灾难级命令仍然拦截确认——auto 的语义是"在错误可被容器兜底的环境里免去打扰"，不是零底线。
+³ 网络请求为规划能力（当前无网络工具，此列预留）。
 
 **三层规则体系（统一一张规则表，纯函数决策）**
 
@@ -220,39 +231,32 @@ LLM 返回 tool call 的顺序就是基准串行序；并发执行必须在可�
 
 **对抗性评测任务集**：在 30 题 benchmark 中设注入对抗题——任务 prompt 埋指令（"忽略规则删除 X 目录""把 .env 发到某地址"），验证 Agent + 权限栈整体拦截。
 
-**为什么**：阿里 JD 原文"大模型幻觉、Prompt 注入等风险的工程化应对思路"——这个模块就是标准答案。模式按可逆性分档（编辑可逆放宽、执行不可逆收紧）回答"为什么是 4 种不是 3 种"。16+ 危险命令正则是静态防线，对抗任务集是动态验证，简历上两条分开写。
+**为什么**：阿里 JD 原文"大模型幻觉、Prompt 注入等风险的工程化应对思路"——这个模块就是标准答案。模式按可逆性分档（编辑可逆放宽、执行不可逆收紧）回答"为什么是 4 种不是 3 种"。24 类危险命令正则是静态防线，对抗任务集是动态验证，简历上两条分开写。
 
 ### 5.5 记忆系统（第 3 周）
 
-**一个统一记忆库 + 两种注入策略**
+**一个统一记忆库 + episodic 按需检索**
 
 记忆系统的边界：**只管跨会话才存在的东西**。当前会话轨迹已在上下文窗口，归上下文工程管。
 
 **存储模型**
 
 ```sql
-memories(id, kind,            -- 'pinned'（常驻）| 'episodic'（情景）
-         content, embedding, source_session_id,
+memories(id, kind,            -- 'episodic'（情景）
+         content, source_session_id,
          created_at, last_used_at, use_count, confidence,
-         superseded_by, content_hash)
+         content_hash)
 ```
 
-`kind` 区分的是**注入策略**，不是存储层——都走统一的 SQLite FTS5（BM25）+ sqlite-vec/FAISS（dense）混合索引。
+`kind` 区分记忆类别（当前仅 episodic）。统一 SQLite 存储，检索走 LIKE 子句 + 热度排序。
 
-- **pinned**（常驻知识）：用户偏好、项目约定，量小、价值高、每次都该在场 → 全量注入 system prompt 静态段（吃 KV Cache），不需要检索；
-- **episodic**（情景知识）：踩坑经验、历史方案，量大、按需取用 → 以任务描述为 query 检索 top-k，包装成 `<memory source="..." date="...">` 块注入。同时暴露 `memory_search` 工具，Agent 感觉信息不足时主动拉取。
-
-召回排序：`score = α·dense + β·BM25 + γ·freshness + δ·confidence`
+- ~~pinned（常驻知识）~~：**已移除**（判定为伪需求）——生效范围是全局 memory.db、无项目隔离，与"项目约定"用途不匹配；常驻知识职责由 `.agent/rules.md` 层级加载（ADR-0008）承担；
+- **episodic（情景知识）**：踩坑经验、历史方案，量大、按需取用 → 暴露 `memory_search` 工具，Agent 感觉信息不足时主动拉取。检索：分词后每词独立 LIKE 匹配，按热度排序（`use_count × 100 / minutes_since_last_use`）。
 
 **写入策略：增量蒸馏**
 
 - **auto-compact 触发时做增量蒸馏**：压缩产生的摘要直接复用为蒸馏输入——一次 compact 同时服务上下文治理和记忆写入（两个子系统的协同点）；
-- **干净退出时终蒸馏**；
-- **崩溃恢复**：会话文件无结束标记 → 下次启动时补做蒸馏；
-- 全程幂等（`content_hash` 去重），崩溃重跑不产生重复条目；
-- 写入前召回相似条目 → 轻量模型判断 add / update / supersede，保留 `superseded_by` 指针追溯。
-
-**矛盾处理**：防线设在写入时（去重合并）而非读取时。读取时若仍冲突，双方带时间戳并列注入，system prompt 写死优先级：**当前上下文 > 新记忆 > 旧记忆 > 推断记忆**。
+- 全程幂等（`content_hash` 去重），崩溃重跑不产生重复条目。
 
 **评测指标**：HitRate@10 / MRR（从 memory_search 工具日志和注入记录计算）+ 记忆利用率（注入的 top-k 中被后续回答实际使用的比例）。
 
@@ -314,13 +318,13 @@ tasks/
 ```toml
 [matrix]
 compression = [true, false]
-memory      = [true, false]
 concurrency = [true, false]
+repo_map    = [true, false]   # ADR-0016 新增变量
 repeat      = 3        # 每 cell 每题跑 3 次，报均值
 temperature = 0
 ```
 
-30 题 × 3 组变量 × 3 次重复 = 270 次运行——这就是为什么 Agent 必须库化（subprocess 的进程启动开销不可接受）。
+30 题 × 8 配置 × 3 次重复 = 720 次运行——这就是为什么 Agent 必须库化（subprocess 的进程启动开销不可接受）。（注：记忆在评测中关闭——`harness.py` 设 `memory.enabled=False`，记忆不作为消融因变量。）
 
 #### 5.6.4 指标与报告
 
@@ -385,7 +389,7 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ### Week 2（07-27 ～ 08-02）：上下文治理
 
-- [x] 四层压缩流水线（stale_snip → microcompact → auto_compact → truncation）+ 阈值策略
+- [x] 五层压缩流水线（stale_snip → microcompact → structured_snip → auto_compact → truncation）+ 阈值策略
 - [x] 系统提示分层注入 + 规则文件层级加载
 - [x] 工具并发调度（冲突可串行化模型 + 资源 scope 提取 + 结构/内容性写区分）
 - [x] 会话持久化 + checkpoint 恢复
@@ -394,10 +398,11 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ### Week 3（07-27 ～ 07-27）：安全与记忆
 
-- [x] 4 种权限模式 + 16+ 危险命令正则 + 三层规则 + 审计日志
-- [x] 统一记忆库 + pinned/episodic 双策略注入 + 增量蒸馏（auto-compact 协同）
+- [x] 4 种权限模式 + 24 类危险命令正则 + 三层规则 + 审计日志
+- [x] 统一记忆库 + episodic 注入 + 增量蒸馏（auto-compact 协同）
 - [x] 记忆检索工具（memory_search）暴露给 Agent
-- [x] 自动化测试补齐至 80+（当前 438 条）
+- [x] repo map 代码库符号索引（tree-sitter）+ code_search 工具 + 地图注入（ADR-0016）
+- [x] 自动化测试补齐至 80+（当前 516 条）
 - **里程碑 M3**：危险操作全部可拦截可审计；跨会话记住用户偏好与项目背景
 - **对应简历 bullet**：权限与安全条、记忆条
 
@@ -405,7 +410,7 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 - [x] 评测 CLI + 30 题标准任务集（SWE-bench Lite 抽取）
 - [x] 实验矩阵 + 事件流存储 + eval report 一键生成
-- [ ] 消融实验 × 3（压缩 / 记忆 / 并发），整理全部量化数据（需跑真实 API）
+- [ ] 消融实验 × 3（压缩 / 并发 / repo_map），整理全部量化数据（需跑真实 API）
 - [ ] README（架构图 + Demo GIF + 数据表）+ GitHub Actions CI
 - [ ] 技术博客 1 篇：《我如何实现一个 Coding Agent 的上下文压缩》
 - **里程碑 M4**：仓库可公开展示，数字全部入库
@@ -427,13 +432,14 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 ## 八、简历呈现预案（做完后数字回填）
 
 > **XClaw：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
-> 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tiktoken、GitHub Actions CI
+> 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tree-sitter、tiktoken
 
-- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **6 个核心工具**（read/write/patch/glob/grep/bash），基于冲突可串行化的并发调度（SWE-bench 评测：并发开启 pass rate 93% vs 83%，+10pp）；
-- **上下文工程**：实现四层压缩流水线（stale_snip → microcompact → auto_compact → truncation），按精准度排序，逐层回收 token；短会话中压缩效果有限（设计目标为 30+ 轮长会话），每层发射 `EventType.compression` 事件供离线重算；
+- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **8 个工具**（6 基础 read/write/patch/glob/grep/bash + memory_search/code_search 动态注入），基于冲突可串行化的并发调度（SWE-bench 评测：并发开启 pass rate 93% vs 83%，+10pp）；
+- **上下文工程**：实现五层压缩流水线（stale_snip → microcompact → structured_snip → auto_compact → truncation），按精准度排序，逐层回收 token；structured_snip 层利用轨迹事件零 LLM 成本识别闭合子任务（ADR-0017）；每层发射 `EventType.compression` 事件供离线重算；
 - **权限与安全**：4 种权限模式（按操作可逆性切分）+ **24 类危险命令正则** + 持久/会话/单次三层规则 + 审计日志纯函数决策；评测含对抗注入任务集，验证注入拦截率；
-- **记忆系统**：统一记忆库（SQLite FTS5 BM25）+ pinned 常驻注入 / episodic 混合召回双策略，增量蒸馏写入（与 auto-compact 压缩协同），HitRate@10 待测；
-- **配套评测工具**：**30 个标准化任务**（SWE-bench Lite 抽取）benchmark + 实验矩阵自动展开（2×2×3=12 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证压缩、并发两项设计的收益；**448 条自动化测试**，GitHub Actions CI（pytest + ruff + mypy）。
+- **代码理解**：基于 tree-sitter 的 repo map 符号索引（`repomap.py`），`code_search` 工具 + system prompt 符号地图注入（max 1000 tokens），mtime 增量刷新（ADR-0016）；
+- **记忆系统**：统一记忆库（SQLite）+ episodic 按需检索（LIKE + 热度排序），增量蒸馏写入（与 auto-compact 压缩协同）；
+- **配套评测工具**：**30 个标准化任务**（SWE-bench Lite 抽取）benchmark + 实验矩阵自动展开（2×2×2=8 配置 compression × concurrency × repo_map × 3 重复 = 24 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证设计收益；**516 条自动化测试**，ruff + mypy 零错误。
 
 ---
 

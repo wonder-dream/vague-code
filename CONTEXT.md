@@ -13,7 +13,7 @@ Agent 与外部世界交互的唯一接口。每个工具注册时声明 JSON Sc
 _Avoid_: Plugin System, Capability
 
 **Context Engineering**:
-管理 LLM 上下文窗口的子系统。四层压缩流水线（stale_snip → microcompact → auto_compact → truncation）按精准度排序回收 token，系统提示分层注入以命中 KV Cache。
+管理 LLM 上下文窗口的子系统。五层压缩流水线（stale_snip → microcompact → structured_snip → auto_compact → truncation）按精准度排序回收 token，系统提示分层注入以命中 KV Cache。
 _Avoid_: Prompt Engineering, Context Management
 
 **Permission System**:
@@ -21,8 +21,12 @@ _Avoid_: Prompt Engineering, Context Management
 _Avoid_: Security Module, Safety Guard
 
 **Memory System**:
-跨会话知识存储与检索子系统。统一记忆库 + pinned（常驻注入）和 episodic（按需检索）两种注入策略。写入走会话蒸馏（auto-compact 协同），检索走 dense + BM25 混合召回。
+跨会话知识存储与检索子系统。统一记忆库 + episodic（按需检索）注入策略。写入走会话蒸馏（auto-compact 协同），检索走 LIKE + 热度排序召回。
 _Avoid_: Knowledge Base, RAG
+
+**Repo Map**:
+代码库符号索引子系统。基于 tree-sitter 的本地解析，提供 `code_search` 工具 + 符号地图注入，解决代码理解能力与主流产品（Aider repo map / Cursor 向量索引）的差距。
+_Avoid_: Vector Index, Code Search DB
 
 **Model Abstraction Layer**:
 统一 LLM 后端接入层。自定义 dataclass IR（语义照抄 Anthropic content block 模型）+ 每厂商一个薄 codec，上层代码零分支。流式事件统一为 StreamEvent IR。
@@ -37,7 +41,7 @@ _Avoid_: Run Record, Session Log
 _Avoid_: Benchmark Runner, Test Suite
 
 **Compression Pipeline**:
-上下文工程的核心机制。四层顺序：stale_snip（删消息流内被后续操作覆盖的旧文件读取）→ microcompact（对超长工具输出做结构化摘要，保留原文指针）→ auto_compact（利用率 > 85% 时全量会话摘要）→ truncation（硬截断兜底）。
+上下文工程的核心机制。五层顺序：stale_snip（删消息流内被后续操作覆盖的旧文件读取）→ microcompact（对超长工具输出做结构化摘要，保留原文指针）→ structured_snip（利用轨迹事件识别已完成子任务，零成本替换为结构化摘要）→ auto_compact（利用率 > 85% 时全量会话摘要）→ truncation（硬截断兜底）。
 _Avoid_: Context Pruning, Summarization
 
 **Conflict Serializability**:

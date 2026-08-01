@@ -7,7 +7,9 @@ date: 2026-07-27
 
 ## 背景
 
-跨会话记忆。统一记忆库 + pinned（常驻）/ episodic（情景按需检索）两种注入策略。与 auto-compact 压缩协同做增量蒸馏。
+跨会话记忆。统一记忆库 + episodic（情景按需检索）注入策略。与 auto-compact 压缩协同做增量蒸馏。
+
+> **决策更新（2026-08-01）：** pinned（常驻）注入被判定为伪需求——生效范围是全局 memory.db、无项目隔离，与用途（项目约定）不匹配；且 `.agent/rules.md` 层级加载（ADR-0008）可完整替代。**pinned 已移除，`kind` 列保留但只余 `'episodic'`。**
 
 ## 约束
 
@@ -23,7 +25,7 @@ date: 2026-07-27
 ```sql
 CREATE TABLE IF NOT EXISTS memories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,           -- 'pinned' | 'episodic'
+    kind TEXT NOT NULL,           -- 'episodic'
     content TEXT NOT NULL,
     source_session TEXT,          -- 来源会话 ID
     created_at TEXT NOT NULL,
@@ -40,28 +42,25 @@ CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
 
 ### 注入策略
 
-- **pinned**：数量少（<10），全量注入 system prompt 静态段。存储时 `kind='pinned'`
-- **episodic**：以当前 task 为 query，BM25 检索 top-k，包装为 `<memory>` block 注入
+- **episodic**：Agent 通过 `memory_search` 工具按需检索（LIKE 子句 + 热度排序）
 
 ### 写入流程
 
 1. auto_compact 触发 → 摘要文本 → `MemoryStore.ingest(summary, kind='episodic')`
-2. 干净的 run 结束 → 时序（`_run_gen` 结束后）→ `MemoryStore.ingest(final_summary)`
-3. ingest 内部：`hashlib.sha256(content).hexdigest()` → 检查 duplicates → 不重复则写入
+2. ingest 内部：`hashlib.sha256(content).hexdigest()` → 检查 duplicates → 不重复则写入
 
 ### 检索
 
 ```python
 def search(self, query: str, k: int = 5) -> list[dict]:
-    # BM25 via FTS5
-    rows = self.conn.execute(
-        "SELECT rank, content FROM memories_fts WHERE memories_fts MATCH ? ORDER BY rank LIMIT ?",
-        (query, k),
-    ).fetchall()
+    # LIKE 子句 + 热度排序（use_count × 100 / minutes_since_last_use）
+    terms = query.split()
+    like_clauses = " OR ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
+    ...
 ```
 
 ## Consequences
 
-- v1 纯 BM25，v2 加 dense 后只需替换 `search` 方法
+- v1 LIKE 检索，v2 可替换为 FTS5/BM25 或 dense（只需改 `search` 方法）
 - 记忆库路径与 trajectory 同目录：`runs/memory.db`
-- 注入的 pinned 记忆吃 KV Cache，量小可忽略
+- 常驻知识由 `.agent/rules.md` 层级加载承担（ADR-0008）

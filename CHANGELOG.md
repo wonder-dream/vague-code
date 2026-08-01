@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — 2026-08-01
+
+### Added
+
+- **Repo Map**: tree-sitter 0.26 symbol index (`repomap.py`), `code_search` tool + system prompt map injection (max 1000 tokens), mtime incremental refresh
+- **structured_snip**: trajectory-driven compression layer (zero LLM cost) between microcompact and auto_compact — replaces completed read→modify→verify subtasks with structured summaries
+
+### Changed
+
+- **Compression Pipeline**: 4 → 5 layers (stale_snip → microcompact → structured_snip → auto_compact → truncation)
+- **Memory System**: removed pinned (always-on) injection — `get_pinned()`/`inject_pinned` deleted; constant knowledge handled by `.agent/rules.md` (ADR-0008). `kind` column retains only `'episodic'`
+- **Evaluation Harness**: matrix expanded to 2×2×2 (compression × concurrency × repo_map) × repeats; stats track `structured_snip_reclaimed` and `code_search_calls`
+
 ## [v0.1.0] — 2026-07-28
 
 ### Added

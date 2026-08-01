@@ -15,8 +15,8 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 │  Agent Runtime (ReAct Loop + Retry + Checkpoint/Resume)             │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
 │  │ Tool System │ │ Context  │ │Security  │ │ Memory System      │  │
-│  │ 6 核心工具  │ │四层压缩  │ │4 种模式  │ │SQLite 统一记忆库   │  │
-│  │ 并发调度    │ │KV Cache  │ │审计日志  │ │pinned + episodic   │  │
+│  │ 7 核心工具  │ │五层压缩  │ │4 种模式  │ │SQLite 统一记忆库   │  │
+│  │ 并发调度    │ │KV Cache  │ │审计日志  │ │episodic 按需检索   │  │
 │  │ 冲突可串行化│ │分层注入  │ │纯函数决策│ │增量蒸馏            │  │
 │  └─────────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
 │                          │                                          │
@@ -24,6 +24,8 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 │  Custom IR (text/thinking/tool_use/tool_result) + Unified Stream    │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Trajectory (Event-Sourced JSONL → SQLite)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  Repo Map (tree-sitter 符号索引) ── code_search 工具 + 地图注入     │
 ├─────────────────────────────────────────────────────────────────────┤
 │  Eval Harness ── 30 tasks (SWE-bench Lite) ── Matrix ── Report     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -100,11 +102,12 @@ xcode tui <task> [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 | 模块 | 文件 | 描述 |
 |------|------|------|
 | **Agent Loop** | `src/agent/loop.py` | ReAct 循环：LLM → tool_use → tool_result → LLM，含 retry/checkpoint/resume |
-| **Tool System** | `src/agent/tools.py` | 6 个工具（read/write/patch/glob/grep/bash），JSON Schema 校验，50K 截断 |
+| **Tool System** | `src/agent/tools.py` | 7 个工具（read/write/patch/glob/grep/bash/code_search），JSON Schema 校验，50K 截断 |
 | **Concurrency** | `src/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
-| **Context Engineering** | `src/agent/context_compress.py` | 四层压缩：stale_snip → microcompact → auto_compact → truncation |
+| **Context Engineering** | `src/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
 | **Permission System** | `src/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 24 类危险命令正则 |
-| **Memory System** | `src/agent/memory.py` | SQLite FTS5 统一记忆库 + pinned/episodic 注入 + auto-compact 蒸馏 |
+| **Memory System** | `src/agent/memory.py` | SQLite 统一记忆库 + episodic 检索注入 + auto-compact 蒸馏 |
+| **Repo Map** | `src/agent/repomap.py` | tree-sitter 符号索引，code_search 工具 + 符号地图注入 |
 | **Model Abstraction** | `src/agent/codecs/` | 自定义 IR → DeepSeek/Anthropic codec，统一流式事件 |
 | **Trajectory** | `src/agent/trajectory.py` | Event-sourced JSONL → SQLite 事件流，to_messages() 导出 |
 | **CLI** | `src/cli/` | argparse + Rich 渲染，--stream/--no-stream，--provider |
@@ -139,15 +142,16 @@ xcode tui <task> [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 xcode/
 ├── src/agent/                 # Agent 核心包
 │   ├── loop.py                # ReAct 主循环
-│   ├── tools.py               # 6 个核心工具
+│   ├── tools.py               # 6 个基础工具 + code_search spec
 │   ├── concurrency.py         # 冲突可串行化并发
-│   ├── context_compress.py    # 四层压缩流水线
+│   ├── context_compress.py    # 五层压缩流水线
 │   ├── context.py             # 系统提示构建
 │   ├── context_tokens.py      # Token 计数 + 预算
 │   ├── context_rules.py       # 规则文件层级加载
 │   ├── permission.py          # 权限系统
 │   ├── memory.py              # 记忆系统
 │   ├── memory_tool.py         # memory_search 工具
+│   ├── repomap.py             # tree-sitter 符号索引（code_search + 地图注入）
 │   ├── config.py              # AgentConfig 配置
 │   ├── ir.py                  # 自定义 IR dataclass
 │   ├── backend.py             # LLM 后端适配层
@@ -168,7 +172,7 @@ xcode/
 │   ├── adr/                   # 14 份架构决策记录
 │   ├── plans/                 # 12 份实现计划
 │   └── known-issues.md        # 已知问题跟踪
-└── tests/                     # 448 条自动化测试
+└── tests/                     # 516 条自动化测试
 ```
 
 ---
@@ -180,7 +184,8 @@ xcode/
 | 语言 | Python 3.12 |
 | LLM API | DeepSeek / Anthropic / OpenAI 兼容 |
 | 记忆存储 | SQLite + FTS5 (BM25) |
-| 代码质量 | ruff + mypy + pytest (448 tests) |
+| 代码索引 | tree-sitter 0.26 + tree-sitter-python |
+| 代码质量 | ruff + mypy + pytest (516 tests) |
 | CLI | argparse + Rich |
 | 依赖管理 | uv |
 

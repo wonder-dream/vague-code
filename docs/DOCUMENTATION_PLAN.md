@@ -1,4 +1,6 @@
-# XClaw 文档编写总纲
+﻿# XClaw 文档编写总纲
+
+**状态：✅ 全部完成 — 24/24 篇成品文章已写入 `docs/articles/`**
 
 本文档为 XClaw 项目的完整文档蓝图。供多轮多次对话中使用。
 
@@ -8,7 +10,7 @@
 
 ```
 docs/
-├── guide/                         ← 学习路径（按编号顺序阅读）
+├── guide/                         ← 学习路径（按编号顺序阅读） ✅
 │   ├── 00-what-is-a-coding-agent.md
 │   ├── 01-terminology.md
 │   ├── 02-architecture-overview.md
@@ -23,36 +25,45 @@ docs/
 │   ├── 11-cli-and-tui.md
 │   └── 12-evaluation-harness.md
 │
-├── tutorials/                     ← 动手教程
+├── tutorials/                     ← 动手教程 ✅
 │   ├── 01-your-first-task.md
 │   ├── 02-fixing-a-real-bug.md
 │   ├── 03-extending-xclaw.md
 │   └── 04-running-ablation-experiments.md
 │
-├── reference/                     ← API 参考（表格风格）
+├── reference/                     ← API 参考（表格风格） ✅
 │   ├── agent-config.md
 │   ├── ir-reference.md
 │   ├── tool-api.md
 │   ├── trajectory-events.md
 │   └── cli-reference.md
 │
-├── troubleshooting.md             ← 常见问题与解决方案
-├── faq.md                         ← 设计决策问答
-├── adr/                           ← 已有（15篇），新增 README.md 索引
-├── plans/                         ← 已有（12篇）
-├── blog/                          ← 已有（1篇）
-├── audit/                         ← 已有（5篇）
-├── reviews/                       ← 已有（2篇）
-├── devlog.md                      ← 已有
-├── known-issues.md                ← 已有
-└── Coding Agent 项目开发文档.md    ← 已有
+├── troubleshooting.md             ← 常见问题与解决方案 ✅
+├── faq.md                         ← 设计决策问答 ✅
+├── adr/                           ← 18篇 ADR ✅（含 README.md 索引）
+├── plans/                         ← 15篇 ✅
+├── blog/                          ← 1篇 ✅
+├── audit/                         ← 5篇 ✅
+├── reviews/                       ← 2篇 ✅
+├── devlog.md                      ← 已有 ✅
+├── known-issues.md                ← 已有 ✅
+└── Coding Agent 项目开发文档.md    ← 已有 ✅
 
 根目录：
-├── README.md        ← 已有
-├── CONTEXT.md       ← 已有
-├── CHANGELOG.md     ← 已有
-├── LICENSE          ← 新建（MIT）
-└── Agent.md         ← 已有
+├── README.md        ← 已有 ✅
+├── CONTEXT.md       ← 已有 ✅
+├── CHANGELOG.md     ← 已有 ✅
+├── LICENSE          ← MIT ✅
+└── Agent.md         ← 已有 ✅
+
+成品文章目录（新建）：
+└── docs/articles/                 ← 24 篇成品文章 ✅
+    ├── 00-12 (13 篇 guide 文章)
+    ├── T1-T4 (4 篇教程)
+    ├── R1-R5 (5 篇参考)
+    ├── troubleshooting.md
+    ├── faq.md
+    └── README.md（索引）
 ```
 
 ---
@@ -111,10 +122,11 @@ Phase 5: 补充（随时查阅）
 |------|------|
 | Agent 层 | Agent Runtime / Turn / Trajectory / ReAct Loop / Checkpoint |
 | 工具层 | Tool Spec / Resource Scope / Conflict Serializability |
-| 压缩层 | Token Budget / stale_snip / microcompact / auto_compact / truncation / KV Cache |
+| 压缩层 | Token Budget / stale_snip / microcompact / structured_snip / auto_compact / truncation / KV Cache |
 | 权限层 | Permission Mode / Decision / Audit Log |
-| 记忆层 | Pinned Memory / Episodic Memory / BM25 / Distillation |
+| 记忆层 | Episodic Memory / Distillation |
 | 模型层 | IR / Codec / Block / Stream Event |
+| 代码理解 | Repo Map / code_search |
 | 评测层 | Ablation Experiment / Fail-to-Pass / Pass-to-Pass |
 
 **核心素材：** `CONTEXT.md`（机器可读术语规范）
@@ -144,8 +156,8 @@ Phase 5: 补充（随时查阅）
 
 **大纲（10 个步骤，每个步骤包含：代码位置、输入、输出、数据变换）：**
 1. 前情提要 — messages 数组、turn_box、config 的初始状态
-2. Build System Prompt — `SystemPrompt.build()` + 规则加载 + pinned memory 注入
-3. Compression Pipeline — 4 层压缩，每层读什么改什么
+2. Build System Prompt — `SystemPrompt.build()` + 规则加载 + repo map 注入
+3. Compression Pipeline — 5 层压缩，每层读什么改什么
 4. LLM Call — `backend.stream()` → SSE chunks → `_StreamAggregator` → `ModelResponse`
 5. Parse Stop Reason — end_turn / max_tokens / tool_use 的分支
 6. Permission Check — `_check_tool_permission()` 对每个 tool_use 做 DENY/CONFIRM/ALLOW
@@ -175,7 +187,7 @@ Phase 5: 补充（随时查阅）
 
 ### 05-tool-system.md | ~550 行
 - 工具哲学 — Agent 的"手"和"眼"
-- 6 个工具一览表（name / 作用 / 参数 / 返回值）
+- 8 个工具一览表（6 基础 + 2 动态，name / 作用 / 参数 / 返回值）
 - Tool dataclass + bind(workdir) 工厂模式
 - 每个工具的深层剖析（路径安全 / 截断 / 边界情况）
 - 安全性保证（路径穿越防护 / null 字节 / 50K 截断）
@@ -194,14 +206,15 @@ Phase 5: 补充（随时查阅）
 - System Prompt 构造（3 段式 + KV Cache 优化）
 - 规则文件层级加载（向上遍历 + 10KB 限制）
 - Token Budget 计算（模型 context_window × 0.9）
-- 4 层压缩流水线（每层详解）：
+- 5 层压缩流水线（每层详解）：
   - stale_snip：确定性，零 LLM 成本，只标记同工具同路径
   - microcompact：结构化 head+tail 摘要，字符级回退（PR-2 修复）
+  - structured_snip：轨迹驱动，零 LLM 成本，识别闭合子任务并替换为结构化摘要（ADR-0017）
   - auto_compact：LLM 驱动，keep_turns 保留最近轮次
   - truncation：硬截断，保留 system+task 前缀
 - 纯函数设计 + LayerReport + EventType.compression 可观测性
 - 消融数据讨论（压缩在小任务中负收益，目标 30+ 轮会话）
-- **引用：** ADR-0011, plans/0008, blog/compression.md
+- **引用：** ADR-0011/0017, plans/0008/0013, blog/compression.md
 
 ### 07-permission-system.md | ~400 行
 - 设计哲学：默认安全，渐进信任
@@ -218,8 +231,7 @@ Phase 5: 补充（随时查阅）
 ### 08-memory-system.md | ~350 行
 - 边界：记忆 vs 上下文的设计职责分离
 - 存储模型：SQLite + FTS5 表结构
-- Pinned 注入：始终附加到 system prompt，用于偏好/约定
-- Episodic 检索：`memory_search` 工具，LIKE/BET/FS5 查询
+- Episodic 检索：`memory_search` 工具，LIKE 查询 + 热度排序
 - 写入管道：auto_compact 蒸馏 → 增量 ingest → SHA-256 去重
 - 评分：`(use_count × 100) / MAX(1, minutes_since_use + 1)`
 - **引用：** ADR-0014, plans/0012
@@ -265,7 +277,7 @@ Phase 5: 补充（随时查阅）
 - 架构：Agent 即库 — programmatic control
 - SWE-bench 任务格式（tasks.json）
 - 评测循环：harness.py → Agent.run() → verify → pass/fail
-- 实验矩阵：2×2 (compression × concurrency) × repeat
+- 实验矩阵：2×2×2 (compression × concurrency × repo_map) × repeat
 - FakeBackend：零 API 成本验证
 - 报告生成：Markdown + 汇总表
 - 当前结果：baseline 60% / 并发 ON 93%
@@ -300,7 +312,7 @@ Phase 5: 补充（随时查阅）
 |------|---------|
 | R1: agent-config.md | AgentConfig / TransportConfig / CompressionConfig / MemoryConfig 每个字段的表（名称·类型·默认值·约束·示例） |
 | R2: ir-reference.md | Block 4 种 / Message / ModelResponse / StopReason / NormalizedUsage / StreamEvent 10 种 的构造签名 + to_dict() 输出 |
-| R3: tool-api.md | 6 个工具的 JSON Schema 定义 + 参数表 + 返回值格式 + 错误类型 + 边界限制值 |
+| R3: tool-api.md | 8 个工具的 JSON Schema 定义 + 参数表 + 返回值格式 + 错误类型 + 边界限制值 |
 | R4: trajectory-events.md | 12 种 EventType 的触发条件 + payload 字段表 + JSONL 示例 + 常用 SQL 查询 |
 | R5: cli-reference.md | 所有 flag / 子命令 / 环境变量 / 退出码的表 + 斜杠命令表 + 键位表 |
 
@@ -311,7 +323,7 @@ Phase 5: 补充（随时查阅）
 | 篇目 | 内容 |
 |------|------|
 | troubleshooting.md | 7 类问题：安装/API/工具/压缩/权限/内存/TUI/轨迹。每类：症状 → 诊断 → 解决方案 |
-| faq.md | 10+ 个"为什么"：为什么自建 agent？为什么 4 层压缩？为什么不用 asyncio？怎么贡献？ |
+| faq.md | 10+ 个"为什么"：为什么自建 agent？为什么 5 层压缩？为什么不用 asyncio？怎么贡献？ |
 | docs/adr/README.md | 15 篇 ADR 的索引表（编号 · 主题 · 状态 · 关联文档） |
 | LICENSE | MIT license |
 
@@ -334,11 +346,11 @@ Phase 5: 补充（随时查阅）
 
 ## 编写顺序建议（6 轮）
 
-| 轮次 | 文档 | 预估量 |
-|------|------|--------|
-| 1 | Phase 0 + LICENSE + adr/README + README 增强 | ~1100 行 |
-| 2 | 03 单轮详解 + 04 Runtime + 05 Tool | ~1650 行 |
-| 3 | 06 Context + 07 Permission + 08 Memory | ~1350 行 |
-| 4 | 09 Model + 10 Trajectory + 11 CLI/TUI + 12 Eval | ~1650 行 |
-| 5 | 教程 T1+T2+T3+T4 | ~1550 行 |
-| 6 | 参考 R1-R5 + troubleshooting + faq | ~1700 行 |
+| 轮次 | 文档 | 预估量 | 状态 |
+|------|------|--------|------|
+| 1 | Phase 0 (00-02) + LICENSE + adr/README + README 增强 | ~1100 行 | ✅ |
+| 2 | 03 单轮详解 + 04 Runtime + 05 Tool | ~1650 行 | ✅ |
+| 3 | 06 Context + 07 Permission + 08 Memory | ~1350 行 | ✅ |
+| 4 | 09 Model + 10 Trajectory + 11 CLI/TUI + 12 Eval | ~1650 行 | ✅ |
+| 5 | 教程 T1+T2+T3+T4 | ~1550 行 | ✅ |
+| 6 | 参考 R1-R5 + troubleshooting + faq | ~1700 行 | ✅ |
