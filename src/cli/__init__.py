@@ -60,6 +60,9 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
+    if not args.task and not args.resume:
+        parser.error("task is required unless --resume is used")
+
     try:
         api_key = _resolve_api_key(args.provider)
         if not api_key:
@@ -107,8 +110,6 @@ def main(argv: list[str] | None = None) -> None:
             traj = agent.resume(traj)
             reason = "resumed"
         else:
-            if not args.task:
-                parser.error("task is required unless --resume is used")
             handle = agent.start(task=args.task, workdir=args.workdir)
             for ev in handle:
                 dispatch_event(ev, visitor)
