@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -121,6 +122,21 @@ def classify_pytest(exit_code: int, output: str) -> str:
     return "fail"
 
 
+def _pytest_env(workdir: Path, shims_dir: Path | None = None) -> dict[str, str]:
+    """PYTHONPATH = shims → workdir：桩文件优先，再命中任务 base_commit 源码。
+
+    配合 env.py 的"只装依赖 wheel、不装仓库本体"策略（本机无 MSVC，
+    C 扩展无法源码构建；纯 Python 测试路径用源码 import 成立）。
+    """
+    env = dict(os.environ)
+    parts = [str(shims_dir)] if shims_dir else []
+    parts.append(str(workdir))
+    if env.get("PYTHONPATH"):
+        parts.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(parts)
+    return env
+
+
 def run_node_ids(
     env: EnvSpec,
     workdir: str | Path,
@@ -144,6 +160,7 @@ def run_node_ids(
                  "--no-header", "-p", "no:cacheprovider"],
                 cwd=str(workdir), capture_output=True, text=True,
                 encoding="utf-8", errors="replace",
+                env=_pytest_env(workdir, env.shims_dir),
                 timeout=timeout,
             )
             out = proc.stdout + "\n" + proc.stderr
@@ -152,8 +169,24 @@ def run_node_ids(
         except subprocess.TimeoutExpired:
             return TestRun(node_id, "timeout", -1, "timeout exceeded")
 
+    def _one_batch(timeout: int) -> TestRun:
+        """所有 node id 一次 pytest 调用（node id 各自成参，不能 join 成一个字符串）。"""
+        try:
+            proc = subprocess.run(
+                [str(env.python), "-m", "pytest", *node_ids, "-q",
+                 "--no-header", "-p", "no:cacheprovider"],
+                cwd=str(workdir), capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+                env=_pytest_env(workdir, env.shims_dir),
+                timeout=timeout,
+            )
+            out = proc.stdout + "\n" + proc.stderr
+            return TestRun("", classify_pytest(proc.returncode, out), proc.returncode, out)
+        except subprocess.TimeoutExpired:
+            return TestRun("", "timeout", -1, "timeout exceeded")
+
     if batch and node_ids:
-        combined = _one(" ".join(node_ids), timeout_s)
+        combined = _one_batch(timeout_s)
         for nid in node_ids:
             runs.append(TestRun(nid, combined.state, combined.exit_code, combined.output))
     else:

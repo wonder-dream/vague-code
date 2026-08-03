@@ -128,15 +128,30 @@ def _set_workdir(task: dict, base_dir: str, use_fake: bool = False) -> str:
         return workdir
 
     if Path(workdir).exists():
-        shutil.rmtree(workdir)
+        # Windows 上 git/杀软可能短暂占用 pack 文件，重试几次
+        deleted = False
+        for _ in range(5):
+            try:
+                shutil.rmtree(workdir)
+                deleted = True
+                break
+            except PermissionError:
+                import time
+                time.sleep(2)
+        if not deleted:
+            subprocess.run(["cmd", "/c", "rmdir", "/s", "/q", str(Path(workdir).resolve())],
+                           capture_output=True, timeout=120)
+        if Path(workdir).exists():
+            raise RuntimeError(f"cannot remove stale workdir: {workdir}")
 
+    # blob:none 部分克隆：只下载 commit/tree 元数据，文件按需取，功能等价且快得多
     subprocess.run(
-        ["git", "clone", repo_url, workdir],
-        capture_output=True, check=True, timeout=120,
+        ["git", "clone", "--filter=blob:none", repo_url, workdir],
+        capture_output=True, check=True, timeout=300,
     )
     subprocess.run(
         ["git", "checkout", commit],
-        cwd=workdir, capture_output=True, check=True, timeout=30,
+        cwd=workdir, capture_output=True, check=True, timeout=60,
     )
     return workdir
 
