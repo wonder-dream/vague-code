@@ -31,6 +31,9 @@ REPO_QUOTAS: dict[str, int] = {
     "pytest-dev/pytest": 1,
 }
 SKIP_REPOS = {"django/django"}
+# pytest 自家套件的 parametrize id 版本敏感（数据集 id 与 base_commit 的 pytest 版本不匹配），
+# 导出时剥离参数后缀（名字级稳定，见 README 已知限制）
+STRIP_PARAMS_REPOS = {"pytest-dev/pytest"}
 TASKS_OUT = "eval/tasks.json"
 ANNOT_OUT = "eval/official_annotations.csv"
 ANNOT_SRC = "eval/swe_annotations_ensembled.csv"
@@ -111,6 +114,9 @@ def main() -> None:
 
     for t in selected:
         t.pop("_n_f2p", None)
+        if t["repo"] in STRIP_PARAMS_REPOS:
+            for key in ("FAIL_TO_PASS", "PASS_TO_PASS"):
+                t[key] = [n.split("[")[0] for n in t[key]]
     Path(TASKS_OUT).write_text(
         json.dumps(selected, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
