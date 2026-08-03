@@ -129,6 +129,21 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
                 f"| {avg('permission_denies')} | {touches} |"
             )
 
+    # P2 失败模式分布（仅当存在真验收结果时）
+    if has_verified:
+        from eval.classify import CLASS_LABELS, classify
+
+        counts: dict[str, int] = {}
+        for r in results:
+            cls = classify(r)
+            counts[cls] = counts.get(cls, 0) + 1
+        lines.append("\n## 失败模式分布（P2 分类）\n")
+        lines.append("| 类别 | 数量 | 占比 |")
+        lines.append("|------|------|------|")
+        for cls in sorted(counts, key=lambda c: -counts[c]):
+            pct = counts[cls] / len(results) * 100
+            lines.append(f"| {CLASS_LABELS[cls]} | {counts[cls]} | {pct:.0f}% |")
+
     # 错误列表
     errors = [r for r in results if r.error]
     if errors:

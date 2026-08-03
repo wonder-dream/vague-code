@@ -162,6 +162,7 @@ def run_eval(
     workdir_base: str,
     use_fake: bool = False,
     model_name: str = "deepseek-v4-flash",
+    max_turns: int = 50,
 ) -> list[TaskResult]:
     from src.agent.loop import Agent
     from src.agent.config import AgentConfig, MemoryConfig
@@ -215,7 +216,7 @@ def run_eval(
                 reset_workdir(workdir)
 
             config = AgentConfig(
-                max_turns=50,
+                max_turns=max_turns,
                 model=model_name,
                 concurrent_tools=cell.concurrency,
                 permission_mode="auto",

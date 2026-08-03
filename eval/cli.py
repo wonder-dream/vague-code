@@ -15,6 +15,8 @@ def main():
     p.add_argument("--fake", action="store_true", help="Use FakeBackend instead of real LLM")
     p.add_argument("--workdir", default="eval/.workdir", help="Base directory for task repos")
     p.add_argument("--model", default="deepseek-v4-flash", help="Model name")
+    p.add_argument("--max-turns", type=int, default=50,
+                   help="Max agent turns per run (cost control; ablation usually 25-50)")
     args = p.parse_args()
 
     tasks = load_tasks(args.tasks)
@@ -35,6 +37,7 @@ def main():
         workdir_base=args.workdir,
         use_fake=args.fake,
         model_name=args.model,
+        max_turns=args.max_turns,
     )
 
     passed = sum(1 for r in results if r.passed is True)

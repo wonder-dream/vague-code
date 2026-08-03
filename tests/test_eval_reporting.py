@@ -14,12 +14,12 @@ def _cell(compression: bool = True, concurrency: bool = False,
 
 
 def _r(instance: str, cell: EvalCell, verified: bool | None,
-       passed: bool | None = None) -> TaskResult:
+       passed: bool | None = None, verdict: str = "ok") -> TaskResult:
     return TaskResult(instance_id=instance, cell=cell,
                       passed=verified if passed is None else passed,
                       verified=verified,
                       f2p_pass=verified, p2p_pass=verified,
-                      verdict_reason="ok" if verified else "f2p:fail",
+                      verdict_reason=verdict,
                       stats={"total_turns": 3})
 
 
@@ -60,6 +60,20 @@ def test_generate_report_includes_passk_section(tmp_path: Path) -> None:
     text = out.read_text(encoding="utf-8")
     assert "## pass^k 可靠性" in text
     assert "pass^k" in text
+
+
+def test_generate_report_includes_failure_distribution(tmp_path: Path) -> None:
+    results = [
+        _r("A", _cell(repeat=0), True),
+        _r("B", _cell(repeat=0), False, verdict="no_diff"),
+        _r("C", _cell(repeat=0), False, verdict="f2p:fail"),
+        _r("D", _cell(repeat=0), False, verdict="f2p:fail"),
+    ]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "## 失败模式分布" in text
+    assert "测试不过" in text or "伪完成" in text
 
 
 # ── P0-5: audit_tasks ────────────────────────────────────────────────────
