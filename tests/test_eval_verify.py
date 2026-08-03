@@ -155,7 +155,7 @@ def test_verify_f2p_pass(monkeypatch) -> None:
         (d / "app.py").write_text("def add(a, b):\n    return 4\n", encoding="utf-8")
         from eval import verify
         monkeypatch.setattr(verify, "run_node_ids",
-                            lambda env, wd, ids, timeout_s=600: [_Run(i, "pass") for i in ids])
+                            lambda env, wd, ids, timeout_s=600, batch=False: [_Run(i, "pass") for i in ids])
         r = verify_run({"test_patch": TEST_PATCH,
                         "FAIL_TO_PASS": ["test_app.py::test_add"],
                         "PASS_TO_PASS": ["test_app.py::test_add"]}, d, _env(d))
@@ -172,12 +172,41 @@ def test_verify_f2p_fail(monkeypatch) -> None:
         (d / "app.py").write_text("def add(a, b):\n    return 5\n", encoding="utf-8")
         from eval import verify
         monkeypatch.setattr(verify, "run_node_ids",
-                            lambda env, wd, ids, timeout_s=600: [_Run(i, "fail") for i in ids])
+                            lambda env, wd, ids, timeout_s=600, batch=False: [_Run(i, "fail") for i in ids])
         r = verify_run({"test_patch": TEST_PATCH,
                         "FAIL_TO_PASS": ["test_app.py::test_add"],
                         "PASS_TO_PASS": []}, d, _env(d))
         assert r.verified is False and r.f2p_pass is False
         assert r.reason == "f2p:fail"
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ── P2P 批量模式（大 P2P 集一次跑完，省 pytest 启动开销） ──────────────
+
+class _BatchProc:
+    pass
+
+
+def test_run_node_ids_batch_marks_all_on_failure(monkeypatch) -> None:
+    d = Path("tmp_vr_batch")
+    _init_repo(d)
+    try:
+        from eval import verify
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, **kw):
+            calls.append(cmd)
+            import subprocess
+            return subprocess.CompletedProcess(cmd, 1, "1 failed in 0.1s", "")
+
+        monkeypatch.setattr(verify.subprocess, "run", fake_run)
+        runs = verify.run_node_ids(_env(d), d,
+                                   ["t1::a", "t2::b", "t3::c"], batch=True)
+        assert len(calls) == 1          # 一次 pytest 调用
+        assert len(runs) == 3
+        assert all(r.state == "fail" for r in runs)
     finally:
         import shutil
         shutil.rmtree(d, ignore_errors=True)

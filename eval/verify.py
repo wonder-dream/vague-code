@@ -126,24 +126,39 @@ def run_node_ids(
     workdir: str | Path,
     node_ids: list[str],
     timeout_s: int = 600,
+    batch: bool = False,
 ) -> list[TestRun]:
-    """逐个 node id 跑 pytest，独立分类（SWE-bench 惯例：只跑指定 node id）。"""
+    """跑 pytest 并按 node id 分类。
+
+    - batch=False（F2P）：逐个 node id 独立跑，分类精确（SWE-bench 惯例）
+    - batch=True（P2P）：所有 node id 一次跑完，任一挂则全部标 fail
+      （P2P 只要求"全过"，无需定位具体失败项，省 pytest 启动开销）
+    """
     workdir = Path(workdir)
     runs: list[TestRun] = []
-    for node_id in node_ids:
+
+    def _one(node_id: str, timeout: int) -> TestRun:
         try:
             proc = subprocess.run(
                 [str(env.python), "-m", "pytest", node_id, "-q",
                  "--no-header", "-p", "no:cacheprovider"],
                 cwd=str(workdir), capture_output=True, text=True,
                 encoding="utf-8", errors="replace",
-                timeout=timeout_s,
+                timeout=timeout,
             )
             out = proc.stdout + "\n" + proc.stderr
-            state = classify_pytest(proc.returncode, out)
-            runs.append(TestRun(node_id, state, proc.returncode, out))
+            return TestRun(node_id, classify_pytest(proc.returncode, out),
+                           proc.returncode, out)
         except subprocess.TimeoutExpired:
-            runs.append(TestRun(node_id, "timeout", -1, "timeout exceeded"))
+            return TestRun(node_id, "timeout", -1, "timeout exceeded")
+
+    if batch and node_ids:
+        combined = _one(" ".join(node_ids), timeout_s)
+        for nid in node_ids:
+            runs.append(TestRun(nid, combined.state, combined.exit_code, combined.output))
+    else:
+        for node_id in node_ids:
+            runs.append(_one(node_id, timeout_s))
     return runs
 
 
@@ -166,10 +181,11 @@ def sanity_gate(task: dict, workdir: str | Path, env: EnvSpec, timeout_s: int = 
             reasons.append(
                 f"F2P {node_id}: expected assertion-fail on clean checkout, got '{run.state}'"
             )
-    for node_id in task.get("PASS_TO_PASS", []):
-        run = run_node_ids(env, workdir, [node_id], timeout_s)[0]
+    p2p_runs = run_node_ids(env, workdir, task.get("PASS_TO_PASS", []),
+                            timeout_s, batch=True)
+    for run in p2p_runs:
         if run.state != "pass":
-            reasons.append(f"P2P {node_id}: expected pass on clean checkout, got '{run.state}'")
+            reasons.append(f"P2P {run.node_id}: expected pass on clean checkout, got '{run.state}'")
 
     return SanityResult(ok=not reasons, reasons=reasons)
 
@@ -203,7 +219,7 @@ def verify_run(
         return VerifyResult(verified=False, f2p_pass=False, p2p_pass=None,
                             reason=f"f2p:{bad.state}", stdout=bad.output)
 
-    p2p_runs = run_node_ids(env, workdir, task.get("PASS_TO_PASS", []), timeout_s)
+    p2p_runs = run_node_ids(env, workdir, task.get("PASS_TO_PASS", []), timeout_s, batch=True)
     p2p_ok = all(r.state == "pass" for r in p2p_runs)
     if not p2p_ok:
         bad = next(r for r in p2p_runs if r.state != "pass")
