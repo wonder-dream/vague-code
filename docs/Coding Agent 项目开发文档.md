@@ -441,6 +441,8 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 - **记忆系统**：统一记忆库（SQLite）+ episodic 按需检索（LIKE + 热度排序），增量蒸馏写入（与 auto-compact 压缩协同）；
 - **配套评测工具**：**30 个标准化任务**（SWE-bench Lite 抽取）benchmark + 实验矩阵自动展开（2×2×2=8 配置 compression × concurrency × repo_map × 3 重复 = 24 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证设计收益；**516 条自动化测试**，ruff + mypy 零错误。
 
+  **评估体系补强（0016）**：真验收执行器（sanity gate 双检 + 防钻空子 + 状态隔离，F2P/P2P 真判）+ pass^k 可靠性指标（τ-bench）+ 任务质量筛查（SWE-bench Verified 标注法）+ 确定性轨迹指标（read-before-edit / 冗余 / 验证循环 / 轨迹匹配分级）+ 离线 LLM-as-Judge（锚定 rubric + 人工一致性审计）+ 八类失败分类与失败模式分布图。
+
 ---
 
 ## 九、完成检查清单
@@ -451,3 +453,18 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 - [x] 技术博客至少 1 篇（`docs/blog/compression.md`）
 - [ ] 能脱稿讲清每个模块的"为什么"（第 5 节各模块末尾的问题）
 - [ ] 用本项目去开发"面试助手 Agent"，记录 dogfooding 中发现的 bug（面试故事素材）
+
+## 十、评估体系补强（0016）检查清单
+
+> 详见 `docs/plans/0016-eval-methods.md`。**原则：确定性指标进流水线，judge 离线；P0 出真数据前，假的 83% pass rate 不对外宣传。**
+
+- [x] P0-7 桥修复：`TaskResult.run_id` + 每 run 独立 db（`runs/eval/<instance>__<cell>.db`）
+- [x] P0-1/2/3/4 验收执行器 `verify.py`：状态隔离 / sanity gate 双检 / 防钻空子（测试文件回滚+触碰计数）/ timeout
+- [x] P0 环境 `env.py`：uv venv 缓存 + `REPO_SETUP` 策展（sympy/pylint 已策展，其余待真跑审计）
+- [x] P0-5 任务筛查 `audit_tasks.py` + `audit_results.md`（判定标准写进报告开头）
+- [x] P0-6 pass^k 可靠性指标（reporter 列，消融因变量）
+- [x] P0.5 轨迹指标 `metrics.py` + `gold_trajectories.json`（gold 待人工按实际解标注 5-10 题）
+- [x] P1 LLM-as-Judge `judge.py` + `rubric.py`（锚定 rubric / JSON / 人工一致性审计，judge 模型独立且可高一档）
+- [x] P2 失败分类 `classify.py`（八类）+ 对抗注入集 `adversarial_tasks.json` + 失败分布图
+- [x] 真实 API 跑通 ≥1 题：sanity gate 双检通过 + F2P/P2P 真判（pylint-6506：sanity ok + 真 Agent 25 轮超时正确判 no_diff/timeout；合成仓库 fib 任务 verified=True + judge pass）
+- [ ] 30 题人工筛查打分 + 剔除脏题后重跑消融，真数字入库
