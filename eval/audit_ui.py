@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
@@ -13,6 +14,33 @@ from eval.env import venv_key
 from eval.verify import load_sanity_cache
 
 OUT = "eval/audit_report.html"
+OFFICIAL_CSV = "eval/official_annotations.csv"
+
+DIFF_LABEL = {
+    "<15 min fix": "易(<15min)",
+    "15 min - 1 h": "中(15m-1h)",
+    "1-4 hours": "难(1-4h)",
+    ">4 hours": "极难(>4h)",
+}
+
+
+def _load_official() -> dict[str, dict]:
+    p = Path(OFFICIAL_CSV)
+    if not p.exists():
+        return {}
+    out: dict[str, dict] = {}
+    for r in csv.DictReader(p.open(encoding="utf-8")):
+        iid = r["instance_id"]
+        diff_raw = r.get("difficulty", "")
+        out[iid] = {
+            "clarity": int(float(r.get("underspecified", 0) or 0)),
+            "f2p_reach": int(float(r.get("false_negative", 0) or 0)),
+            "difficulty": DIFF_LABEL.get(diff_raw, diff_raw),
+            "filter_out": (r.get("filter_out", "false") or "").lower() == "true",
+            "notes": (r.get("underspecified_notes", "") or "")[:160],
+            "test_notes": (r.get("false_negative_notes", "") or "")[:160],
+        }
+    return out
 
 # 每题中文速览（人工写的，帮助打分者理解 issue 在说什么）
 SUMMARIES: dict[str, str] = {
@@ -65,6 +93,7 @@ def build_data() -> dict:
         for iid, s in raw.items():
             scores[iid] = {k: v for k, v in s.items() if k != "_context"}
     sanity = load_sanity_cache()
+    official = _load_official()
     return {
         "tasks": [{
             "instance_id": t["instance_id"],
@@ -73,6 +102,7 @@ def build_data() -> dict:
             "problem_statement": t.get("problem_statement", ""),
             "f2p": t.get("FAIL_TO_PASS", []),
             "p2p": t.get("PASS_TO_PASS", []),
+            "official": official.get(t["instance_id"]),
         } for t in tasks],
         "scores": scores,
         "env": {t["instance_id"]: _env_state(t, sanity) for t in tasks},
@@ -126,6 +156,12 @@ main { max-width: 1080px; margin: 0 auto; padding: 20px; }
 .meta { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
 .summary { background: rgba(79,140,255,.08); border: 1px solid rgba(79,140,255,.25);
   border-radius: 6px; padding: 6px 10px; font-size: 13px; margin-bottom: 8px; color: #cfe0ff; }
+.official { background: rgba(63,185,107,.06); border: 1px solid rgba(63,185,107,.22);
+  border-radius: 6px; padding: 6px 10px; font-size: 12px; margin-bottom: 8px; color: var(--dim); }
+.official b { color: var(--fg); }
+.os { font-weight: 600; }
+.os.ok { color: var(--ok); } .os.bad { color: var(--bad); }
+.onotes { margin-top: 2px; color: var(--dim); font-size: 11px; }
 .problem { background: var(--card2); border-radius: 6px; padding: 8px 12px;
   max-height: 120px; overflow: hidden; white-space: pre-wrap; font-size: 13px;
   position: relative; margin-bottom: 8px; }
@@ -177,8 +213,9 @@ footer { color: var(--dim); text-align: center; font-size: 12px; padding: 20px; 
       <tr><th>环境 env（自动）</th><td colspan="4">passed = venv 可搭 + sanity 双检通过；broken = 双检失败；not_curated = 待策展</td></tr>
     </table>
     <p style="color:var(--dim);font-size:12px;margin:8px 0 0">
-      剔除规则: clarity ≥ 2 或 f2p_reach ≥ 2 或 env = broken。打分自动保存在本浏览器（localStorage），
-      完成后点「导出 JSON」覆盖 eval/audit_scores.json 即可。
+      官方标注来自 OpenAI SWE-bench Verified 人工评审（1699 抽样），已预填为你默认的打分；
+      你不认可可改，改后存本浏览器。剔除规则: clarity ≥ 2 或 f2p_reach ≥ 2 或 env = broken。
+      完成后点「导出 JSON」覆盖 eval/audit_scores.json。
     </p>
   </section>
   <div class="toolbar">
@@ -201,7 +238,13 @@ function loadScores() {
     const raw = localStorage.getItem(LS_KEY);
     if (raw) return JSON.parse(raw);
   } catch (e) {}
-  return DATA.scores || {};
+  const base = {};
+  for (const t of DATA.tasks) {
+    if (t.official) {
+      base[t.instance_id] = { clarity: t.official.clarity, f2p_reach: t.official.f2p_reach };
+    }
+  }
+  return base;
 }
 function save() { localStorage.setItem(LS_KEY, JSON.stringify(scores)); }
 function envOf(id) { return (DATA.env || {})[id] || "not_curated"; }
@@ -236,6 +279,16 @@ function render() {
       <h3>${esc(id)}<span class="chip ${env}">${env}</span></h3>
       <div class="meta">${esc(t.repo)} · F2P ${t.f2p.length} · P2P ${t.p2p.length}</div>
       ${t.summary ? `<div class="summary">📖 ${esc(t.summary)}</div>` : ""}
+      ${t.official ? `
+      <div class="official">
+        <b>官方人工标注（OpenAI SWE-bench Verified 评审）</b>
+        清晰度 <span class="os ${t.official.clarity >= 2 ? "bad" : "ok"}">${t.official.clarity}/3</span>
+        · 测试有效性 <span class="os ${t.official.f2p_reach >= 2 ? "bad" : "ok"}">${t.official.f2p_reach}/3</span>
+        · 难度 ${esc(t.official.difficulty)}
+        · 官方判定 <span class="os ${t.official.filter_out ? "bad" : "ok"}">${t.official.filter_out ? "✗ 剔除" : "✓ 保留"}</span>
+        ${t.official.notes ? `<div class="onotes">问题备注: ${esc(t.official.notes)}</div>` : ""}
+        ${t.official.test_notes ? `<div class="onotes">测试备注: ${esc(t.official.test_notes)}</div>` : ""}
+      </div>` : `<div class="official">无官方标注（OpenAI 1699 抽样未覆盖）</div>`}
       <div class="problem" data-open="0">${esc(t.problem_statement)}
         <div class="fade"></div></div>
       <div class="toggle" data-toggle>展开全文 / 收起</div>

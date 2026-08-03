@@ -1,12 +1,30 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from pathlib import Path
 from typing import Any
 
 from eval.env import venv_key
 from eval.verify import load_sanity_cache
+
+OFFICIAL_CSV = Path(__file__).parent / "official_annotations.csv"
+
+
+def load_official() -> dict[str, dict[str, Any]]:
+    """OpenAI SWE-bench Verified 人工标注（问题清晰度 / 测试有效性 / 剔除判定）。"""
+    if not OFFICIAL_CSV.exists():
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for r in csv.DictReader(OFFICIAL_CSV.open(encoding="utf-8")):
+        out[r["instance_id"]] = {
+            "clarity": int(float(r.get("underspecified", 0) or 0)),
+            "f2p_reach": int(float(r.get("false_negative", 0) or 0)),
+            "difficulty": r.get("difficulty", ""),
+            "filter_out": (r.get("filter_out", "false") or "").lower() == "true",
+        }
+    return out
 
 # ── 判定标准定义（照 SWE-bench Verified 标注法，写进 audit_results.md 开头） ──
 
@@ -98,8 +116,9 @@ def generate_report(
     lines.append("")
 
     lines.append("## 逐任务\n")
-    lines.append("| 任务 | 仓库 | 清晰度 | F2P 可达 | 环境 | 剔除? | 原因 |")
-    lines.append("|------|------|--------|----------|------|-------|------|")
+    lines.append("| 任务 | 仓库 | 清晰度 | F2P 可达 | 环境 | 官方标注 | 官方判定 | 剔除? | 原因 |")
+    lines.append("|------|------|--------|----------|------|----------|----------|-------|------|")
+    official = load_official()
     for t in tasks:
         iid = t["instance_id"]
         s = scores.get(iid, {})
@@ -107,21 +126,35 @@ def generate_report(
         ex, reasons = excluded(t)
         clarity = s.get("clarity")
         f2p_reach = s.get("f2p_reach")
+        off = official.get(iid)
+        off_cell = "-"
+        off_verdict = "-"
+        if off:
+            off_cell = f"{off['clarity']}/{off['f2p_reach']}"
+            off_verdict = "✗ 剔除" if off["filter_out"] else "✓ 保留"
         lines.append(
             f"| {iid} | {t.get('repo', '')} "
             f"| {clarity if clarity is not None else '-'} "
             f"| {f2p_reach if f2p_reach is not None else '-'} "
-            f"| {env} | {'⚠️' if ex else ''} | {'; '.join(reasons)} |"
+            f"| {env} | {off_cell} | {off_verdict} "
+            f"| {'⚠️' if ex else ''} | {'; '.join(reasons)} |"
         )
 
     kept = [t for t in tasks if not excluded(t)[0]]
     dropped = [t for t in tasks if excluded(t)[0]]
+    off_filtered = [t for t in tasks if official.get(t["instance_id"], {}).get("filter_out")]
     lines.append("\n## 结论\n")
     lines.append(f"- 保留: {len(kept)} / {len(tasks)}")
     lines.append(f"- 剔除: {len(dropped)}")
+    lines.append(f"- **官方标注应剔除（OpenAI SWE-bench Verified 评审）: {len(off_filtered)} 题**")
     lines.append("- 剔除任务:")
     for t in dropped:
         lines.append(f"  - `{t['instance_id']}` ({'; '.join(excluded(t)[1])})")
+    if off_filtered:
+        lines.append("- 官方标注剔除但本报告未剔除的任务（可人工复核）:")
+        for t in off_filtered:
+            if not excluded(t)[0]:
+                lines.append(f"  - `{t['instance_id']}` (官方清晰度/测试={official[t['instance_id']]['clarity']}/{official[t['instance_id']]['f2p_reach']})")
 
     Path(output_path).write_text("\n".join(lines), encoding="utf-8")
     print(f"Audit report saved to {output_path}")
