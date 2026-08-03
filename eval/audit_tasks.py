@@ -31,8 +31,8 @@ CRITERIA_TEXT = """## 筛查判定标准（单遍人工筛查，三维度各 0-3
 """
 
 EXCLUDE_RULES = [
-    ("clarity >= 2", lambda s: s.get("clarity", 0) >= 2),
-    ("f2p_reach >= 2", lambda s: s.get("f2p_reach", 0) >= 2),
+    ("clarity >= 2", lambda s: (s.get("clarity") or 0) >= 2),
+    ("f2p_reach >= 2", lambda s: (s.get("f2p_reach") or 0) >= 2),
     ("env broken", lambda s: s.get("env") == "broken"),
 ]
 
@@ -62,7 +62,7 @@ def init_scores(tasks: list[dict], path: str | Path) -> None:
     for t in tasks:
         iid = t["instance_id"]
         if iid not in existing:
-            existing[iid] = {"clarity": 0, "f2p_reach": 0}
+            existing[iid] = {"clarity": None, "f2p_reach": None}
         ps = t.get("problem_statement", "")
         existing[iid]["_context"] = {
             "problem": (ps.strip().splitlines()[0] if ps.strip() else "")[:200],
@@ -105,9 +105,13 @@ def generate_report(
         s = scores.get(iid, {})
         env = env_state[iid]
         ex, reasons = excluded(t)
+        clarity = s.get("clarity")
+        f2p_reach = s.get("f2p_reach")
         lines.append(
-            f"| {iid} | {t.get('repo', '')} | {s.get('clarity', '-')} "
-            f"| {s.get('f2p_reach', '-')} | {env} | {'⚠️' if ex else ''} | {'; '.join(reasons)} |"
+            f"| {iid} | {t.get('repo', '')} "
+            f"| {clarity if clarity is not None else '-'} "
+            f"| {f2p_reach if f2p_reach is not None else '-'} "
+            f"| {env} | {'⚠️' if ex else ''} | {'; '.join(reasons)} |"
         )
 
     kept = [t for t in tasks if not excluded(t)[0]]

@@ -30,3 +30,4 @@ tests/tui/__pycache__/
 
 src/tui/screens/__pycache__/
 src/tui/widgets/__pycache__/
+eval/audit_report.html
