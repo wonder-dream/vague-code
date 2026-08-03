@@ -80,6 +80,7 @@ SUMMARIES: dict[str, str] = {
     "scikit-learn__scikit-learn-13142": "机器学习：GaussianMixture 的 predict 与 fit_predict 在 n_init>1 时结果不一致",
     "scikit-learn__scikit-learn-13779": "机器学习：Voting 估计器在传 weights 且某估计器为 None 时 fit 崩溃",
     "astropy__astropy-12907": "表格库：嵌套 CompoundModel 的 separability_matrix 计算错误",
+    "pytest-dev__pytest-7432": "测试框架：--runxfail 与 skip 标记叠加时 skip 原因定位报告错误（打 xfail 又 skip 的测试）",
     "sympy__sympy-12171": "符号计算：Mathematica 代码打印器对浮点数和导数输出错误",
     "sympy__sympy-12481": "符号计算：Permutation 构造器收到非不相交的循环时抛错（本应合并）",
     "sympy__sympy-13031": "符号计算：稀疏矩阵 hstack/vstack 对 0×n 矩阵的行为与 1.1 版不一致",

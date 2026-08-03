@@ -24,10 +24,11 @@ from datasets import load_dataset
 REPO_QUOTAS: dict[str, int] = {
     "sympy/sympy": 14,
     "scikit-learn/scikit-learn": 6,
-    "astropy/astropy": 4,
+    "astropy/astropy": 3,
     "matplotlib/matplotlib": 3,
     "sphinx-doc/sphinx": 2,
     "pylint-dev/pylint": 1,
+    "pytest-dev/pytest": 1,
 }
 SKIP_REPOS = {"django/django"}
 TASKS_OUT = "eval/tasks.json"
