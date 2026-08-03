@@ -1,0 +1,5 @@
+[
+  {
+    "_note": "手标 gold 工具序列（P0.5 有 gold 指标）。tools 用工具名序列：read_file / write_file / patch / glob / grep / bash / code_search / memory_search。coding agent 场景按「按序子序列（允许插入）」档评估。待人工按实际解标 5-10 题后填入。"
+  }
+]
