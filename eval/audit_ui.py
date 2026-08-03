@@ -14,6 +14,40 @@ from eval.verify import load_sanity_cache
 
 OUT = "eval/audit_report.html"
 
+# 每题中文速览（人工写的，帮助打分者理解 issue 在说什么）
+SUMMARIES: dict[str, str] = {
+    "astropy__astropy-14182": "表格库：RST 输出格式不支持多行表头（header_rows），传参直接报错，希望能支持",
+    "astropy__astropy-14365": "表格库：QDP 文件读取假设命令必须大写，手写的小写命令（如 read serr）读不了",
+    "matplotlib__matplotlib-18869": "绘图库：顶层只有 __version__ 字符串，希望加一个可比较的版本号元组 version_info",
+    "mwaskom__seaborn-3010": "统计绘图：PolyFit 拟合遇到缺失数据（NaN）直接崩溃，应跳过缺失值",
+    "pylint-dev__pylint-6506": "代码检查器：传不认识的参数（如 -Q）时打印一堆堆栈报错，应像 mypy 一样只给用法提示",
+    "scikit-learn__scikit-learn-13497": "机器学习库：_estimate_mi 里拿数组和字符串 'auto' 做 == 比较，新版 numpy 会报错",
+    "scikit-learn__scikit-learn-13584": "机器学习库：print_changed_only 模式下打印带 numpy 数组参数的估计器报错",
+    "scikit-learn__scikit-learn-15512": "机器学习库：亲和传播聚类不收敛时返回了实际簇，文档说应返回空数组和 -1 标签",
+    "sphinx-doc__sphinx-10325": "文档生成器：:inherited-members: 选项只支持单个类，应支持逗号分隔多个类",
+    "sphinx-doc__sphinx-11445": "文档生成器：设置了 rst_prolog 后，以域指令（如 :mod:）开头的标题渲染丢失",
+    "sphinx-doc__sphinx-7975": "文档生成器：特殊符号索引生成了两个同名 Symbols 段落，且链接都指向第一个",
+    "sphinx-doc__sphinx-8273": "文档生成器：man 手册应生成到 man/man1 这类分段目录，现在全堆在 man/ 下",
+    "sphinx-doc__sphinx-8595": "文档生成器：autodoc 忽略了空的 __all__，空列表时仍把模块所有成员都导出来",
+    "sphinx-doc__sphinx-8721": "文档生成器：viewcode 在生成 epub 时也生成了模块源码页，应该默认关闭",
+    "sphinx-doc__sphinx-8801": "文档生成器：只写类型注解（无赋值）的继承成员被当成未文档化而漏掉",
+    "sympy__sympy-12171": "符号计算：Mathematica 代码打印器对浮点数和导数输出错误",
+    "sympy__sympy-12481": "符号计算：Permutation 构造器收到非不相交的循环时抛错（本应合并）",
+    "sympy__sympy-13031": "符号计算：稀疏矩阵 hstack/vstack 对 0×n 矩阵的行为与 1.1 版不一致",
+    "sympy__sympy-13043": "符号计算：intpoly.decompose 返回元素无序的列表，应改为确定性顺序（集合）",
+    "sympy__sympy-15345": "符号计算：mathematica_code 对 Max/Min 表达式输出错误",
+    "sympy__sympy-15678": "符号计算：idiff 隐函数求导在函数表达式/多变量场景下结果不对",
+    "sympy__sympy-17022": "符号计算：lambdify 对矩阵表达式（如 M+I）生成错误的 numpy 代码",
+    "sympy__sympy-21614": "符号计算：Derivative 的 kind 属性标错（矩阵导数应是 MatrixKind）",
+    "sympy__sympy-21847": "符号计算：itermonomials 带 min_degrees 参数时漏掉部分单项式",
+    "sympy__sympy-22005": "符号计算：solve_poly_system 对多余变量/矛盾方程应抛错而不是卡住",
+    "sympy__sympy-23117": "符号计算：Array([]) 空数组创建失败，而 Matrix([]) 可以",
+    "sympy__sympy-23191": "符号计算：终端里 pretty_print 向量对象显示错乱（Unicode 对齐问题）",
+    "sympy__sympy-24102": "符号计算：parse_mathematica 解析不了希腊字母等 Unicode 字符",
+    "sympy__sympy-24152": "符号计算：TensorProduct 的 expand 展开 bug（负号/系数处理错误）",
+    "sympy__sympy-24909": "符号计算：毫(milli)前缀运算行为错误（m*W 结果不对）",
+}
+
 
 def _env_state(task: dict, sanity: dict[str, bool]) -> str:
     key = venv_key(task)
@@ -35,6 +69,7 @@ def build_data() -> dict:
         "tasks": [{
             "instance_id": t["instance_id"],
             "repo": t.get("repo", ""),
+            "summary": SUMMARIES.get(t["instance_id"], ""),
             "problem_statement": t.get("problem_statement", ""),
             "f2p": t.get("FAIL_TO_PASS", []),
             "p2p": t.get("PASS_TO_PASS", []),
@@ -89,6 +124,8 @@ main { max-width: 1080px; margin: 0 auto; padding: 20px; }
 .card.excluded { border-left: 3px solid var(--bad); }
 .card h3 { font-size: 14px; margin: 0 0 6px; font-family: Consolas, monospace; word-break: break-all; }
 .meta { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+.summary { background: rgba(79,140,255,.08); border: 1px solid rgba(79,140,255,.25);
+  border-radius: 6px; padding: 6px 10px; font-size: 13px; margin-bottom: 8px; color: #cfe0ff; }
 .problem { background: var(--card2); border-radius: 6px; padding: 8px 12px;
   max-height: 120px; overflow: hidden; white-space: pre-wrap; font-size: 13px;
   position: relative; margin-bottom: 8px; }
@@ -198,6 +235,7 @@ function render() {
     <div class="${cls}" data-id="${esc(id)}">
       <h3>${esc(id)}<span class="chip ${env}">${env}</span></h3>
       <div class="meta">${esc(t.repo)} · F2P ${t.f2p.length} · P2P ${t.p2p.length}</div>
+      ${t.summary ? `<div class="summary">📖 ${esc(t.summary)}</div>` : ""}
       <div class="problem" data-open="0">${esc(t.problem_statement)}
         <div class="fade"></div></div>
       <div class="toggle" data-toggle>展开全文 / 收起</div>
