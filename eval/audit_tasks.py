@@ -52,12 +52,22 @@ def load_scores(path: str | Path) -> dict[str, dict[str, Any]]:
 
 
 def init_scores(tasks: list[dict], path: str | Path) -> None:
-    """生成空白打分骨架（clarity / f2p_reach 待人工填，env 自动）。"""
+    """生成空白打分骨架（clarity / f2p_reach 待人工填，env 自动）。
+
+    每题内嵌 `_context`（问题摘要 + F2P），人工打分无需再翻 tasks.json。
+    仅 `clarity` / `f2p_reach` 参与评分，`_context` 被报告生成忽略。
+    """
     p = Path(path)
     existing = load_scores(p)
     for t in tasks:
         iid = t["instance_id"]
-        existing.setdefault(iid, {"clarity": 0, "f2p_reach": 0})
+        if iid not in existing:
+            existing[iid] = {"clarity": 0, "f2p_reach": 0}
+        ps = t.get("problem_statement", "")
+        existing[iid]["_context"] = {
+            "problem": (ps.strip().splitlines()[0] if ps.strip() else "")[:200],
+            "f2p": t.get("FAIL_TO_PASS", [])[:3],
+        }
     p.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"Score skeleton written to {p}")
 
