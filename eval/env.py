@@ -47,6 +47,19 @@ REPO_SETUP: dict[str, dict[str, Any]] = {
         "python": "3.11",
         "install": [["pytest", "toml"]],
     },
+    "pytest-dev/pytest": {
+        "python": "3.9",
+        "install": [["pluggy", "iniconfig", "packaging", "py", "toml",
+                     "importlib-metadata", "attrs", "hypothesis",
+                     "atomicwrites", "colorama", "more-itertools"]],
+        # _pytest._version 是 setuptools_scm 构建期生成文件，源码树里不存在
+        "sysmodules": {
+            "_pytest._version": (
+                "version = '6.2.2'\n"
+                "version_tuple = (6, 2, 2)\n"
+            ),
+        },
+    },
     "astropy/astropy": {
         "python": "3.11",
         "install": [["pytest", "numpy<2", "scipy", "pyerfa", "setuptools_scm",

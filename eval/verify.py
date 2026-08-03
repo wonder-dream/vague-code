@@ -131,9 +131,14 @@ def _pytest_env(workdir: Path, shims_dir: Path | None = None) -> dict[str, str]:
     env = dict(os.environ)
     parts = [str(shims_dir)] if shims_dir else []
     parts.append(str(workdir))
+    src_dir = workdir / "src"
+    if src_dir.is_dir():          # src 布局仓库（如 pytest 6.x 的 src/pytest）
+        parts.append(str(src_dir))
     if env.get("PYTHONPATH"):
         parts.append(env["PYTHONPATH"])
-    env["PYTHONPATH"] = os.pathsep.join(parts)
+    # 必须绝对路径：相对条目在 cwd=workdir 下会被解析成 workdir/相对路径（双路径失效）
+    env["PYTHONPATH"] = os.pathsep.join(
+        str(Path(p).resolve()) for p in parts if p)
     return env
 
 
