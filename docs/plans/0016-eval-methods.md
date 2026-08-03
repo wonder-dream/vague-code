@@ -185,7 +185,10 @@ eval/
 
 ## 验收标准
 
-- `python -m eval.cli --tasks eval/tasks_test.json --fake` 跑通且 `verified` 语义正确
-- 至少 1 题真实仓库：sanity gate 双检通过、F2P/P2P 正确判定
-- reporter 输出 pass^k 列
-- judge 在 1 条真实轨迹上输出结构化 JSON 且可重 parse
+- [x] `python -m eval.cli --tasks eval/tasks_test.json --fake` 跑通且 `verified` 语义正确
+- [x] 至少 1 题真实仓库：sanity gate 双检通过、F2P/P2P 正确判定（pylint-6506 + 20 题策展全部实证）
+- [x] reporter 输出 pass^k 列 + 失败模式分布
+- [x] judge 在 1 条真实轨迹上输出结构化 JSON 且可重 parse（合成 fib 任务 + 真实 API）
+
+**环境策展（2026-08）**：sympy 17 / sphinx 2 / pytest 1 题 sanity gate 全过（本机可跑 20 题）；
+sklearn+astropy 10 题因本机无 MSVC 标 env_broken（Linux/CI 可跑）；sphinx-8721 判别器不复现。

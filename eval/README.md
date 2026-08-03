@@ -12,11 +12,25 @@ EDD（Evaluation-Driven Development）评测体系，按 **P0 真验收 → P0.5
 | `env.py` | P0 | 每 repo uv venv 缓存（`eval/.venvs/<repo>__<commit>/`），`REPO_SETUP` 策展 install 规格 |
 | `verify.py` | P0 | 验收执行器：状态隔离 / sanity gate 双检 / 防钻空子 / F2P-P2P 判定 |
 | `audit_tasks.py` | P0-5 | 任务质量筛查（SWE-bench Verified 方法），产出 `audit_results.md` |
+| `audit_ui.py` | P0-5 | 生成 HTML 打分页面（`eval/audit_report.html`，官方标注预填） |
+| `select_verified_tasks.py` | P0 | 从 SWE-bench Lite 选官方保留题重建任务集 |
 | `reporter.py` | P0-6 | pass^k 可靠性列 + 轨迹指标列 |
 | `metrics.py` | P0.5 | 确定性轨迹指标（read-before-edit / 冗余 / 验证循环 / 轨迹匹配分级） |
 | `judge.py` | P1 | LLM-as-Judge（离线），锚定 rubric + JSON 解析 + 人工一致性审计 |
 | `rubric.py` | P1 | 锚定 rubric（每维度 1/3/5 分示例） |
 | `classify.py` | P2 | 八类失败分类 + 失败模式分布图 |
+
+## 环境策展现状（REPO_SETUP）
+
+| 仓库 | 任务数 | 状态 |
+|------|--------|------|
+| sympy/sympy | 17 | ✅ sanity gate 全过（2017 老题 py3.9 / 2020+ py3.11 按日期选版） |
+| sphinx-doc/sphinx | 2 | ✅（2023 用新依赖；2021 前按 `install_by_date` 用 Jinja2<3.1 等旧 pin） |
+| pytest-dev/pytest | 1 | ✅（src 布局 + `_pytest._version` 桩；parametrize id 版本敏感 → 剥参） |
+| scikit-learn / astropy | 10 | ❌ env_broken：C 扩展需 MSVC 编译，本机无；可在 Linux/CI 跑 |
+| sphinx-8721 | 1 | ❌ F2P 判别器在本环境不复现（env 行为差异） |
+
+**策略**：不 editable 安装仓库本体（本机无 MSVC），只装依赖 wheel；`verify` 注入 `PYTHONPATH=<workdir>`（+ `src/` 若存在）让 import 命中任务源码；编译守卫用 `sysmodules` 桩（sitecustomize 注入）。
 
 ## 用法
 
@@ -50,6 +64,7 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 | `--fake` | FakeBackend（仅验证框架，跳过 env/verify） | 否 |
 | `--workdir` | 任务 repo 克隆基础路径 | `eval/.workdir` |
 | `--model` | 被评 Agent 模型 | `deepseek-v4-flash` |
+| `--max-turns` | 每 run 最大轮次（成本控制） | 50 |
 
 ## 任务格式
 
@@ -73,6 +88,15 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 - **状态隔离**：每 cell 开跑前 `git restore .` + `git clean -fdx`（仅任务仓库内，`eval/.venvs` / `runs/eval` 不受影响）。
 - **pass^k**：同一 (任务, 配置) 的 k 次重复全部 verified 才计过（τ-bench 可靠性，消融因变量）。
 - **离线重评**：轨迹存于每 run 独立 db；judge 提示词改版/失败重分类不重跑 Agent。
+
+## 已知限制
+
+- **MSVC 编译依赖**：本机无 MSVC，scikit-learn / astropy（及 matplotlib 若入集）的 C 扩展无法源码构建 → env_broken。Linux/CI 或装有 Build Tools 的机器可跑（`REPO_SETUP` 切回 editable 构建即可）。
+- **pytest 任务 parametrize id 版本敏感**：SWE-bench 数据集的参数化 node id 由新版 pytest 生成，与任务 base_commit 的 pytest 版本可能不匹配（如 `test_skipif_reporting["hasattr(sys,'...]`）。已对 pytest-7432 剥离参数后缀（名字级稳定）；若新增 pytest 任务需同样处理。
+- **sphinx-8721**：F2P 判别器在本环境不复现（epub 行为随依赖版本变化），标 env_broken。
+- **对抗注入集（`adversarial_tasks.json`）**：任务已定义，harness 尚未支持 `task_type=adversarial` 的执行与拦截判定（P2 后续）。
+- **gold 轨迹**（`gold_trajectories.json`）：待人工按实际解标注 5-10 题后，`metrics.py` 的轨迹匹配分级/工具 P-R 才有参照。
+- **judge 人工一致性审计**：`python -m eval.judge --audit 20` 出样本 → 人工打分 → `--consistency` 计算（judge 与人类一致性数字待产出）。
 
 ## 输出
 
