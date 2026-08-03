@@ -136,7 +136,7 @@ Agent 记住你的偏好和历史解决方案，下次自动使用。
 
 跑分验证每个设计决策，数据驱动改进。
 
-> **例子：** 在 SWE-bench 风格测评中，并发调度使通过率从 83% 提升到 93%。
+> **例子：** 消融实验可控制变量验证每个设计决策（如并发调度、上下文压缩）对 pass rate / token 消耗的实际影响。2026-08 起评测升级为真验收（sanity gate 双检 + F2P/P2P 实跑），数字口径见 `docs/handoff/2026-08-03-xclaw-eval-system.md`。
 
 XClaw 内置评测框架，支持消融实验（Ablation Experiment），可控制变量验证每个设计选择。详见 12-evaluation-harness.md。
 

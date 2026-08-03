@@ -27,7 +27,7 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 ├─────────────────────────────────────────────────────────────────────┤
 │  Repo Map (tree-sitter 符号索引) ── code_search 工具 + 地图注入     │
 ├─────────────────────────────────────────────────────────────────────┤
-│  Eval Harness ── 30 tasks (SWE-bench Lite) ── Matrix ── Report     │
+│  Eval Harness ── 31 tasks (官方保留) ── 真验收/pass^k ── Report     │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -48,9 +48,9 @@ python -m src.cli --provider anthropic "Refactor auth module"
 xcode tui "Fix the bug in stats.py"
 xcode tui --model deepseek-v4-pro "Analyze the project structure"
 
-# 运行评测
+# 运行评测（现行体系：真验收 + sanity gate + pass^k，详见 eval/README.md）
 python -m eval.cli --tasks eval/tasks.json --fake          # 验证框架
-python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash  # 真实 API
+python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --max-turns 25  # 真实 API（20 题本机可跑）
 python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融实验
 ```
 
@@ -111,28 +111,21 @@ xcode tui <task> [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 | **Model Abstraction** | `src/agent/codecs/` | 自定义 IR → DeepSeek/Anthropic codec，统一流式事件 |
 | **Trajectory** | `src/agent/trajectory.py` | Event-sourced JSONL → SQLite 事件流，to_messages() 导出 |
 | **CLI** | `src/cli/` | argparse + Rich 渲染，--stream/--no-stream，--provider |
-| **Eval Harness** | `eval/` | SWE-bench 格式 30 题 + 实验矩阵 + Markdown 报告 |
+| **Eval Harness** | `eval/` | 官方保留 31 题 + 真验收/sanity gate + pass^k + Markdown 报告 |
 
 ---
 
 ## 评测结果
 
-基于 **SWE-bench Lite 抽取的 30 题**，**DeepSeek V4 Flash**，max_turns=30。
+> ⚠️ 早期 v0.1 的 83%/93% 等数字基于**假 pass/fail**（验收测试未实跑），已废弃且不得引用。
+> 2026-08 起评测体系按 `docs/plans/0016-eval-methods.md` 全面升级：真验收（sanity gate 双检 +
+> F2P/P2P 实跑）、pass^k 可靠性、任务集按 OpenAI SWE-bench Verified 官方标注重建。
 
-### 基线（无压缩、无并发，30 题）
-- Pass rate: **60%**（18/30 end_turn）
-- Avg tokens: **931K** / task
-
-### 消融实验（10 题 × 4 配置 × 3 重复 = 120 run）
-
-| Compression | Concurrency | Pass Rate | Avg Tokens | 对比基线 |
-|------------|-------------|-----------|------------|----------|
-| ✗ | ✗ | 83% | 635K | +23pp baseline |
-| ✗ | ✓ | **93%** | **614K** | **+33pp, -34% tokens** |
-| ✓ | ✗ | 76% | 735K | +16pp |
-| ✓ | ✓ | 73% | 759K | +13pp |
-
-> 并发提升最大（93% pass rate），同时 token 消耗最低；压缩在短会话（<30 turns）中效果有限，auto_compact 的 LLM 调用成本高于回收收益。压缩设计目标为 30+ 轮长会话。
+**现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md`）：**
+- 任务集 **31 题**（全部官方保留，17 道脏题已剔除），本机可跑 **20 题**（sympy 17 + sphinx 2 + pytest 1）
+- 环境策展 5 仓实证验证（sanity gate 全过）；sklearn/astropy 10 题需 MSVC/Linux CI
+- **真数字待 20 题基线消融产出**：`python -m eval.cli --tasks eval/tasks.json --max-turns 25 --repeat 3`
+- 单一实证：合成任务端到端 `verified=True`（Agent 真修好 bug，judge 5/5）
 
 ---
 
@@ -160,19 +153,27 @@ xcode/
 │       └── anthropic.py       # Anthropic codec
 ├── eval/                      # 评测框架
 │   ├── cli.py                 # 评测 CLI 入口
-│   ├── harness.py             # Agent + 验收
+│   ├── harness.py             # Agent 驱动 + 真验收（verify/metrics 接入）
+│   ├── env.py                 # 每 repo venv 策展（REPO_SETUP）
+│   ├── verify.py              # 验收执行器（sanity gate 双检 + F2P/P2P）
 │   ├── matrix.py              # 实验矩阵展开
-│   ├── reporter.py            # Markdown 报告生成
-│   ├── select_tasks.py        # SWE-bench 任务筛选
-│   └── tasks.json             # 30 题任务集
+│   ├── reporter.py            # Markdown 报告（pass^k + 失败分布）
+│   ├── metrics.py             # 确定性轨迹指标
+│   ├── judge.py / rubric.py   # LLM-as-Judge（离线）
+│   ├── classify.py            # 八类失败分类
+│   ├── audit_tasks.py / audit_ui.py  # 任务质量筛查（HTML 打分页）
+│   ├── select_verified_tasks.py      # 官方保留题选择器
+│   └── tasks.json             # 31 题任务集（20 题本机可跑）
 ├── cli/                       # CLI 薄壳
 │   ├── __init__.py            # Args + backend 创建
 │   └── renderer.py            # Rich 流式渲染
 ├── docs/                      # 文档
-│   ├── adr/                   # 14 份架构决策记录
-│   ├── plans/                 # 12 份实现计划
+│   ├── adr/                   # 18 份架构决策记录
+│   ├── plans/                 # 16 份实现计划
+│   ├── articles/              # 24 篇成品文章（含 README 索引）
+│   ├── handoff/               # 会话交接记录
 │   └── known-issues.md        # 已知问题跟踪
-└── tests/                     # 516 条自动化测试
+└── tests/                     # 586 条自动化测试
 ```
 
 ---

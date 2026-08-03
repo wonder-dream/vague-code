@@ -97,7 +97,7 @@
         ↕（Agent 暴露编程接口，harness 直接 import 调用）
 ┌─────────────────────────────────────────────────────────┐
 │ 评测工具（eval CLI）                                       │
-│ 30 题标准任务集 / 实验矩阵 / pass rate / 轨迹指标           │
+│ 31 题官方保留任务集 / 真验收(sanity gate) / pass^k / 轨迹指标 │
 │ LLM-as-Judge / 消融实验 / 失败分类 / 对抗注入任务           │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -324,7 +324,7 @@ repeat      = 3        # 每 cell 每题跑 3 次，报均值
 temperature = 0
 ```
 
-30 题 × 8 配置 × 3 次重复 = 720 次运行——这就是为什么 Agent 必须库化（subprocess 的进程启动开销不可接受）。（注：记忆在评测中关闭——`harness.py` 设 `memory.enabled=False`，记忆不作为消融因变量。）
+31 题（本机可跑 20 题）× 8 配置 × 3 次重复 = 最多 744 次运行——这就是为什么 Agent 必须库化（subprocess 的进程启动开销不可接受）。（注：记忆在评测中关闭——`harness.py` 设 `memory.enabled=False`，记忆不作为消融因变量；`--max-turns` 控制单次成本。）
 
 #### 5.6.4 指标与报告
 
@@ -402,14 +402,14 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 - [x] 统一记忆库 + episodic 注入 + 增量蒸馏（auto-compact 协同）
 - [x] 记忆检索工具（memory_search）暴露给 Agent
 - [x] repo map 代码库符号索引（tree-sitter）+ code_search 工具 + 地图注入（ADR-0016）
-- [x] 自动化测试补齐至 80+（当前 516 条）
+- [x] 自动化测试补齐至 80+（当前 586 条）
 - **里程碑 M3**：危险操作全部可拦截可审计；跨会话记住用户偏好与项目背景
 - **对应简历 bullet**：权限与安全条、记忆条
 
 ### Week 4（08-10 ～ 08-16）：评测与交付
 
-- [x] 评测 CLI + 30 题标准任务集（SWE-bench Lite 抽取）
-- [x] 实验矩阵 + 事件流存储 + eval report 一键生成
+- [x] 评测 CLI + 31 题官方保留任务集（SWE-bench Verified 标注）+ 真验收（sanity gate + F2P/P2P）
+- [x] 实验矩阵 + 事件流存储 + eval report 一键生成（pass^k + 失败分布）
 - [ ] 消融实验 × 3（压缩 / 并发 / repo_map），整理全部量化数据（需跑真实 API）
 - [ ] README（架构图 + Demo GIF + 数据表）+ GitHub Actions CI
 - [ ] 技术博客 1 篇：《我如何实现一个 Coding Agent 的上下文压缩》
@@ -434,12 +434,12 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 > **XClaw：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
 > 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tree-sitter、tiktoken
 
-- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **8 个工具**（6 基础 read/write/patch/glob/grep/bash + memory_search/code_search 动态注入），基于冲突可串行化的并发调度（SWE-bench 评测：并发开启 pass rate 93% vs 83%，+10pp）；
+- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **8 个工具**（6 基础 read/write/patch/glob/grep/bash + memory_search/code_search 动态注入），基于冲突可串行化的并发调度（消融数字待 20 题真验收跑出后回填）；
 - **上下文工程**：实现五层压缩流水线（stale_snip → microcompact → structured_snip → auto_compact → truncation），按精准度排序，逐层回收 token；structured_snip 层利用轨迹事件零 LLM 成本识别闭合子任务（ADR-0017）；每层发射 `EventType.compression` 事件供离线重算；
 - **权限与安全**：4 种权限模式（按操作可逆性切分）+ **24 类危险命令正则** + 持久/会话/单次三层规则 + 审计日志纯函数决策；评测含对抗注入任务集，验证注入拦截率；
 - **代码理解**：基于 tree-sitter 的 repo map 符号索引（`repomap.py`），`code_search` 工具 + system prompt 符号地图注入（max 1000 tokens），mtime 增量刷新（ADR-0016）；
 - **记忆系统**：统一记忆库（SQLite）+ episodic 按需检索（LIKE + 热度排序），增量蒸馏写入（与 auto-compact 压缩协同）；
-- **配套评测工具**：**30 个标准化任务**（SWE-bench Lite 抽取）benchmark + 实验矩阵自动展开（2×2×2=8 配置 compression × concurrency × repo_map × 3 重复 = 24 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证设计收益；**516 条自动化测试**，ruff + mypy 零错误。
+- **配套评测工具**：**31 个标准化任务**（SWE-bench Verified 官方保留）benchmark + 实验矩阵自动展开（2×2×2=8 配置 compression × concurrency × repo_map × 3 重复 = 24 cells），事件流轨迹存储（SQLite + JSONL）+ to_messages 导出 LLM-as-Judge，通过消融实验验证设计收益；**586 条自动化测试**，ruff + mypy 零错误。
 
   **评估体系补强（0016）**：真验收执行器（sanity gate 双检 + 防钻空子 + 状态隔离，F2P/P2P 真判）+ pass^k 可靠性指标（τ-bench）+ 任务质量筛查（SWE-bench Verified 标注法）+ 确定性轨迹指标（read-before-edit / 冗余 / 验证循环 / 轨迹匹配分级）+ 离线 LLM-as-Judge（锚定 rubric + 人工一致性审计）+ 八类失败分类与失败模式分布图。
 
@@ -447,7 +447,7 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ## 九、完成检查清单
 
-- [x] 第 2.2 节 8 项量化指标全部测出并截图存档（消融实验数据见 `eval/results.md`）
+- [x] 第 2.2 节 8 项量化指标全部测出并截图存档（评测体系见 `docs/plans/0016-eval-methods.md` + `docs/handoff/2026-08-03-xclaw-eval-system.md`；真消融数字待 20 题基线跑出后回填）
 - [x] GitHub 仓库：README 含架构图、数据表（`docs/architecture.drawio`)
 - [ ] Demo 录屏（待生成）
 - [x] 技术博客至少 1 篇（`docs/blog/compression.md`）
@@ -467,4 +467,5 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 - [x] P1 LLM-as-Judge `judge.py` + `rubric.py`（锚定 rubric / JSON / 人工一致性审计，judge 模型独立且可高一档）
 - [x] P2 失败分类 `classify.py`（八类）+ 对抗注入集 `adversarial_tasks.json` + 失败分布图
 - [x] 真实 API 跑通 ≥1 题：sanity gate 双检通过 + F2P/P2P 真判（pylint-6506：sanity ok + 真 Agent 25 轮超时正确判 no_diff/timeout；合成仓库 fib 任务 verified=True + judge pass）
-- [ ] 30 题人工筛查打分 + 剔除脏题后重跑消融，真数字入库
+- [x] 任务集重建：30 题 → 31 题官方保留（17 道脏题剔除），官方标注预填筛查打分（26/31 有 OpenAI 人工标注）
+- [ ] 20 题基线消融跑数 + 真数字回填（`--max-turns 25 --repeat 3`）

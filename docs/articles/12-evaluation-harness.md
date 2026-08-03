@@ -1,5 +1,13 @@
 # Evaluation Harness
 
+> ⚠️ **过时声明（2026-08）**：本文档描述 v0.1 评测框架。2026-08 已按
+> [`docs/plans/0016-eval-methods.md`](../plans/0016-eval-methods.md) 全面升级：
+> **真验收**（sanity gate 双检 + F2P/P2P 实跑，不再全标 True）、**pass^k 可靠性指标**、
+> 任务集按 **OpenAI SWE-bench Verified 官方标注**重建（17 道脏题剔除，现 31 题/本机可跑 20 题）。
+> 现行用法以 [`eval/README.md`](../../eval/README.md) 为准；重建与策展全过程见
+> [`docs/handoff/2026-08-03-xclaw-eval-system.md`](../handoff/2026-08-03-xclaw-eval-system.md)。
+> 下文保留 v0.1 结构讲解（矩阵/轨迹/报告架构仍成立），"当前结果"一节已被新数据取代。
+
 **谁需要读：** 想运行评测或理解评测系统设计的开发者
 **前置阅读：** 04-agent-runtime.md（理解 Agent 编程接口）、10-trajectory.md（理解轨迹数据）
 **读完能做什么：** 运行消融实验、添加评测任务、解读评测报告
@@ -15,13 +23,13 @@
 - **测量因变量：** 从 `Trajectory` 提取 pass rate、token 消耗、压缩回收率
 - **产出报告：** Markdown 对比表
 
-评测循环：`读任务 → 展开实验矩阵 → Agent.run() → 验收脚本判定 pass/fail`
+评测循环：`读任务 → 展开实验矩阵 → Agent.run() → 验收（sanity gate 双检 + F2P/P2P 实跑）判定 pass/fail`
 
 ---
 
 ## 2. SWE-bench 任务格式
 
-**tasks.json 格式**（`eval/tasks.json`，30 题）：
+**tasks.json 格式**（`eval/tasks.json`，31 题，20 题本机可跑）：
 
 ```json
 {
@@ -195,12 +203,12 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 
 | 压缩 | 并发 | RepoMap | 通过率 | 平均轮次 | 平均 input tokens |
 |------|------|---------|--------|----------|-------------------|
-| ✗ | ✗ | — | 83% | 22.2 | 635K |
-| ✗ | ✓ | — | 93% | 18.4 | 614K |
-| ✓ | ✗ | — | 76% | 26.1 | 735K |
-| ✓ | ✓ | — | 73% | 21.6 | 759K |
+| ✗ | ✗ | — | 待真数据 | — | — |
+| ✗ | ✓ | — | 待真数据 | — | — |
+| ✓ | ✗ | — | 待真数据 | — | — |
+| ✓ | ✓ | — | 待真数据 | — | — |
 
-> 上表为接入 repo_map 消融变量**之前**的数据（repo_map 列留空）。接入后矩阵扩为 2×2×2，repo_map 行数值待真实 API 重跑后填充。
+> ⚠️ v0.1 的 83%/93% 等示例数字基于假 pass/fail，已废弃。现行报告另含 pass^k、轨迹指标、失败模式分布三节；真数字待 20 题消融产出（`eval/README.md`）。
 
 **逐任务细节表**——每个任务在每个配置上的具体表现：
 
@@ -215,26 +223,13 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 
 ## 7. 当前结果
 
-**基线**（max_turns=30, compression=off, concurrency=off）：
-- Pass rate: 60%（18/30 end_turn）
-- Avg tokens: 931K / task
-- Avg turns: 23.5
+> ⚠️ 本节 v0.1 的 83%/93% 等数字基于**假 pass/fail**（`passed=True` 硬编码，验收测试未实跑），已废弃且不得引用。
+> 2026-08 现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md`）：
 
-**消融实验完整表**（max_turns=50，30 题 × 4 配置 × 3 重复）：
-
-| Compression | Concurrency | Pass Rate | Avg Tokens | 对比基线 |
-|------------|-------------|-----------|------------|----------|
-| ✗ | ✗ | 83% | 635K | +23pp, -32% tokens |
-| ✗ | ✓ | **93%** | **614K** | **+33pp, -34% tokens** |
-| ✓ | ✗ | 76% | 735K | +16pp, -21% tokens |
-| ✓ | ✓ | 73% | 759K | +13pp, -18% tokens |
-
-**关键解读：**
-1. **并发是最大单项收益**（93% pass rate，token 最少）——多工具并行减少语义轮次
-2. **压缩在短会话中负收益**（76% < 83%，735K > 635K）——30 轮以下利用率不足，auto_compact 的 LLM 调用成本高于回收的 token 空间
-3. **压缩 + 并发存在负协同**（73% < 76% 和 93%）——auto_compact 的摘要请求与主 Agent LLM 调用共享 backend 产生竞争
-4. **压缩目标场景**：30+ 轮长会话
-5. **新增变量待验证**：structured_snip（预期把压缩 ON 拉回接近基线）和 repo_map（预期减少探索轮次）已接入矩阵，数值待真实 API 重跑
+- **评测体系**：真验收（sanity gate 双检 + F2P/P2P 实跑）、pass^k、轨迹指标、LLM-as-Judge、八类失败分类全部落地
+- **任务集**：31 题（全部 OpenAI SWE-bench Verified 官方保留）；17 道脏题已剔除；本机可跑 20 题（sympy 17 + sphinx 2 + pytest 1），sklearn/astropy 10 题因本机无 MSVC 待 Linux/CI
+- **真数字**：待 20 题基线消融产出（`python -m eval.cli --tasks eval/tasks.json --max-turns 25 --repeat 3`）
+- **单一实证**：合成任务端到端 verified=True（Agent 真修好 bug）、judge 5/5；真实任务验证了 verify 正确判 f2p:fail/timeout/no_diff
 
 ---
 
@@ -242,10 +237,11 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 
 | 步骤 | 操作 | 说明 |
 |------|------|------|
-| 1 | 创建 task 目录 + `verify.sh` | 验收脚本：接收工作目录、运行 fail-to-pass 和 pass-to-pass |
-| 2 | 添加到 `tasks.json` | 遵循 SWE-bench 格式 |
-| 3 | FakeBackend 验证 | `python -m eval.cli --tasks eval/tasks_test.json --fake` |
-| 4 | 真实 API 单题验证 | `python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --repeat 1` |
+| 1 | 从 SWE-bench Lite 选取官方保留题（`eval/select_verified_tasks.py`） | 沿用 `filter_out=False` 标注；node id 需在 base_commit 上验证 |
+| 2 | 在 `eval/env.py` 的 `REPO_SETUP` 策展环境 | 依赖 wheel + PYTHONPATH 源码策略；编译守卫用 `sysmodules` 桩；按提交日期分版本 |
+| 3 | 跑 sanity gate 验证判别器 | `uv run python scratch_curate.py <instance_id>`；F2P 断言失败 / P2P 通过 |
+| 4 | 添加到 `tasks.json` + 人工筛查 | 打分见 `eval/audit_report.html` |
+| 5 | 真实 API 单题验证 | `python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --repeat 1` |
 
 ---
 
@@ -253,4 +249,4 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 
 → **T1: 你的第一个任务**：动手教程——从安装到跑通第一个 Agent 任务。
 
-**相关链接：** eval/README.md（用法快速参考）、eval/results.md（最新结果）
+**相关链接：** eval/README.md（现行用法）、docs/plans/0016-eval-methods.md（设计）、docs/handoff/2026-08-03-xclaw-eval-system.md（全量总结）

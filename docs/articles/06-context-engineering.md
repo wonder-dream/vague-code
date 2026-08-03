@@ -310,30 +310,25 @@ def compress_chain(messages, tools, cfg, budget, backend=None, model="", skip_th
 
 ## 8. 消融数据讨论
 
-消融实验固定其他变量，开关压缩和并发两个特性，在 30 个 SWE-bench Lite 任务上测试：
+> ⚠️ 本节 v0.1 数据基于**假 pass/fail**（验收测试未实跑），已废弃，不得引用。
+> 2026-08 起评测升级为真验收 + 官方标注任务集（31 题，本机可跑 20 题），真数字待消融跑出后回填。
+> 现状见 `docs/handoff/2026-08-03-xclaw-eval-system.md` 与 `eval/README.md`。
+
+消融实验固定其他变量，开关压缩和并发两个特性。待跑配置（官方保留任务集 + `--max-turns 25`）：
 
 | Compression | Concurrency | Pass Rate | Avg Tokens |
 |------------|-------------|-----------|------------|
-| ✗ | ✗ | 83% | 635K |
-| ✗ | ✓ | 93% | 614K |
-| ✓ | ✗ | 76% | 735K |
-| ✓ | ✓ | 73% | 759K |
+| ✗ | ✗ | 待跑 | 待跑 |
+| ✗ | ✓ | 待跑 | 待跑 |
+| ✓ | ✗ | 待跑 | 待跑 |
+| ✓ | ✓ | 待跑 | 待跑 |
 
-与基线（压缩 OFF + 并发 OFF）的对比：
+**预期研究的问题（设计假设，待数据验证）：**
 
-| 配置 | Pass Rate 变化 | Tokens 变化 |
-|------|---------------|-------------|
-| Compression OFF + Concurrency OFF | 基准（83%） | 基准（635K） |
-| Compression OFF + Concurrency ON | **+10pp** | **-3%** |
-| Compression ON + Concurrency OFF | -7pp | +16% |
-| Compression ON + Concurrency ON | -10pp | +20% |
-
-**关键发现：**
-
-1. **并发是最大单项增益（+10pp pass rate），同时 token 消耗最低**——多工具并行不增加语义轮次
-2. **压缩在中小任务（<30 turns）中负收益**——auto_compact 的 LLM 调用成本高于回收的 token 空间
-3. **压缩 + 并发存在负协同**——auto_compact 的摘要请求与主 Agent LLM 调用共享 backend，产生资源竞争
-4. **structured_snip 的定位**：在中间层截住，用零 LLM 成本的结构化摘要替代 auto_compact 的 LLM 调用，预期将压缩 ON 的 pass rate 拉回接近基线（83%）——具体数值待真实 API 消融重跑验证
+1. **并发是否最大单项增益**——多工具并行不增加语义轮次
+2. **压缩在中小任务（<30 turns）是否负收益**——auto_compact 的 LLM 调用成本高于回收的 token 空间
+3. **压缩 + 并发是否负协同**——auto_compact 的摘要请求与主 Agent LLM 调用共享 backend，产生资源竞争
+4. **structured_snip 的定位**：在中间层截住，用零 LLM 成本的结构化摘要替代 auto_compact 的 LLM 调用，预期将压缩 ON 的 pass rate 拉回接近基线——具体数值待真实 API 消融验证
 5. 压缩设计目标为 30+ 轮长会话——在短任务中可以通过 `cfg.enabled=False` 关闭
 
 从轨迹中量化各层效果：每层 emit `EventType.compression`（before_tokens, after_tokens），从 SQLite 聚合可以计算各层的 token 回收率。

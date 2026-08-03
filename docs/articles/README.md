@@ -66,9 +66,11 @@
 
 | 目录 | 内容 |
 |------|------|
-| [docs/guide/](../guide/) | 全部 13 篇文章的细纲（大纲） |
-| [docs/adr/](../adr/) | 17 篇架构决策记录 |
-| [docs/plans/](../plans/) | 14 篇实现方案 |
-| [docs/audit/](../audit/) | 5 篇审计报告 |
-| [docs/reviews/](../reviews/) | 2 篇代码审查 |
+| [docs/adr/](../adr/) | 18 篇架构决策记录 |
+| [docs/plans/](../plans/) | 16 篇实现方案（含 0016 评测体系补强） |
+| [docs/handoff/](../handoff/) | 会话交接记录（含 2026-08-03 评测体系全量总结） |
+| [docs/audit/](../audit/) | 5 篇代码审计报告 |
+| [docs/reviews/](../reviews/) | 1 篇代码审查 |
 | [docs/blog/](../blog/) | 1 篇技术博客 |
+| [docs/interview/](../interview/) | 面试设计问题 |
+| [eval/](../../eval/) | 评测工具（现行用法见 `eval/README.md`） |
