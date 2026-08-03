@@ -20,6 +20,11 @@ class TaskResult:
     error: str | None = None
     stats: dict[str, Any] = field(default_factory=dict)
     trajectory_path: str = ""
+    run_id: str = ""
+    verified: bool | None = None
+    f2p_pass: bool | None = None
+    p2p_pass: bool | None = None
+    verdict_reason: str = ""
 
 
 def build_matrix(repeat: int = 3) -> list[EvalCell]:

@@ -12,6 +12,28 @@ def _cell_key(cell: EvalCell) -> str:
             f"_repo_map={'1' if cell.repo_map else '0'}")
 
 
+def _passk(by_cell: dict[str, list[TaskResult]]) -> tuple[list[tuple[str, int, int, int]], int, int]:
+    """τ-bench pass^k：同一 (任务, 配置) 的 k 次重复全部 verified 才计过。
+
+    度量可靠性而非单次运气（消融实验因变量升级为 pass^k）。
+    """
+    rows: list[tuple[str, int, int, int]] = []
+    total_num = total_den = 0
+    for key in sorted(by_cell.keys()):
+        by_inst: dict[str, list[TaskResult]] = defaultdict(list)
+        for r in by_cell[key]:
+            by_inst[r.instance_id].append(r)
+        k = len({r.cell.repeat for r in by_cell[key]})
+        if k == 0:
+            continue
+        num = sum(1 for rs in by_inst.values() if all(r.verified is True for r in rs))
+        den = len(by_inst)
+        total_num += num
+        total_den += den
+        rows.append((key, k, num, den))
+    return rows, total_num, total_den
+
+
 def generate_report(results: list[TaskResult], output_path: str) -> None:
     # 按 cell 聚合
     by_cell: dict[str, list[TaskResult]] = defaultdict(list)
@@ -56,17 +78,56 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
 
     # 每任务的细节
     lines.append("\n## 逐任务细节\n")
-    lines.append("| 任务ID | 配置 | 通过 | 轮次 | input tokens | run_end_reason |")
-    lines.append("|--------|------|------|------|--------------|----------------|")
+    lines.append("| 任务ID | 配置 | 通过 | verified | 判定 | 轮次 | input tokens | run_end_reason |")
+    lines.append("|--------|------|------|----------|------|------|--------------|----------------|")
 
     for r in sorted(results, key=lambda x: (x.instance_id, _cell_key(x.cell))):
         lines.append(
             f"| {r.instance_id[:40]} | {_cell_key(r.cell)} "
             f"| {'✓' if r.passed else '✗' if r.passed is False else '?'} "
+            f"| {'✓' if r.verified else '✗' if r.verified is False else '-'} "
+            f"| {r.verdict_reason or '-'} "
             f"| {r.stats.get('total_turns', '-')} "
             f"| {r.stats.get('total_input_tokens', 0):,} "
             f"| {r.stats.get('run_end_reason', '-')} |"
         )
+
+    # pass^k 可靠性（仅当存在真验收结果时）
+    has_verified = any(r.verified is not None for r in results)
+    if has_verified:
+        rows, total_num, total_den = _passk(by_cell)
+        lines.append("\n## pass^k 可靠性（τ-bench：k 次全过才计过）\n")
+        lines.append("| 配置 | k | 全过任务数 | 任务总数 | pass^k |")
+        lines.append("|------|---|------------|----------|--------|")
+        for key, k, num, den in rows:
+            lines.append(f"| {key} | {k} | {num} | {den} | {num / den * 100:.0f}% |")
+        if total_den:
+            lines.append(
+                f"\n整体 pass^k: {total_num}/{total_den} = {total_num / total_den * 100:.0f}%"
+            )
+
+    # P0.5 确定性轨迹指标
+    if any(r.stats.get("metrics") for r in results):
+        lines.append("\n## 轨迹指标（P0.5 确定性，平均 per run）\n")
+        lines.append("| 配置 | 工具数 | 冗余read | 冗余grep | 错误调用 | read→edit | edit→test | 权限deny | 触碰测试文件 |")
+        lines.append("|------|--------|----------|----------|----------|-----------|-----------|----------|---------------|")
+        for key in sorted(by_cell.keys()):
+            ms = [r.stats["metrics"] for r in by_cell[key] if r.stats.get("metrics")]
+            if not ms:
+                continue
+            n = len(ms)
+
+            def avg(k: str) -> float:
+                return round(sum(m.get(k, 0) for m in ms) / n, 2)
+
+            touches = sum(
+                1 for r in by_cell[key] if r.stats.get("touches_test_files"))
+            lines.append(
+                f"| {key} | {avg('tool_total')} | {avg('redundant_reads')} "
+                f"| {avg('redundant_greps')} | {avg('error_calls')} "
+                f"| {avg('read_before_edit_rate')} | {avg('edit_then_test')} "
+                f"| {avg('permission_denies')} | {touches} |"
+            )
 
     # 错误列表
     errors = [r for r in results if r.error]

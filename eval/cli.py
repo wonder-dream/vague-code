@@ -13,7 +13,7 @@ def main():
     p.add_argument("--out", default="eval_report.md", help="Output report path")
     p.add_argument("--repeat", type=int, default=3, help="Repeat count per cell")
     p.add_argument("--fake", action="store_true", help="Use FakeBackend instead of real LLM")
-    p.add_argument("--workdir", default="/tmp/xcode_eval", help="Base directory for task repos")
+    p.add_argument("--workdir", default="eval/.workdir", help="Base directory for task repos")
     p.add_argument("--model", default="deepseek-v4-flash", help="Model name")
     args = p.parse_args()
 

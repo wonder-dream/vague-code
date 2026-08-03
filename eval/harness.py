@@ -6,12 +6,58 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from eval.matrix import EvalCell, TaskResult
+from eval.env import EnvNotCurated, ensure_env, venv_key
+from eval.matrix import EvalCell, TaskResult, cell_label
+from eval.verify import (
+    SanityResult,
+    load_sanity_cache,
+    reset_workdir,
+    sanity_gate,
+    save_sanity_cache,
+    verify_run,
+)
 
 
 def load_tasks(tasks_path: str) -> list[dict[str, Any]]:
     with open(tasks_path, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _run_db_path(instance_id: str, cell: EvalCell) -> str:
+    """每个 run 独立的 SQLite 轨迹库，供离线判题/指标/judge 定位。
+
+    位于 runs/eval/ 下（gitignore），与被克隆的任务仓库隔离，
+    不受 P0-2 的 git clean -fdx 影响。
+    """
+    label = f"{instance_id}__{cell_label(cell)}"
+    safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in label)
+    return str(Path("runs") / "eval" / f"{safe}.db")
+
+
+def _build_deepseek_backend(model_name: str):
+    """按项目约定（.env 优先于环境变量）解析 API key 构建真实后端。"""
+    import os
+
+    from dotenv import dotenv_values
+
+    key = (dotenv_values().get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "")
+    if not key:
+        raise RuntimeError("DEEPSEEK_API_KEY not set (set it in .env or environment)")
+    from src.agent.backend import create_deepseek_backend
+
+    return create_deepseek_backend(api_key=key, base_url="https://api.deepseek.com", timeout_s=120.0)
+
+
+def _cached_sanity(task: dict, workdir: str, env: Any) -> SanityResult:
+    """sanity gate 结果按 (repo, base_commit) 缓存，避免每 repeat 重跑。"""
+    cache = load_sanity_cache()
+    key = venv_key(task)
+    if key in cache:
+        return SanityResult(ok=cache[key], reasons=[] if cache[key] else ["cached env_broken"])
+    res = sanity_gate(task, workdir, env)
+    cache[key] = res.ok
+    save_sanity_cache(cache)
+    return res
 
 
 def _extract_stats(trajectory_path: str) -> dict[str, Any]:
@@ -71,11 +117,15 @@ def _extract_stats(trajectory_path: str) -> dict[str, Any]:
     return stats
 
 
-def _set_workdir(task: dict, base_dir: str) -> str:
-    """Clone repo at base_commit into workdir."""
+def _set_workdir(task: dict, base_dir: str, use_fake: bool = False) -> str:
+    """Clone repo at base_commit into workdir (fake 模式跳过克隆，用临时空目录)."""
     repo_url = f"https://github.com/{task['repo']}.git"
     commit = task["base_commit"]
     workdir = str(Path(base_dir) / task["instance_id"])
+
+    if use_fake:
+        Path(workdir).mkdir(parents=True, exist_ok=True)
+        return workdir
 
     if Path(workdir).exists():
         shutil.rmtree(workdir)
@@ -100,7 +150,6 @@ def run_eval(
 ) -> list[TaskResult]:
     from src.agent.loop import Agent
     from src.agent.config import AgentConfig, MemoryConfig
-    from src.agent.backend import DeepSeekBackend
     from src.agent.ir import ModelResponse, NormalizedUsage, StopReason, TextBlock
 
     results: list[TaskResult] = []
@@ -110,13 +159,45 @@ def run_eval(
             instance_id = task["instance_id"]
 
             try:
-                workdir = _set_workdir(task, workdir_base)
+                workdir = _set_workdir(task, workdir_base, use_fake=use_fake)
             except Exception as e:
                 results.append(TaskResult(
                     instance_id=instance_id, cell=cell,
                     passed=None, error=f"checkout failed: {e}",
                 ))
                 continue
+
+            # P0-2: 显式状态隔离，保证 k 次重复起跑状态逐字节一致（pass^k 前提）
+            reset_workdir(workdir)
+
+            env = None
+            if not use_fake:
+                try:
+                    env = ensure_env(task, workdir)
+                except EnvNotCurated as e:
+                    results.append(TaskResult(
+                        instance_id=instance_id, cell=cell,
+                        passed=False, error=str(e), verdict_reason="env_broken",
+                    ))
+                    continue
+                except Exception as e:
+                    results.append(TaskResult(
+                        instance_id=instance_id, cell=cell,
+                        passed=False, error=f"env setup failed: {e}",
+                        verdict_reason="env_broken",
+                    ))
+                    continue
+                # P0-4: sanity gate 双检（F2P 断言失败 / P2P 通过），结果缓存
+                reset_workdir(workdir)
+                sanity = _cached_sanity(task, workdir, env)
+                if not sanity.ok:
+                    results.append(TaskResult(
+                        instance_id=instance_id, cell=cell,
+                        passed=False, error="sanity gate: " + "; ".join(sanity.reasons),
+                        verdict_reason="env_broken",
+                    ))
+                    continue
+                reset_workdir(workdir)
 
             config = AgentConfig(
                 max_turns=50,
@@ -127,6 +208,7 @@ def run_eval(
             )
             config.compression.enabled = cell.compression
             config.repo_map.enabled = cell.repo_map
+            config.db_path = _run_db_path(instance_id, cell)
 
             if use_fake:
                 from src.agent.ir import Message
@@ -141,21 +223,47 @@ def run_eval(
                             stop_reason=StopReason.end_turn,
                             usage=NormalizedUsage(input_tokens=10, output_tokens=5),
                         )
+                    def stream(self, messages, tools=None, config=None):
+                        self.call_count += 1
+                        return iter(())
                 backend = _FakeBackend()
             else:
-                backend = DeepSeekBackend()
+                backend = _build_deepseek_backend(model_name)
 
             try:
                 agent = Agent(config, backend)
                 traj = agent.run(task["problem_statement"], workdir)
                 stats = _extract_stats(traj.config.db_path)
                 stats["instance_id"] = instance_id
-                results.append(TaskResult(
+                result = TaskResult(
                     instance_id=instance_id, cell=cell,
                     passed=None if use_fake else True,  # fake 不判 pass/fail
                     stats=stats,
                     trajectory_path=traj.config.db_path,
-                ))
+                    run_id=traj.run_id,
+                )
+                # P0-3 钻空子检测：在 verify 应用 test_patch 之前，先抓 Agent 原始 diff
+                # 是否触碰测试文件（否则会被 test_patch 自身污染成假阳性）。
+                from eval.metrics import diff_touches_test_files
+                agent_touches = diff_touches_test_files(
+                    workdir, task.get("test_patch") or "")
+                if not use_fake:
+                    assert env is not None
+                    vr = verify_run(task, workdir, env)
+                    result.verified = vr.verified
+                    result.f2p_pass = vr.f2p_pass
+                    result.p2p_pass = vr.p2p_pass
+                    result.verdict_reason = vr.reason
+                    result.passed = vr.verified
+                # P0.5: 确定性轨迹指标（进流水线）
+                from eval.metrics import run_metrics
+
+                try:
+                    result.stats["metrics"] = run_metrics(traj.run_id, traj.config.db_path).to_dict()
+                    result.stats["touches_test_files"] = agent_touches
+                except Exception as e:
+                    result.stats["metrics_error"] = str(e)
+                results.append(result)
             except Exception as e:
                 results.append(TaskResult(
                     instance_id=instance_id, cell=cell,
