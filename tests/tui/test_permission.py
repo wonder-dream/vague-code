@@ -45,3 +45,33 @@ class TestPermissionDialog:
         dialog = pilot.app.query_one(PermissionDialog)
         tool = dialog.query_one("#perm-tool")
         assert "bash" in str(tool.render())
+
+
+class TestPermissionDialogMarkupSafety:
+    async def test_markup_breaking_command_renders(self) -> None:
+        class MarkupApp(App):
+            def compose(self) -> ComposeResult:
+                op = Operation(
+                    tool_name="bash",
+                    input={"command": "dd if=/dev/zero of=/dev/sda", "extra": ["[x]"]},
+                    command="dd if=/dev/zero of=/dev/sda",
+                )
+                yield PermissionDialog(op)
+
+        async with MarkupApp().run_test(size=(80, 24)) as pilot:
+            dialog = pilot.app.query_one(PermissionDialog)
+            detail = dialog.query_one("#perm-detail")
+            assert "/dev/zero" in str(detail.render())
+            tool = dialog.query_one("#perm-tool")
+            assert "bash" in str(tool.render())
+
+    async def test_markup_breaking_tool_name_renders(self) -> None:
+        class MarkupApp(App):
+            def compose(self) -> ComposeResult:
+                op = Operation(tool_name="bash[red]x", input={"command": "ls"}, command="ls")
+                yield PermissionDialog(op)
+
+        async with MarkupApp().run_test(size=(80, 24)) as pilot:
+            dialog = pilot.app.query_one(PermissionDialog)
+            tool = dialog.query_one("#perm-tool")
+            assert "bash" in str(tool.render())

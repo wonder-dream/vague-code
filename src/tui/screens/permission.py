@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from rich.markup import escape
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -26,8 +27,8 @@ class PermissionDialog(ModalScreen[Decision]):
         cmd_display = self._op.command or str(self._op.input)[:120]
         with Vertical(id="permission-dialog"):
             yield Label("[bold]Permission Required[/]", id="perm-title")
-            yield Label(f"Tool: [bold]{self._op.tool_name}[/]", id="perm-tool")
-            yield Label(f"Details: [dim]{cmd_display}[/]", id="perm-detail")
+            yield Label(f"Tool: [bold]{escape(self._op.tool_name)}[/]", id="perm-tool")
+            yield Label(f"Details: [dim]{escape(cmd_display)}[/]", id="perm-detail")
             if self._op.review:
                 review = self._op.review
                 rendered = render_prewrite_review(review) if isinstance(review, dict) else Text("")
