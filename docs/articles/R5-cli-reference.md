@@ -42,7 +42,7 @@
 
 ## 3. TUI 子命令
 
-**代码位置：** `cli/__init__.py:130-180` `_tui_main()`
+**代码位置：** `cli/__init__.py:136-186` `_tui_main()`
 
 | Flag | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
@@ -81,31 +81,35 @@
 
 ## 6. TUI 键绑定
 
-**来源：** `app.py:36-44`
+**来源：** `app.py`（`BINDINGS` + `on_key`）
 
 | 键 | 操作 | 行为 |
 |-------|--------|------|
-| Ctrl+C | `stop_agent` | 停止当前 agent |
-| T | `toggle_thinking` | 折叠/展开所有 thinking 块 |
-| E | `toggle_expand` | 展开/折叠当前聚焦的 tool result |
-| Tab | `select_next` | 下一个可折叠块 |
-| Shift+Tab | `select_prev` | 上一个可折叠块 |
-| / | `focus_input` | 聚焦命令输入框 |
-| Escape | `cancel` | 关闭弹窗/返回/聚焦输入 |
-| F1 | `show_help` | 弹出帮助屏幕 |
+| Enter | 发送 | 提交 composer |
+| Shift+Enter | 换行 | composer 插入换行 |
+| ↑ / ↓ | 输入历史 | 焦点在输入框时回忆历史 |
+| Esc | 聚焦输入框 | 空闲时聚焦；运行中按两次（1 秒窗口）中断回合 |
+| Ctrl+C | 复制/中断/退出 | 有选中先复制 → 运行中中断 → 否则退出 |
+| T | `toggle_thinking` | 折叠/展开 thinking 块 |
+| F1 | `show_help` | 输出帮助（同 `/help`） |
 
 ---
 
 ## 7. TUI 斜杠命令
 
-**来源：** `app.py:298-335`
+**来源：** `commands/`（`CompositeCommandHandler`）
 
 | 命令 | 操作 | 说明 |
 |--------|--------|------|
-| `/mode safe/normal/autoedit/auto` | 设置权限模式 | 会重启 agent |
-| `/clear` | 清空对话 | 不清 sidebar 历史 |
+| `/help` | 帮助 | 命令与快捷键列表 |
+| `/resume` | resume picker | 选择历史会话继续（先重放历史再恢复） |
+| `/new` | 新会话 | 清空输出并显示欢迎页 |
+| `/clear` | 清空对话 | 清除 Conversation View |
 | `/save [path]` | 导出轨迹 | 默认 `runs/{run_id}.jsonl` |
-| `/help` | 帮助 | 弹出 HelpScreen |
+| `/model` | 模型 picker | 弹出预设模型选择 |
+| `/model <name>` | 直接切换模型 | 更新 config 并刷新 topbar |
+| `/mode safe/normal/autoedit/auto` | 设置权限模式 | 后续回合生效，无需重启 |
+| `/permissions` | 列出权限规则 | `.agent/permission-rules.json` 内容 |
 | `/quit` | 退出 | 退出 TUI |
 
 ---

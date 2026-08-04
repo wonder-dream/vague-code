@@ -164,14 +164,18 @@ CLI              Agent              Context            Backend          Codec
 | `cli/__init__.py` | CLI 入口 + TUI 子命令 | `main()` / `_tui_main()` | argparse 解析、API Key 管理、模式路由 |
 | `cli/renderer.py` | Rich 流式渲染 | `RichStreamVisitor` | Console 流式打印、工具结果格式化 |
 
-### tui/ 终端界面
+### tui/ 终端界面（v2 分层架构，详见 ADR-0019）
 
 | 文件 | 职责 | 核心类/函数 | 核心功能 |
 |------|------|------------|---------|
-| `tui/app.py` | TUI 主应用 | `XClawApp` | Textual App、线程桥接、权限弹窗、侧边栏 |
-| `tui/visitor.py` | Textual 流式渲染 | `TextualStreamVisitor` | 可折叠 thinking/tool result 渲染 |
-| `tui/screens/` | TUI 弹窗屏幕 | `PermissionDialog` / `SessionDetail` / `HelpScreen` | 权限确认、会话详情、帮助 |
-| `tui/widgets/` | TUI 组件 | `ConversationView` / `Sidebar` / `StatusBar` / `CommandInput` | 四个布局区域的 widget |
+| `tui/app.py` | TUI 主应用（薄壳） | `XClawApp` | compose/bindings、事件分发、回合管理、权限桥 |
+| `tui/runner.py` | 同步 Agent ↔ 异步 UI 桥 | `XClawAgentRunner` | 事件回调、取消、guidance、permission rules、resume |
+| `tui/mixin.py` | 流式与活动动画 | `XClawViewMixin` | Markdown 三层缓冲、thinking/streaming/running 动画、回合 metrics |
+| `tui/state.py` | 展示态单一事实源 | `TuiTranscript` | entries + widget 引用、工具活动跟踪 |
+| `tui/views/` | 纯函数渲染 | `topbar` / `activity` / `welcome` / `transcript` / `review` | 可独立单测的渲染层 |
+| `tui/commands/` | 斜杠命令路由 | `CompositeCommandHandler` + 各 handler | `/resume /model /mode /permissions /save /new ...` |
+| `tui/screens/permission.py` | 权限弹窗 | `PermissionDialog` | prewrite diff 预览 + 拒绝理由输入 |
+| `tui/widgets/` | TUI 组件 | `ConversationView` / `ActivityLine` / `ComposerTextArea` / `XClawMarkdown` | transcript 驱动渲染、活动行、多行输入、Markdown 选择门控 |
 
 ---
 

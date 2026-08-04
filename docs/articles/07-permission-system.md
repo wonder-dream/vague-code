@@ -164,7 +164,7 @@ def evaluate(mode, operation, rules) -> Decision:
 `_check_tool_permission()`（`loop.py:498-541`）在工具执行前做 pre-pass：
 - **DENY** → 直接生成 `ToolResultBlock(is_error=True)` + 错误消息，跳过执行
 - **CONFIRM** → 回调 `_on_permission(op, decision)`
-  - TUI：弹出 `PermissionDialog`（`app.py:154-162`）
+  - TUI：弹出 `PermissionDialog`（`app.py:_thread_permission`）；`write_file`/`patch` 先由 `src/agent/prewrite.py` 计算写入前 diff 挂到 `op.review`，弹窗展示预览；拒绝理由（`op.feedback`）并入返回模型的错误消息
   - CLI：默认拒绝（无回调时）
 - **ALLOW** → 通过，进入执行
 

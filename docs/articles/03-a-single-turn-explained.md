@@ -171,7 +171,7 @@ LLM 返回的 `stop_reason` 决定了下一步路径：
 
 bash 命令分为 18 个安全命令（ls、git 操作、cat、head、echo、pwd、which...）和 24 个危险命令（rm、dd、chmod、kill、curl|sh、bash -c、sed -i...）（`permission.py:42-87`）。
 
-**CONFIRM 分支：** 回调 `_on_permission(op, decision)` → TUI 弹窗交互（`app.py:142-162`）。无回调时默认 DENY（CLI 模式）。每次决策 emit `EventType.permission_check` 写入审计日志（`loop.py:519-522`）。
+**CONFIRM 分支：** 回调 `_on_permission(op, decision)` → TUI 弹窗交互（`app.py:_thread_permission` + `screens/permission.py`；`write_file`/`patch` 先展示写入前 diff 预览，拒绝理由经 `op.feedback` 回传模型）。无回调时默认 DENY（CLI 模式）。每次决策 emit `EventType.permission_check` 写入审计日志（`loop.py:519-522`）。
 
 ---
 
@@ -257,9 +257,12 @@ concurrent_tools=True 且 tool_uses > 1 → execute_concurrent()
 |--------|---------|------|
 | `end_turn` / `stop_sequence` | `loop.py:388-390` | 正常完成 |
 | `max_tokens` / `content_filter` | `loop.py:392-394` | 异常完成 |
-| `max_turns` 到达 | `loop.py:402-407` | 兜底，pending tool calls 被记录 |
+| `max_turns` 熔断 | `loop.py:420-425` | 最后一轮 LLM 请求工具被切，pending tool calls 被记录，`run_end(max_turns, pending=n)` |
+| `max_turns` 兜底 | `loop.py:505` | while 正常退出后的防御性兜底，正常流程不可达（见 known-issues U3） |
 | 重试耗尽 | `loop.py:348-355` | LLM 永久性失败 |
 | 工具绑定/并发异常 | `loop.py:220-224, 444-447` | 紧急停止 |
+
+> **注意**：`max_turns` 是"硬墙"而非可正常耗尽的预算。续轮唯一途径是 `tool_use`，而它在最后一轮必被 `loop.py:420` 熔断，`turn_box` 永远停在 `max_turns - 1`，故 `loop.py:505` 的兜底在正常流程中不可达（防御性死代码，见 `docs/known-issues.md` U3）。
 
 ---
 

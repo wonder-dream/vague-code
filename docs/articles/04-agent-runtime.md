@@ -32,7 +32,7 @@ Agent 类的核心方法：
 | `run()` | `loop.py:186-190` | 便捷入口，内部调用 start() 并 exhaust RunHandle | 评测 harness |
 | `start()` | `loop.py:192-239` | 构造 Trajectory、SystemPrompt、repo index 构建 + 地图注入、dynamic tool 注入 | CLI/TUI |
 | `_run_gen()` | `loop.py:241-489` | 生成器主循环（内部方法，从 start() 调用） | start() |
-| `resume()` | `loop.py:569-606` | 从 Trajectory 恢复运行 | TUI 侧边栏、CLI --resume |
+| `resume()` | `loop.py:569-606` | 从 Trajectory 恢复运行 | TUI `/resume`（先重放历史）、CLI --resume |
 | `_checkpoint()` | `loop.py:491-496` | 调用 `Trajectory.persist()` 增量写入 | _run_gen / resume |
 | `_check_tool_permission()` | `loop.py:498-541` | 单工具权限校验 | _run_gen / _execute_pending_tools |
 | `_execute_pending_tools()` | `loop.py:627-680` | resume 时回放未执行工具 | resume() |
@@ -328,9 +328,10 @@ Agent Runtime 提供三个回调钩子，供 TUI 和其他 UI 桥接使用：
 
 | 回调 | 类型 | 注册位置 | 用途 | TUI 桥接 |
 |------|------|---------|------|---------|
-| `_on_permission` | `Callable[[Operation, Decision], Decision]` | `loop.py:168` | 权限交互确认 | `app.py:142-162`（`asyncio.run_coroutine_threadsafe` + `push_screen_wait`） |
-| `on_tool_result` | `Callable[[str, str, bool], None]` | `loop.py:169` | 工具结果流式更新 | `app.py:164-173`（`call_from_thread`） |
-| `on_state_change` | `Callable[[str, dict], None]` | `loop.py:170` | 状态栏刷新 | `app.py:175-193`（turn/token/compression 更新） |
+| `_on_permission` | `Callable[[Operation, Decision], Decision]` | `loop.py:168` | 权限交互确认（含 prewrite diff / 拒绝反馈） | `app.py:_thread_permission`（`run_coroutine_threadsafe` + `push_screen_wait`） |
+| `on_tool_result` | `Callable[[str, str, str, bool], None]`（tool_id, name, content, is_error） | `loop.py:169` | 工具结果流式更新（带 tool id 关联条目） | `app.py:_on_tool_result`（`call_from_thread`） |
+| `on_state_change` | `Callable[[str, dict], None]` | `loop.py:170` | 回合/压缩状态刷新 | `app.py:_on_state_change` |
+| `guidance_provider` | `Callable[[], list[str]]` | `loop.py:171` | 运行中用户消息注入（回合头 drain） | `app.py:_drain_guidance` |
 
 这些回调让 TUI 在不入侵 Agent 核心循环的前提下实时更新界面。Eval Harness 则完全不使用这些回调，直接 exhaust RunHandle。
 

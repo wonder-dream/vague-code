@@ -125,7 +125,7 @@ BlockType = Literal["text", "thinking", "tool_use", "tool_result"]  # ir.py:8
 
 **dispatch_event()**（`ir.py:277-297`）：`isinstance` 链式分发到 `StreamEventVisitor` 协议的 10 个方法。
 
-**StreamEventVisitor Protocol**（`ir.py:264-274`）：定义 10 个方法，CLI 的 `RichStreamVisitor` 和 TUI 的 `TextualStreamVisitor` 各自实现。
+**StreamEventVisitor Protocol**（`ir.py:264-274`）：定义 10 个方法，CLI 的 `RichStreamVisitor` 实现；TUI v2 已弃用 visitor，事件经 `XClawAgentRunner` 回调直达 transcript（ADR-0019）。
 
 **StreamDisconnect**（`ir.py:258-259`）：流异常断开时抛出，触发重试逻辑。
 

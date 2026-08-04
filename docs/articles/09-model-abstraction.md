@@ -144,7 +144,7 @@ def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None:
     ...
 ```
 
-`StreamEventVisitor` Protocol（`ir.py:264-274`）定义了 10 个方法，CLI 的 `RichStreamVisitor` 和 TUI 的 `TextualStreamVisitor` 分别实现此接口。
+`StreamEventVisitor` Protocol（`ir.py:264-274`）定义了 10 个方法，CLI 的 `RichStreamVisitor` 实现此接口；TUI v2（ADR-0019）已不再使用 visitor——事件经 `XClawAgentRunner` 回调直达 `TuiTranscript` 单一事实源。
 
 **StreamDisconnect**（`ir.py:258-259`）：流异常断开时抛出，触发重试逻辑。
 

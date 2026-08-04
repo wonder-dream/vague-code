@@ -78,8 +78,8 @@
 | 症状 | 诊断 | 解决方案 |
 |------|------|---------|
 | 界面乱码 | 终端不兼容 | 使用 Windows Terminal / iTerm2 |
-| `xcode tui` 找不到 | 未安装 wrapper | `python -m src.cli tui "task"` |
-| Agent 卡住无法停止 | Ctrl+C 信号问题 | `/quit` 退出重启 |
+| `xcode` 命令找不到 | venv 未激活（`.venv\Scripts` 不在 PATH） | `uv run xcode tui "task"` 或先 `.venv\Scripts\Activate.ps1`；也可 `python -m src.cli tui "task"` |
+| Agent 卡住无法停止 | 运行中按 Esc 未生效 | 连按两次 Esc（1 秒内）中断；或 `/quit` 退出重启 |
 | resume 失败 | run_id 或工具集不匹配 | 检查 run_id 和工具注册 |
 
 ---

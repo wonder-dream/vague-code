@@ -31,7 +31,7 @@
 | 08 | [Memory System](08-memory-system.md) | Episodic 检索、蒸馏、热度排序 |
 | 09 | [Model Abstraction](09-model-abstraction.md) | IR、Codec、10 种 StreamEvent |
 | 10 | [Trajectory](10-trajectory.md) | 事件溯源、SQLite 存储、Resume |
-| 11 | [CLI and TUI](11-cli-and-tui.md) | Rich 渲染、Textual 界面、线程桥接 |
+| 11 | [CLI and TUI](11-cli-and-tui.md) | Rich 渲染、Textual 界面、线程桥接、v2 分层（ADR-0019） |
 | 12 | [Evaluation Harness](12-evaluation-harness.md) | 消融实验、FakeBackend、报告 |
 
 ### Phase 3 — 动手教程
