@@ -16,10 +16,10 @@ _HELP_TEXT = """\
   /model [name]    切换模型（picker 或直接指定）
   /mode <mode>     切换权限模式（safe/normal/autoedit/auto）
   /permissions     列出持久化权限规则
-  /quit            退出
+  exit             退出 TUI
 
 快捷键：
-  Ctrl+C           复制选中文本 / 中断运行 / 退出
+  Ctrl+C           复制选中文本（有选中时）/ 中断运行
   Esc              聚焦输入框（运行中按两次中断）
   ↑/↓              输入历史
   T                折叠/展开 thinking"""

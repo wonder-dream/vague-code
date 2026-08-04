@@ -65,6 +65,8 @@ def test_help_command() -> None:
     result = app._command_handler.handle("/help")
     assert result.handled
     assert "/resume" in result.output
+    assert "/quit" not in result.output
+    assert "exit" in result.output
 
 
 def test_model_command_direct_set() -> None:

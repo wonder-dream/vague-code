@@ -4,7 +4,6 @@ import asyncio
 import json
 import threading
 import time
-from inspect import isawaitable
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -57,7 +56,7 @@ class XClawApp(XClawViewMixin, App):
     ALLOW_SELECT = True
 
     BINDINGS = [
-        Binding("ctrl+c", "copy_output_or_quit", "Copy / interrupt / quit", priority=True),
+        Binding("ctrl+c", "copy_or_interrupt", "Copy / interrupt", priority=True),
         Binding("t", "toggle_thinking", "Toggle thinking"),
         Binding("f1", "show_help", "Help", show=False),
     ]
@@ -241,6 +240,10 @@ class XClawApp(XClawViewMixin, App):
         self._submit_task(text)
 
     def _submit_task(self, text: str) -> None:
+        if text.strip().lower() == "exit":
+            self.exit("User quit")
+            return
+
         if self._picker is not None and text.isdigit():
             if self._picker_select_number(int(text)):
                 return
@@ -829,14 +832,21 @@ class XClawApp(XClawViewMixin, App):
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
-    async def action_copy_output_or_quit(self) -> None:
+    async def action_copy_or_interrupt(self) -> None:
         focused = self.focused
         if isinstance(focused, TextArea) and focused.selected_text:
             focused.action_copy()
             return
+        try:
+            selected = self.screen.get_selected_text()
+        except Exception:
+            selected = None
+        if selected:
+            self.copy_to_clipboard(selected)
+            return
         if self._chat_busy:
             self._interrupt_chat_turn()
             return
-        result = self.action_quit()
-        if isawaitable(result):
-            await result
+        self._write_line(
+            "无选中文本可复制 · 退出请输入 exit", kind=TuiEntryKind.SYSTEM
+        )

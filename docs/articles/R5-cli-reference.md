@@ -86,10 +86,10 @@
 | 键 | 操作 | 行为 |
 |-------|--------|------|
 | Enter | 发送 | 提交 composer |
-| Shift+Enter | 换行 | composer 插入换行 |
+| Shift+Enter | 换行 | composer 插入换行（部分终端可用 `Ctrl+J`） |
 | ↑ / ↓ | 输入历史 | 焦点在输入框时回忆历史 |
 | Esc | 聚焦输入框 | 空闲时聚焦；运行中按两次（1 秒窗口）中断回合 |
-| Ctrl+C | 复制/中断/退出 | 有选中先复制 → 运行中中断 → 否则退出 |
+| Ctrl+C | 复制/中断 | 有选中先复制 → 运行中中断（不退出） |
 | T | `toggle_thinking` | 折叠/展开 thinking 块 |
 | F1 | `show_help` | 输出帮助（同 `/help`） |
 
@@ -110,7 +110,7 @@
 | `/model <name>` | 直接切换模型 | 更新 config 并刷新 topbar |
 | `/mode safe/normal/autoedit/auto` | 设置权限模式 | 后续回合生效，无需重启 |
 | `/permissions` | 列出权限规则 | `.agent/permission-rules.json` 内容 |
-| `/quit` | 退出 | 退出 TUI |
+| `exit` | 退出 | 直接输入 exit（唯一退出方式） |
 
 ---
 

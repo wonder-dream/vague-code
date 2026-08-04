@@ -71,10 +71,10 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融�
 | 键 | 操作 |
 |-------|--------|
 | `Enter` | 发送 |
-| `Shift+Enter` | 换行 |
+| `Shift+Enter` | 换行（部分终端不支持时可用 `Ctrl+J`） |
 | `↑` / `↓` | 输入历史（焦点在输入框时） |
 | `Esc` | 聚焦输入框；**运行中按两次**（1 秒内）中断当前回合 |
-| `Ctrl+C` | 有选中先复制 → 运行中中断 → 否则退出 |
+| `Ctrl+C` | 有选中则复制；运行中则中断（**不退出**） |
 | `T` | 折叠/展开 thinking |
 | `F1` | 帮助 |
 
@@ -90,7 +90,7 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融�
 | `/model` / `/model <name>` | picker 或直接切换模型 |
 | `/mode <m>` | 设置权限模式 `safe\|normal\|autoedit\|auto` |
 | `/permissions` | 列出持久化权限规则 |
-| `/quit` | 退出 |
+| `exit` | 退出 TUI（唯一退出方式） |
 
 ### 权限
 交互式确认对话框：`Y` 允许一次，`Ctrl+Y` 始终允许并持久化规则至 `.agent/permission-rules.json`，`N` 拒绝。

@@ -197,10 +197,10 @@ TUI 主界面分为四个区域：
 | 键 | 操作 | 行为 |
 |-------|--------|------|
 | Enter | 发送 | 提交 composer |
-| Shift+Enter | 换行 | composer 插入换行 |
+| Shift+Enter | 换行 | composer 插入换行（部分终端不支持时可用 `Ctrl+J`） |
 | ↑ / ↓ | 输入历史 | 焦点在输入框时回忆历史 |
 | Esc | 聚焦输入框 | 空闲时聚焦；运行中**按两次**（1 秒窗口）中断回合 |
-| Ctrl+C | 复制/中断/退出 | 有选中先复制 → 运行中中断 → 否则退出 |
+| Ctrl+C | 复制/中断 | 有选中先复制 → 运行中中断（**不退出**） |
 | T | `action_toggle_thinking` | 折叠/展开 thinking 块 |
 | F1 | `action_show_help` | 输出帮助（`/help`） |
 
@@ -219,7 +219,7 @@ TUI 主界面分为四个区域：
 | `/model <name>` | 直接切换 | 更新 `config.model` 并刷新 topbar |
 | `/mode <m>` | 权限模式 | `safe\|normal\|autoedit\|auto` |
 | `/permissions` | 规则列表 | 列出 `.agent/permission-rules.json` |
-| `/quit` | 退出 | 退出 TUI |
+| `exit` | 退出 | 直接输入 exit（唯一退出方式） |
 
 ---
 

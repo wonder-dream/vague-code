@@ -58,7 +58,7 @@ class ComposerTextArea(TextArea):
             event.prevent_default()
             self.post_message(self.Submitted())
             return
-        if event.key == "shift+enter":
+        if event.key in ("shift+enter", "ctrl+enter", "ctrl+j"):
             event.stop()
             event.prevent_default()
             self.insert("\n")
