@@ -121,18 +121,19 @@ def test_write_file_creates_file(tmp_path):
 
 
 def test_write_file_overwrite_false_rejects(tmp_path):
+    """默认允许覆盖（P0-1：编辑源码的直接通道）；显式 overwrite=false 才拒绝。"""
     ws = _ws(tmp_path)
     (ws / "existing.txt").write_text("old", encoding="utf-8")
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     with pytest.raises(FileExistsError):
-        handler({"path": "existing.txt", "content": "new"})
+        handler({"path": "existing.txt", "content": "new", "overwrite": False})
 
 
-def test_write_file_overwrite_true_succeeds(tmp_path):
+def test_write_file_overwrites_by_default(tmp_path):
     ws = _ws(tmp_path)
     (ws / "existing.txt").write_text("old", encoding="utf-8")
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
-    result = handler({"path": "existing.txt", "content": "new", "overwrite": True})
+    result = handler({"path": "existing.txt", "content": "new"})
     assert "字符" in result
     assert (ws / "existing.txt").read_text(encoding="utf-8") == "new"
 

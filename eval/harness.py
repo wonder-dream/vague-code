@@ -306,6 +306,24 @@ def _set_workdir(task: dict, base_dir: str, use_fake: bool = False) -> str:
     return workdir
 
 
+def _task_prompt(task: dict) -> str:
+    """发任务的 prompt 文本：problem_statement + 验证标准 + 评测环境声明（P0-2b）。
+
+    只改发出去的文本，不改 task 数据（judge/轨迹/verify 不受影响）。
+    """
+    ps = str(task.get("problem_statement") or "")
+    f2p = task.get("FAIL_TO_PASS") or []
+    lines = [ps]
+    if f2p:
+        lines.append("\n验证标准（修复后应通过，可自行运行确认）:")
+        lines.extend(f"- pytest {nid}" for nid in f2p)
+    lines.append(
+        "\n本环境为自动化评测，无交互通道：不要提问等待，陈述假设并继续；"
+        "最终交付物为工作区相对 HEAD 的代码改动。"
+    )
+    return "\n".join(lines)
+
+
 def run_eval(
     tasks: list[dict],
     matrix: list[EvalCell],
@@ -414,7 +432,7 @@ def run_eval(
 
             try:
                 agent = Agent(config, backend)
-                traj = agent.run(task["problem_statement"], workdir)
+                traj = agent.run(_task_prompt(task), workdir)
                 stats = _extract_stats(traj.config.db_path, traj.run_id)
                 stats["instance_id"] = instance_id
                 # #c: 每 run 成本落元数据（cache 命中部分按 cache 单价）

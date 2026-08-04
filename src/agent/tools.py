@@ -9,7 +9,7 @@ import re
 
 from src.agent.ir import ToolSpec
 
-DEFAULT_MAX_OVERWRITE = False
+DEFAULT_MAX_OVERWRITE = True
 MAX_READ_BYTES = 10 * 1024 * 1024
 MAX_OUTPUT = 50 * 1024
 MAX_GLOB_RESULTS = 1000
@@ -273,13 +273,13 @@ READ_FILE_SPEC = ToolSpec(
 
 WRITE_FILE_SPEC = ToolSpec(
     name="write_file",
-    description="写入文件内容。路径必须相对于工作目录根路径。",
+    description="写入文件内容（覆盖已存在文件，默认允许覆盖——编辑源码的直接通道）。路径必须相对于工作目录根路径。",
     parameters={
         "type": "object",
         "properties": {
             "path": {"type": "string", "description": "相对于工作目录根路径的文件路径"},
             "content": {"type": "string", "description": "要写入文件的内容"},
-            "overwrite": {"type": "boolean", "description": "设为 true 覆盖已有文件（默认: false）"},
+            "overwrite": {"type": "boolean", "description": "设为 false 时拒绝覆盖已有文件（默认: true）"},
         },
         "required": ["path", "content"],
     },

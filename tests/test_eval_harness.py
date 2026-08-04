@@ -165,6 +165,33 @@ def test_run_cost_scales_with_tokens() -> None:
     assert _run_cost({}, 0.28, 1.10) == 0.0
 
 
+# ── P0-2b: 评测 prompt 适配（验证标准 + 无交互声明，不改 task 数据） ─────
+
+def test_task_prompt_appends_verification_and_env_note() -> None:
+    from eval.harness import _task_prompt
+
+    task = {
+        "instance_id": "x",
+        "problem_statement": "Bug: foo is broken",
+        "FAIL_TO_PASS": ["tests/test_foo.py::test_a"],
+    }
+    text = _task_prompt(task)
+    assert text.startswith("Bug: foo is broken")
+    assert "pytest tests/test_foo.py::test_a" in text
+    assert "自动化评测，无交互通道" in text
+    # task 数据未被修改
+    assert task["problem_statement"] == "Bug: foo is broken"
+    assert "自动化评测" not in task["problem_statement"]
+
+
+def test_task_prompt_no_f2p_skips_verification() -> None:
+    from eval.harness import _task_prompt
+
+    text = _task_prompt({"problem_statement": "just explain"})
+    assert "验证标准" not in text
+    assert "自动化评测" in text
+
+
 # ── #10+#8: 同一 db 多 run 时 stats 按 run_id 过滤 ───────────────────────
 
 def _seed_db_with_two_runs(db_path: Path) -> None:
