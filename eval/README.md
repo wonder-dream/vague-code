@@ -64,7 +64,7 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 | `--fake` | FakeBackend（仅验证框架，跳过 env/verify） | 否 |
 | `--workdir` | 任务 repo 克隆基础路径 | `eval/.workdir` |
 | `--model` | 被评 Agent 模型 | `deepseek-v4-flash` |
-| `--max-turns` | 每 run 最大轮次（成本控制） | 50 |
+| `--max-turns` | 每 run 最大轮次（兜底上限；Agent 修完会提前 end_turn，难题才烧满） | 40 |
 | `--fresh` | 忽略 manifest 强制重跑全部 cell | 否（默认断点续跑） |
 | `--max-cost` | 全局成本熔断（USD），超阈值停止后续 cell | 无 |
 | `--price-input` / `--price-output` | 每 1M token 单价（USD），成本估算用 | 0.28 / 1.10 |

@@ -39,8 +39,9 @@ def main():
     p.add_argument("--fake", action="store_true", help="Use FakeBackend instead of real LLM")
     p.add_argument("--workdir", default="eval/.workdir", help="Base directory for task repos")
     p.add_argument("--model", default="deepseek-v4-flash", help="Model name")
-    p.add_argument("--max-turns", type=int, default=50,
-                   help="Max agent turns per run (cost control; ablation usually 25-50)")
+    p.add_argument("--max-turns", type=int, default=40,
+                   help="Max agent turns per run (25 too low for hard tasks; "
+                        "agents end_turn early when done, cap is a safety net)")
     p.add_argument("--fresh", action="store_true",
                    help="Ignore manifest and rerun already-done cells")
     p.add_argument("--max-cost", type=float, default=None,
