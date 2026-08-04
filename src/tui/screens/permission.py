@@ -8,14 +8,21 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Static, TextArea
 
 from src.agent.permission import Decision, Operation
+from src.tui.views.permission import (
+    permission_title,
+    render_operation_body,
+    tool_accent,
+    tool_glyph,
+)
 from src.tui.views.review import render_prewrite_review
 
 
 class PermissionDialog(ModalScreen[Decision]):
     """Modal screen asking user to approve or deny a tool execution.
 
-    Shows a pre-write diff when available; denial may carry an optional
-    feedback reason that is passed back to the model.
+    Structured layout: accent header, operation body, pre-write diff card,
+    optional deny-feedback input, action buttons. Denial may carry an
+    optional feedback reason that is passed back to the model.
     """
 
     def __init__(self, operation: Operation, *args, **kwargs):
@@ -24,13 +31,18 @@ class PermissionDialog(ModalScreen[Decision]):
         self.always_allow: bool = False
 
     def compose(self) -> ComposeResult:
-        cmd_display = self._op.command or str(self._op.input)[:120]
+        op = self._op
+        accent = tool_accent(op.tool_name)
+        glyph = tool_glyph(op.tool_name)
+        header = (
+            f"[{accent} bold]{escape(glyph)} {escape(permission_title(op.tool_name))}[/]"
+            f"  [#808185]{escape(op.tool_name)}[/]"
+        )
         with Vertical(id="permission-dialog"):
-            yield Label("[bold]Permission Required[/]", id="perm-title")
-            yield Label(f"Tool: [bold]{escape(self._op.tool_name)}[/]", id="perm-tool")
-            yield Label(f"Details: [dim]{escape(cmd_display)}[/]", id="perm-detail")
-            if self._op.review:
-                review = self._op.review
+            yield Static(header, id="perm-header")
+            yield Static(render_operation_body(op), id="perm-body", classes="perm-body")
+            if op.review:
+                review = op.review
                 rendered = render_prewrite_review(review) if isinstance(review, dict) else Text("")
                 with VerticalScroll(id="perm-review-scroll", classes="review-scroll"):
                     yield Static(rendered, id="perm-review", classes="review-card")
@@ -43,9 +55,9 @@ class PermissionDialog(ModalScreen[Decision]):
                 soft_wrap=True,
             )
             with Horizontal(id="perm-buttons"):
-                yield Button("Allow Once (Y)", variant="primary", id="perm-allow")
-                yield Button("Always Allow (Ctrl+Y)", variant="success", id="perm-allow-always")
-                yield Button("Deny (N)", variant="error", id="perm-deny")
+                yield Button(" Allow Once (Y) ", variant="success", id="perm-allow")
+                yield Button(" Always Allow (Ctrl+Y) ", variant="primary", id="perm-allow-always")
+                yield Button(" Deny (N) ", variant="error", id="perm-deny")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "perm-allow-always":
