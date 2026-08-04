@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased] — 2026-08-04
+
+### Added
+
+- **TUI v2 整体重写**（ADR-0019，参考包分层架构）：Topbar / Welcome / Activity Line / Composer 新布局；流式 Markdown 渲染（0.2s 节流 + 更新防乱序 + 流式禁选）；工具活动流（running→success/error + 耗时 + 并行计数）；thinking 自动折叠；命令系统（`CompositeCommandHandler` + `/resume /model /mode /permissions /new /save`）；picker 选择器；输入历史（↑/↓）；Esc 两次中断；运行中 guidance 消息；**写入前 diff 审查 + 拒绝理由反馈闭环**；resume 轨迹重放；`TuiTranscript` 单一事实源 + views 纯函数渲染层（可单测）
+- **Agent 层**：`on_tool_result` 带 tool id；`Operation.review`（prewrite diff）/ `Operation.feedback`；`guidance_provider` 回合头注入
+
+### Changed
+
+- **TUI**：侧边栏/visitor/status_bar 等旧实现删除（`visitor.py`、`widgets/sidebar.py`、`screens/session_detail.py` 等）；`src/tui` 测试从 6 个增至 74 个
+
 ## [Unreleased] — 2026-08-01
 
 ### Added
