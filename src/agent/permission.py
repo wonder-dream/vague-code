@@ -28,6 +28,8 @@ class Operation:
     tool_name: str
     input: dict
     command: str | None = None
+    review: dict | None = None
+    feedback: str | None = None
 
 
 @dataclass

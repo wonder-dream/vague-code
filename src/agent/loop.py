@@ -551,11 +551,17 @@ class Agent:
 
         if decision == Decision.CONFIRM and check_confirm:
             if self._on_permission:
+                from src.agent.prewrite import compute_prewrite_review
+                op.review = compute_prewrite_review(
+                    block.name, block.input, getattr(self, "_workdir", "")
+                )
                 decision = self._on_permission(op, decision)
             else:
                 decision = Decision.DENY
             if decision == Decision.DENY:
                 content = "权限不足"
+                if op.feedback:
+                    content += f"：{op.feedback}"
                 if not self._on_permission:
                     content = "权限不足：无交互确认可用"
                 return Decision.DENY, content, True

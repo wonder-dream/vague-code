@@ -164,6 +164,33 @@ def test_guidance_injected_at_turn_start():
     assert any("continue please" in text for text in user_texts)
 
 
+def test_deny_feedback_propagates_to_tool_result():
+    from src.agent.ir import ToolUseBlock
+    from src.agent.permission import PermissionMode
+    from src.agent.trajectory import Trajectory
+
+    backend = FakeBackend([_text_response("ok")])
+    config = AgentConfig(max_turns=5, permission_mode="normal")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = Agent(config, backend)
+        agent._workdir = tmpdir
+        traj = Trajectory(run_id="review", config=config)
+
+        def on_permission(op, decision):
+            op.feedback = "please don't overwrite"
+            return Decision.DENY
+
+        agent._on_permission = on_permission
+        block = ToolUseBlock(id="t1", name="write_file", input={"path": "a.py", "content": "x"})
+        decision, content, is_error = agent._check_tool_permission(
+            block, PermissionMode.NORMAL, 0, traj
+        )
+        assert decision == Decision.DENY
+        assert is_error is True
+        assert "please don't overwrite" in content
+        assert block.name == "write_file"
+
+
 def test_token_budget_recorded():
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)

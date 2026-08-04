@@ -170,7 +170,8 @@ ScrollBarCorner {
 #permission-dialog {
     padding: 1 2;
     border: solid #303238;
-    width: 50;
+    width: 60;
+    max-height: 80%;
     background: #16161a;
 }
 
@@ -192,4 +193,23 @@ ScrollBarCorner {
 #perm-buttons {
     align: center bottom;
     padding: 1 0 0 0;
+}
+
+.review-scroll {
+    height: 12;
+    margin: 0 0 1 0;
+    border: solid #303238;
+}
+
+#perm-feedback-label {
+    color: #808185;
+    margin: 0 0 0 0;
+}
+
+#perm-feedback {
+    height: 3;
+    margin: 0 0 1 0;
+    border: solid #303238;
+    background: #0f1014;
+    color: #cfd1d6;
 }
