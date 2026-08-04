@@ -31,5 +31,7 @@ tests/tui/__pycache__/
 
 src/tui/screens/__pycache__/
 src/tui/widgets/__pycache__/
+tui-reference-pack/
 eval/audit_report.html
 eval/results.md
+src/tui/views/__pycache__/
