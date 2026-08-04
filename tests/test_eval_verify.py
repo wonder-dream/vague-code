@@ -97,6 +97,29 @@ def test_apply_and_reset_test_files() -> None:
         shutil.rmtree(d, ignore_errors=True)
 
 
+def test_reset_test_files_ignores_patch_added_files(tmp_path: Path) -> None:
+    """test_patch 引入的新文件在 base 不存在：checkout 不能炸（sphinx-8595 实证）。"""
+    d = tmp_path / "repo"
+    _init_repo(d)
+    # test_patch 覆盖一个"新增"文件（不在版本控制中）
+    reset_test_files(d, ["new_test_app.py", "test_app.py"])
+    # 不抛异常，且已跟踪文件未被误动
+    assert "== 3" in (d / "test_app.py").read_text(encoding="utf-8")
+
+
+def test_reset_test_files_removes_agent_created_untracked() -> None:
+    d = Path("tmp_vr_untracked")
+    _init_repo(d)
+    try:
+        # Agent 新建测试文件（未跟踪，篡改路径）
+        (d / "test_extra.py").write_text("def test_cheat():\n    assert True\n", encoding="utf-8")
+        reset_test_files(d, ["test_extra.py"])
+        assert not (d / "test_extra.py").exists()
+    finally:
+        import shutil
+        shutil.rmtree(d, ignore_errors=True)
+
+
 # ── diff_empty / reset_workdir（P0-2） ───────────────────────────────────
 
 def test_diff_empty_true_on_clean() -> None:

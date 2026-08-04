@@ -9,6 +9,7 @@ runs/
 eval/runs/
 eval/.venvs/
 eval/.workdir/
+eval/.cache/
 eval/.sanity_cache.json
 eval/audit_results.md
 eval/audit_scores.json

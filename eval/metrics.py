@@ -143,9 +143,16 @@ def run_metrics(run_id: str, db_path: str | Path) -> RunMetrics:
 
 # ── diff 触碰测试文件（P0-3 喂 P2 分类）──────────────────────────────────
 
+# 除 test_patch 覆盖文件外，pytest 配置文件也能钻空子（改 conftest 加 fixture、
+# 改 pytest.ini/setup.cfg 关收集或改断言行为），一律计入触碰。
+TEST_CONFIG_FILES = ("conftest.py", "pytest.ini", "setup.cfg", "tox.ini", "pyproject.toml")
+
+
 def diff_touches_test_files(workdir: str | Path, test_patch: str) -> list[str]:
     """返回 Agent diff 中与 test_patch 覆盖文件重合的路径（钻空子证据）。
 
+    仅检测 diff 中文件：pytest 配置文件按 basename 命中即算（任意路径的
+    conftest.py 都可能影响测试收集/断言），test_patch 覆盖文件按精确路径。
     仅在任务仓库自身为独立 git 仓库时执行；否则（如 fake 模式临时目录）
     返回空，避免 git 沿父目录上溯扫到项目本体。
     """
@@ -161,7 +168,9 @@ def diff_touches_test_files(workdir: str | Path, test_patch: str) -> list[str]:
         return []
     changed = {_norm_path(p) for p in proc.stdout.splitlines() if p.strip()}
     patch_files = {_norm_path(p) for p in parse_test_paths(test_patch)}
-    return sorted(changed & patch_files)
+    touched = changed & patch_files
+    touched |= {p for p in changed if p.rsplit("/", 1)[-1] in TEST_CONFIG_FILES}
+    return sorted(touched)
 
 
 # ── 轨迹匹配分级（gold）────────────────────────────────────────────────

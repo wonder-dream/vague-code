@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,9 +72,33 @@ def reset_test_files(workdir: str | Path, paths: list[str]) -> None:
 
     解决两个问题：Agent 篡改测试文件（钻空子）；Agent 与测试文件冲突导致
     git apply 失败误判 fail。
+    - 只回滚 git 跟踪的文件：test_patch 新增文件在 base 不存在，checkout 会
+      因 pathspec 不匹配报 exit 1 炸掉 verify（sphinx-8595 实证）。
+    - Agent 在测试路径上新建的未跟踪文件（篡改测试的新文件）一并删除。
     """
-    if paths:
-        _git(Path(workdir), ["checkout", "--", *paths])
+    if not paths:
+        return
+    workdir = Path(workdir)
+    ls = subprocess.run(
+        ["git", "-C", str(workdir), "ls-files", "--", *paths],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    tracked = [p for p in ls.stdout.splitlines() if p.strip()]
+    if tracked:
+        _git(workdir, ["checkout", "--", *tracked])
+    st = subprocess.run(
+        ["git", "-C", str(workdir), "status", "--porcelain", "--untracked-files=all", "--", *paths],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    for line in st.stdout.splitlines():
+        if not line.startswith("??"):
+            continue
+        f = line[3:].strip()
+        target = workdir / f
+        if target.is_dir():
+            shutil.rmtree(target, ignore_errors=True)
+        elif target.exists():
+            target.unlink()
 
 
 def apply_test_patch(workdir: str | Path, test_patch: str) -> None:

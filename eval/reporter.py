@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from pathlib import Path
 
-from eval.matrix import EvalCell, TaskResult
+from eval.matrix import EvalCell, TaskResult, cell_label
 
 
 def _cell_key(cell: EvalCell) -> str:
@@ -16,6 +16,7 @@ def _passk(by_cell: dict[str, list[TaskResult]]) -> tuple[list[tuple[str, int, i
     """τ-bench pass^k：同一 (任务, 配置) 的 k 次重复全部 verified 才计过。
 
     度量可靠性而非单次运气（消融实验因变量升级为 pass^k）。
+    env_broken 任务（全部 verified=None）不进分母——环境问题不该惩罚通过率。
     """
     rows: list[tuple[str, int, int, int]] = []
     total_num = total_den = 0
@@ -26,12 +27,59 @@ def _passk(by_cell: dict[str, list[TaskResult]]) -> tuple[list[tuple[str, int, i
         k = len({r.cell.repeat for r in by_cell[key]})
         if k == 0:
             continue
-        num = sum(1 for rs in by_inst.values() if all(r.verified is True for r in rs))
-        den = len(by_inst)
+        runnable = {iid: rs for iid, rs in by_inst.items()
+                    if any(r.verified is not None for r in rs)}
+        num = sum(1 for rs in runnable.values() if all(r.verified is True for r in rs))
+        den = len(runnable)
+        if den == 0:
+            continue
         total_num += num
         total_den += den
         rows.append((key, k, num, den))
     return rows, total_num, total_den
+
+
+def _passk_by_inst(results: list[TaskResult]) -> dict[str, bool]:
+    """(配置, 任务) 级 pass^k 布尔：k 次重复全 verified 才算过（逐题表粒度）。"""
+    by_inst: dict[str, list[TaskResult]] = defaultdict(list)
+    for r in results:
+        by_inst[r.instance_id].append(r)
+    return {iid: all(r.verified is True for r in rs) for iid, rs in by_inst.items()}
+
+
+def _render_head_to_head(by_cell: dict[str, list[TaskResult]]) -> list[str]:
+    """#a 逐题胜负表：固定另两变量，单变量 on/off 对比（pass^k 粒度）。
+
+    20 题样本量下 pass rate 粒度 5%，两个总数字之差可能是 2 题噪声；
+    逐题列出"开过关不过 / 关过开不过"是更诚实的呈现。
+    """
+    lines: list[str] = []
+    pairs = [
+        ("compression", "concurrency", "repo_map"),
+        ("concurrency", "compression", "repo_map"),
+        ("repo_map", "compression", "concurrency"),
+    ]
+    for var, v2, v3 in pairs:
+        for fixed2 in (True, False):
+            for fixed3 in (True, False):
+                def _mk(var_value: bool) -> EvalCell:
+                    flags = {"compression": False, "concurrency": False, "repo_map": False}
+                    flags[var] = var_value
+                    flags[v2] = fixed2
+                    flags[v3] = fixed3
+                    return EvalCell(flags["compression"], flags["concurrency"],
+                                    flags["repo_map"], repeat=0)
+                on = _passk_by_inst(by_cell.get(_cell_key(_mk(True)), []))
+                off = _passk_by_inst(by_cell.get(_cell_key(_mk(False)), []))
+                iids = sorted(set(on) | set(off))
+                if not iids:
+                    continue
+                gain = [i for i in iids if on.get(i) and not off.get(i)]
+                loss = [i for i in iids if off.get(i) and not on.get(i)]
+                lines.append(f"\n### {var} 开 vs 关（{v2}={fixed2}, {v3}={fixed3}）\n")
+                lines.append(f"- 开过/关不过: {len(gain)} 题 → {', '.join(gain) if gain else '-'}")
+                lines.append(f"- 关过/开不过: {len(loss)} 题 → {', '.join(loss) if loss else '-'}")
+    return lines
 
 
 def generate_report(results: list[TaskResult], output_path: str) -> None:
@@ -43,12 +91,20 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
     lines: list[str] = []
     lines.append("# 消融实验结果\n")
     lines.append(f"总任务数: {len(set(r.instance_id for r in results))}")
-    lines.append(f"总运行次数: {len(results)}\n")
+    lines.append(f"总运行次数: {len(results)}")
+    labels = {cell_label(r.cell) for r in results}
+    if len(labels) <= 4 and any(not lbl.startswith("C_X_M") for lbl in labels):
+        lines.append("设计: OFAT（基线全开 + 3 个单变量关闭），未测变量交互效应")
+    total_cost = sum(r.stats.get("cost_usd", 0) for r in results)
+    if total_cost:
+        lines.append(f"总成本: ${total_cost:.4f}（按评测时 cli 单价估）\n")
+    else:
+        lines.append("")
 
     # 汇总表
     lines.append("## 汇总\n")
-    lines.append("| 压缩 | 并发 | RepoMap | 重复 | 通过率 | 平均轮次 | 平均 input tokens | code_search | stale回收 | micro回收 | ssnip回收 | auto回收 | truncate回收 |")
-    lines.append("|------|------|---------|------|--------|----------|-------------------|-------------|-----------|-----------|-----------|----------|--------------|")
+    lines.append("| 压缩 | 并发 | RepoMap | 重复 | 通过率 | 平均轮次 | 平均 input tokens | code_search | stale回收 | micro回收 | ssnip回收 | auto回收 | truncate回收 | 成本($) |")
+    lines.append("|------|------|---------|------|--------|----------|-------------------|-------------|-----------|-----------|-----------|----------|--------------|---------|")
 
     for key in sorted(by_cell.keys()):
         cell_results = by_cell[key]
@@ -65,6 +121,7 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
         ssnip = sum(r.stats.get("structured_snip_reclaimed", 0) for r in cell_results)
         auto_ = sum(r.stats.get("auto_compact_reclaimed", 0) for r in cell_results)
         trun = sum(r.stats.get("truncate_reclaimed", 0) for r in cell_results)
+        cost = sum(r.stats.get("cost_usd", 0) for r in cell_results)
 
         pass_rate = f"{len(passed) / n * 100:.0f}%" if n > 0 else "-"
         avg_turns = f"{total_turns / n:.1f}" if n > 0 else "-"
@@ -73,7 +130,7 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
         lines.append(
             f"| {'✓' if cell.compression else '✗'} | {'✓' if cell.concurrency else '✗'} "
             f"| {'✓' if cell.repo_map else '✗'} | {cell.repeat} | {pass_rate} | {avg_turns} | {avg_tokens} "
-            f"| {code_search:,} | {stale:,} | {micro:,} | {ssnip:,} | {auto_:,} | {trun:,} |"
+            f"| {code_search:,} | {stale:,} | {micro:,} | {ssnip:,} | {auto_:,} | {trun:,} | ${cost:.2f} |"
         )
 
     # 每任务的细节
@@ -105,6 +162,11 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
             lines.append(
                 f"\n整体 pass^k: {total_num}/{total_den} = {total_num / total_den * 100:.0f}%"
             )
+
+        # #a 逐题胜负表（单变量消融的诚实呈现：总通过率差可能只是 2 题噪声）
+        if any(by_cell[k] for k in by_cell):
+            lines.append("\n## 逐题胜负表（单变量 on/off，pass^k 粒度）\n")
+            lines.extend(_render_head_to_head(by_cell))
 
     # P0.5 确定性轨迹指标
     if any(r.stats.get("metrics") for r in results):

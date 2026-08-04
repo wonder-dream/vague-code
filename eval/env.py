@@ -214,8 +214,11 @@ def ensure_env(
     venv_dir = (Path(venvs_root) / key).resolve()
     python_bin = _venv_python(venv_dir)
     ready_marker = venv_dir / ".xclaw_ready"
+    lock_file = venv_dir / "requirements.lock"
 
     if not clear and python_bin.exists() and ready_marker.exists():
+        if not lock_file.exists():
+            _freeze_lock(python_bin, lock_file)
         return EnvSpec(venv_dir=venv_dir, python=python_bin, repo_key=key, repo=repo,
                        shims_dir=_write_shims(venv_dir, setup))
 
@@ -233,10 +236,29 @@ def ensure_env(
         _run_pip(python_bin, args, workdir)
     for args in _extra_install(setup, workdir):
         _run_pip(python_bin, args, workdir)
+    _freeze_lock(python_bin, lock_file)
     ready_marker.write_text("ok", encoding="utf-8")
     shims_dir = _write_shims(venv_dir, setup)
     return EnvSpec(venv_dir=venv_dir, python=python_bin, repo_key=key, repo=repo,
                    shims_dir=shims_dir)
+
+
+def _freeze_lock(python_bin: Path, lock_file: Path) -> None:
+    """uv pip freeze 落盘 venv 依赖清单（#8：每次 run 的 deps 指纹可追溯）。
+
+    uv venv 无 pip 模块，用 `uv pip freeze --python` 直取；失败不致命
+    （缺 lock 时 harness 侧以 'nolock' 指纹兜底）。
+    """
+    try:
+        proc = subprocess.run(
+            ["uv", "pip", "freeze", "--python", str(python_bin)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=120,
+        )
+        if proc.returncode == 0:
+            lock_file.write_text(proc.stdout, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _write_shims(venv_dir: Path, setup: dict[str, Any]) -> Path | None:

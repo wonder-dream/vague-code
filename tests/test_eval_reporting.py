@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from eval import audit_tasks, reporter
-from eval.matrix import EvalCell, TaskResult
+from eval.matrix import EvalCell, TaskResult, cell_label
 
 
 def _cell(compression: bool = True, concurrency: bool = False,
@@ -44,8 +44,79 @@ def test_passk_ignores_none_verified() -> None:
         _r("A", _cell(repeat=0), None),
         _r("A", _cell(repeat=1), None),
     ]
+    # 全部 verified=None（env_broken）→ 不进分母，不惩罚通过率
+    rows, total_num, total_den = reporter._passk({"k": results})
+    assert rows == []
+    assert (total_num, total_den) == (0, 0)
+
+
+def test_passk_skips_env_broken_but_counts_mixed() -> None:
+    # B 是 env_broken（全 None），A 是正常任务（1 过 1 挂）→ 分母只算 A
+    results = [
+        _r("A", _cell(repeat=0), True),
+        _r("A", _cell(repeat=1), False),
+        _r("B", _cell(repeat=0), None),
+        _r("B", _cell(repeat=1), None),
+    ]
     rows, total_num, total_den = reporter._passk({"k": results})
     assert rows[0][2] == 0 and rows[0][3] == 1
+    assert (total_num, total_den) == (0, 1)
+
+
+# ── OFAT 设计（消融成本腰斩：4 配置替代全因子 8 配置） ───────────────────
+
+def test_build_matrix_ofat_has_4_configs() -> None:
+    from eval.matrix import build_matrix
+    cells = build_matrix(repeat=3, design="ofat")
+    # 全开 k=3 + 3 个单变量关闭 k=3 = 12 cells
+    assert len(cells) == 12
+    labels = {cell_label(c) for c in cells}
+    assert "C_X_M_r0" in labels and "nc_X_M_r0" in labels
+    assert "C_sx_M_r0" in labels and "C_X_nm_r0" in labels
+    # 全开 3 次、其余各 3 次
+    from collections import Counter
+    counts = Counter((c.compression, c.concurrency, c.repo_map) for c in cells)
+    assert counts[(True, True, True)] == 3
+    assert counts[(False, True, True)] == 3
+
+
+def test_build_matrix_ofat_ablation_repeat() -> None:
+    from eval.matrix import build_matrix
+    cells = build_matrix(repeat=3, design="ofat", ablation_repeat=2)
+    from collections import Counter
+    counts = Counter((c.compression, c.concurrency, c.repo_map) for c in cells)
+    assert counts[(True, True, True)] == 3    # 核心层 k=3
+    assert counts[(False, True, True)] == 2   # 消融层 k=2
+    assert len(cells) == 3 + 2 * 3
+
+
+def test_build_matrix_full_design_keeps_8_configs() -> None:
+    from eval.matrix import build_matrix
+    cells = build_matrix(repeat=2, design="full")
+    assert len(cells) == 16
+    # 8 种配置 × 2 重复（label 含 repeat 后缀，配置粒度按去 repeat 前缀数）
+    configs = {cell_label(c).rsplit("_r", 1)[0] for c in cells}
+    assert len(configs) == 8
+
+def test_head_to_head_lists_gain_and_loss_tasks(tmp_path: Path) -> None:
+    # 固定 concurrency/repo_map，compression on 过而 off 不过的任务应列进 gain
+    results = [
+        # C on: A 过、B 不过
+        _r("A", _cell(compression=True, concurrency=False, repo_map=True, repeat=0), True),
+        _r("A", _cell(compression=True, concurrency=False, repo_map=True, repeat=1), True),
+        _r("B", _cell(compression=True, concurrency=False, repo_map=True, repeat=0), False),
+        # C off: A 不过、B 过
+        _r("A", _cell(compression=False, concurrency=False, repo_map=True, repeat=0), False),
+        _r("B", _cell(compression=False, concurrency=False, repo_map=True, repeat=0), True),
+    ]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "## 逐题胜负表" in text
+    assert "compression 开 vs 关" in text
+    # A: 开过关不过 → gain；B: 关过开不过 → loss
+    assert "开过/关不过: 1 题 → A" in text
+    assert "关过/开不过: 1 题 → B" in text
 
 
 def test_generate_report_includes_passk_section(tmp_path: Path) -> None:

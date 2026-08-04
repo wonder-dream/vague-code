@@ -65,6 +65,16 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 | `--workdir` | 任务 repo 克隆基础路径 | `eval/.workdir` |
 | `--model` | 被评 Agent 模型 | `deepseek-v4-flash` |
 | `--max-turns` | 每 run 最大轮次（成本控制） | 50 |
+| `--fresh` | 忽略 manifest 强制重跑全部 cell | 否（默认断点续跑） |
+| `--max-cost` | 全局成本熔断（USD），超阈值停止后续 cell | 无 |
+| `--price-input` / `--price-output` | 每 1M token 单价（USD），成本估算用 | 0.28 / 1.10 |
+| `--regen <results.json>` | 从落盘结果离线重生成报告（不跑评测） | 无 |
+| `--config C_X_M_r0` | 只跑单个配置（cell_label 格式），冒烟用 | 全矩阵 |
+| `--instances id1,id2` | 按 instance_id 过滤任务子集，冒烟用 | 全部 |
+| `--design ofat\|full` | 消融设计：ofat=基线全开+3 个单变量关闭（4 配置，测不了交互效应）；full=2×2×2 | `ofat` |
+| `--ablation-tasks json` | 分层运行：核心任务只跑基线配置（k=--repeat），消融任务跑 3 个单变量关闭配置（k=--ablation-repeat） | 无 |
+| `--ablation-repeat` | 消融配置的重复次数（k=2 控成本） | 2 |
+| `--price-cache` | 每 1M cache-hit input token 单价（USD；DeepSeek 自动前缀缓存，实测 hit 81-93%） | 0.07 |
 
 ## 任务格式
 
@@ -83,11 +93,14 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 
 ## 关键机制
 
-- **sanity gate 双检**：干净 checkout 上 F2P 必须断言失败、P2P 必须通过，否则 `env_broken` 剔除（结果缓存于 `eval/.sanity_cache.json`）。
-- **防钻空子**：verify 前先把 `test_patch` 覆盖的测试文件 `git checkout --` 回 base 再 apply；diff 触碰测试文件计入 `gaming_tests`。
+- **sanity gate 双检**：干净 checkout 上 F2P 必须断言失败、P2P 必须通过，否则 `env_broken` 剔除（结果缓存于 `eval/.sanity_cache.json`，键含依赖冻结哈希——换依赖版本自动失效重检）。
+- **防钻空子**：verify 前先把 `test_patch` 覆盖的测试文件 `git checkout --` 回 base 再 apply；diff 触碰测试文件计入 `gaming_tests`（含任意路径的 conftest.py/pytest.ini/setup.cfg/tox.ini/pyproject.toml）。
 - **状态隔离**：每 cell 开跑前 `git restore .` + `git clean -fdx`（仅任务仓库内，`eval/.venvs` / `runs/eval` 不受影响）。
 - **pass^k**：同一 (任务, 配置) 的 k 次重复全部 verified 才计过（τ-bench 可靠性，消融因变量）。
-- **离线重评**：轨迹存于每 run 独立 db；judge 提示词改版/失败重分类不重跑 Agent。
+- **断点续跑**：每 cell 完成即写 `runs/eval/manifest.json`，重跑自动跳过已完成 cell（`--fresh` 强制重跑）；`--max-cost $` 全局熔断防预算失控。
+- **可复现性**：每个 venv 建好即 `uv pip freeze` 落盘 `requirements.lock`，依赖指纹进 run 元数据（`deps_sha1`）；每 run 成本按 token×单价落 `cost_usd`。
+- **离线重评**：轨迹存于每 run 独立 db；judge 提示词改版/失败重分类不重跑 Agent；`TaskResult` 全量落盘 `runs/eval/results_*.json`，报告可用 `--regen` 离线重生成。
+- **范围声明**：memory 在评测矩阵中固定关闭（`MemoryConfig(enabled=False)`），属范围外变量——消融矩阵只含压缩/并发/RepoMap 三变量。
 
 ## 已知限制
 

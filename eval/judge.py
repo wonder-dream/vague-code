@@ -78,7 +78,7 @@ def scan_runs(runs_dir: str | Path) -> list[RunRecord]:
         try:
             conn_sqlite = __import__("sqlite3").connect(str(db))
             row = conn_sqlite.execute(
-                "SELECT run_id FROM runs LIMIT 100"
+                "SELECT run_id FROM runs ORDER BY rowid DESC LIMIT 1"
             ).fetchall()
             conn_sqlite.close()
         except Exception:
@@ -332,6 +332,8 @@ def main() -> None:
                    help="抽样 N 条人工审计样本（一半 verified=False）")
     p.add_argument("--audit-out", default="eval/judge_audit_samples.json")
     p.add_argument("--consistency", help="用人工打分文件计算一致性")
+    p.add_argument("--limit", type=int, default=0,
+                   help="只抽评 N 条（同样混一半 verified=False，省成本）")
     args = p.parse_args()
 
     records = load_manifest(args.manifest) if args.manifest else scan_runs(args.runs)
@@ -349,6 +351,11 @@ def main() -> None:
         return
 
     rubric = get_rubric(args.rubric)
+    if args.limit:
+        records = sample_audit(records, args.limit)
+        print(f"Sampled {len(records)} runs for judging "
+              f"({sum(1 for r in records if r.verified is True)} verified / "
+              f"{sum(1 for r in records if r.verified is False)} failed)")
     backend = _build_backend(args.judge_model)
     results = [judge_run(backend, r, rubric) for r in records]
 
