@@ -134,6 +134,36 @@ def test_start_includes_system_message():
     assert msgs[1].role == "user"
 
 
+def test_guidance_injected_at_turn_start():
+    class RecordingBackend(FakeBackend):
+        def __init__(self, responses):
+            super().__init__(responses)
+            self.seen_messages: list[Message] = []
+
+        def complete(self, messages, tools=None, config=None):
+            self.seen_messages = list(messages)
+            return super().complete(messages, tools, config)
+
+    backend = RecordingBackend([_text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        agent = Agent(config, backend)
+        agent.guidance_provider = lambda: ["continue please"]
+        agent.run("test", tmpdir)
+
+    user_texts = []
+    for msg in backend.seen_messages:
+        if msg.role != "user":
+            continue
+        if isinstance(msg.content, str):
+            user_texts.append(msg.content)
+        else:
+            user_texts.append(
+                " ".join(str(getattr(block, "text", "")) for block in msg.content)
+            )
+    assert any("continue please" in text for text in user_texts)
+
+
 def test_token_budget_recorded():
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)

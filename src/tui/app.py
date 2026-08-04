@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+import time
 from inspect import isawaitable
 from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
+from textual.events import Key
 from textual.screen import Screen
 from textual.timer import Timer
 from textual.widgets import Static, TextArea
@@ -27,7 +30,16 @@ from src.agent.ir import (
     ToolUseStart,
 )
 from src.agent.permission import Decision, Operation
+from src.tui.commands import (
+    CompositeCommandHandler,
+    HelpCommandHandler,
+    ModelCommandHandler,
+    PermissionCommandHandler,
+    SessionCommandHandler,
+    picker_command,
+)
 from src.tui.mixin import XClawViewMixin
+from src.tui.picker import TuiPickerItem, TuiPickerState, render_picker
 from src.tui.runner import XClawAgentRunner
 from src.tui.state import TuiEntryKind, TuiTranscript
 from src.tui.views.activity import compact_tool_content
@@ -37,6 +49,8 @@ from src.tui.widgets import ComposerTextArea, XClawScreen, _plain_static
 from src.tui.widgets.conversation import ConversationView
 from src.tui.widgets.status import ActivityLine
 
+PICKER_VISIBLE_LIMIT = 8
+
 
 class XClawApp(XClawViewMixin, App):
     CSS_PATH = "theme.tcss"
@@ -44,12 +58,14 @@ class XClawApp(XClawViewMixin, App):
 
     BINDINGS = [
         Binding("ctrl+c", "copy_output_or_quit", "Copy / interrupt / quit", priority=True),
-        Binding("escape", "focus_input", "Focus input"),
+        Binding("t", "toggle_thinking", "Toggle thinking"),
+        Binding("f1", "show_help", "Help", show=False),
     ]
 
     WELCOME_PARTICLE_INTERVAL_SECONDS = 0.85
     COMPACT_WELCOME_MAX_WIDTH = 80
     COMPACT_WELCOME_MAX_HEIGHT = 24
+    ESC_INTERRUPT_WINDOW_SECONDS = 1.0
 
     def get_default_screen(self) -> Screen:
         return XClawScreen(id="_default")
@@ -85,6 +101,21 @@ class XClawApp(XClawViewMixin, App):
         self._welcome_widget: Static | None = None
         self._welcome_particle_timer: Timer | None = None
         self._welcome_particle_frame = 0
+        self._command_handler = CompositeCommandHandler(
+            [
+                HelpCommandHandler(self),
+                SessionCommandHandler(self),
+                ModelCommandHandler(self),
+                PermissionCommandHandler(self),
+            ]
+        )
+        self._picker: TuiPickerState | None = None
+        self._input_history: list[str] = []
+        self._input_history_index: int | None = None
+        self._last_escape_at = 0.0
+        self._pending_guidance: list[str] = []
+        self._guidance_lock = threading.Lock()
+        self._reasoning_full: dict[int, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Static(self._topbar_text(), id="topbar", classes="topbar")
@@ -206,19 +237,233 @@ class XClawApp(XClawViewMixin, App):
         if not text:
             return
         self._dismiss_welcome()
+        self._record_input_history(text)
         self._submit_task(text)
 
     def _submit_task(self, text: str) -> None:
+        if self._picker is not None and text.isdigit():
+            if self._picker_select_number(int(text)):
+                return
+
+        if text.startswith("/"):
+            self._handle_slash(text)
+            return
+
         self._agent_task = text
         user_entry = self.transcript.add(TuiEntryKind.USER, text)
         output = self.query_one("#output", ConversationView)
         output.add_entry(user_entry)
         if self._chat_busy:
-            self._write_line("Agent 正在运行，请等待当前回合结束。", kind=TuiEntryKind.SYSTEM)
+            self._add_guidance(text)
+            self._write_line("已加入运行队列，将在下一轮生效。", kind=TuiEntryKind.SYSTEM)
             return
         token = self._begin_chat_turn(text)
         self.run_worker(
             lambda: self._run_agent_worker(text, token),
+            thread=True,
+            exclusive=True,
+            name="agent",
+        )
+
+    # ── Slash commands ───────────────────────────────────────────────────────
+
+    def _handle_slash(self, text: str) -> None:
+        result = self._command_handler.handle(text)
+        if result.handled:
+            if result.output:
+                self._write_line(result.output, kind=TuiEntryKind.COMMAND)
+            self._handle_command_action(result.action, output=result.output)
+            return
+        self._write_line(f"Unknown command: {text}", kind=TuiEntryKind.ERROR)
+
+    def _handle_command_action(self, action: dict | None, *, output: str = "") -> bool:
+        if not action:
+            return False
+        action_type = action.get("type")
+        if action_type == "open_picker":
+            self._open_picker(
+                kind=str(action.get("kind") or "resume"),
+                title=str(action.get("title") or "Select:"),
+                items=[
+                    TuiPickerItem(id=str(item.get("id") or ""), label=str(item.get("label") or "?"), detail=str(item.get("detail") or ""))
+                    for item in action.get("items", [])
+                    if isinstance(item, dict)
+                ],
+                empty_text="No items.",
+            )
+            return True
+        if action_type == "new_session":
+            self._picker = None
+            self._clear_output()
+            if output:
+                self._write_line(output, kind=TuiEntryKind.COMMAND)
+            self._show_welcome()
+            return True
+        if action_type == "clear_output":
+            self._picker = None
+            self._clear_output()
+            return True
+        if action_type == "resume_session":
+            run_id = str(action.get("run_id") or "")
+            if run_id:
+                self._start_resume(run_id)
+            return True
+        if action_type == "model_changed":
+            model = str(action.get("model") or "")
+            if model:
+                self._config.model = model
+                self._refresh_topbar()
+            return True
+        return False
+
+    def _clear_output(self) -> None:
+        output = self.query_one("#output", ConversationView)
+        output.clear()
+        self.transcript = output.transcript
+
+    # ── Picker ───────────────────────────────────────────────────────────────
+
+    def _open_picker(self, **fields) -> None:
+        self._picker = TuiPickerState(**fields)
+        self._render_picker()
+
+    def _render_picker(self) -> None:
+        picker = self._picker
+        if picker is None:
+            return
+        self._replace_last_command_output(
+            render_picker(picker, limit=PICKER_VISIBLE_LIMIT)
+        )
+
+    def _replace_last_command_output(self, text: str) -> None:
+        for entry in reversed(self.transcript.entries):
+            if entry.kind == TuiEntryKind.COMMAND:
+                entry.body = text
+                widget = entry.widget
+                if widget is not None and hasattr(widget, "update"):
+                    widget.update(text)
+                return
+        self._write_line(text, kind=TuiEntryKind.COMMAND)
+
+    def _picker_select_number(self, number: int) -> bool:
+        picker = self._picker
+        if picker is None:
+            return False
+        index = number - 1
+        if index < 0 or index >= len(picker.items):
+            self._write_line("Invalid selection.", kind=TuiEntryKind.ERROR)
+            return True
+        self._picker_select_index(index)
+        return True
+
+    def _picker_select_index(self, index: int) -> None:
+        picker = self._picker
+        if picker is None:
+            return
+        if index < 0 or index >= len(picker.items):
+            return
+        item = picker.items[index]
+        command = picker_command(picker.kind, item)
+        self._picker = None
+        if not command:
+            return
+        self._handle_slash(command)
+
+    def _handle_picker_key(self, event: Key) -> bool:
+        picker = self._picker
+        if picker is None:
+            return False
+        if event.key == "up":
+            picker.move(-1)
+            self._render_picker()
+            return True
+        if event.key == "down":
+            picker.move(1)
+            self._render_picker()
+            return True
+        if event.key == "enter":
+            self._picker_select_index(picker.selected_index)
+            return True
+        if event.key == "escape":
+            self._picker = None
+            self._write_line("Picker cancelled.", kind=TuiEntryKind.COMMAND)
+            return True
+        return False
+
+    # ── Input history ─────────────────────────────────────────────────────────
+
+    def _record_input_history(self, text: str) -> None:
+        if not self._input_history or self._input_history[-1] != text:
+            self._input_history.append(text)
+        self._input_history_index = None
+
+    def _recall_input_history(self, direction: str) -> str | None:
+        if not self._input_history:
+            return None
+        if direction == "up":
+            if self._input_history_index is None:
+                self._input_history_index = len(self._input_history) - 1
+            else:
+                self._input_history_index = max(0, self._input_history_index - 1)
+            return self._input_history[self._input_history_index]
+        if direction == "down":
+            if self._input_history_index is None:
+                return None
+            if self._input_history_index >= len(self._input_history) - 1:
+                self._input_history_index = None
+                return ""
+            self._input_history_index += 1
+            return self._input_history[self._input_history_index]
+        return None
+
+    def on_key(self, event: Key) -> None:
+        if self._picker is not None and self._handle_picker_key(event):
+            event.stop()
+            event.prevent_default()
+            return
+        if event.key == "escape":
+            if self._handle_escape_interrupt():
+                event.stop()
+                event.prevent_default()
+            return
+        if event.key not in {"up", "down"}:
+            return
+        focused = getattr(self, "focused", None)
+        if getattr(focused, "id", None) != "input":
+            return
+        input_widget = self.query_one("#input", ComposerTextArea)
+        recalled = self._recall_input_history(event.key)
+        if recalled is None:
+            return
+        event.stop()
+        event.prevent_default()
+        input_widget.load_text(recalled)
+        input_widget.cursor_location = input_widget.document.end
+
+    def _handle_escape_interrupt(self) -> bool:
+        if not self._chat_busy:
+            self._last_escape_at = 0.0
+            input_widget = self._query_mounted("#input")
+            if input_widget is not None and hasattr(input_widget, "focus"):
+                input_widget.focus()
+            return False
+        now = time.monotonic()
+        if now - self._last_escape_at > self.ESC_INTERRUPT_WINDOW_SECONDS:
+            self._last_escape_at = now
+            self._set_activity("running · press Esc again to interrupt")
+            return True
+        self._last_escape_at = 0.0
+        self._interrupt_chat_turn()
+        return True
+
+    def _start_resume(self, run_id: str) -> None:
+        if self._chat_busy:
+            self._write_line("Agent 正在运行，请先等待或中断。", kind=TuiEntryKind.SYSTEM)
+            return
+        token = self._begin_chat_turn(f"resume {run_id}")
+        self._write_line(f"正在恢复会话 {run_id}…", kind=TuiEntryKind.COMMAND)
+        self.run_worker(
+            lambda: self._run_resume_worker(run_id, token),
             thread=True,
             exclusive=True,
             name="agent",
@@ -245,8 +490,57 @@ class XClawApp(XClawViewMixin, App):
             ),
             on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, token),
             is_cancelled=lambda: worker.is_cancelled,
+            guidance_provider=self._drain_guidance,
         )
         runner.run_task(text, self._workdir)
+
+    def _run_resume_worker(self, run_id: str, token: int) -> None:
+        worker = get_current_worker()
+        if worker.is_cancelled:
+            return
+        try:
+            from src.agent.trajectory import Trajectory
+            traj = Trajectory.from_db(run_id, self._config.db_path)
+            runner = XClawAgentRunner(
+                config=self._config,
+                backend=self._backend,
+                permission_rules=self._load_permission_rules(),
+                on_stream_event=lambda ev: self.call_from_thread(
+                    self._on_stream_event, ev, token
+                ),
+                on_tool_result=lambda tid, name, content, err: self.call_from_thread(
+                    self._on_tool_result, tid, name, content, err, token
+                ),
+                on_state_change=lambda kind, payload: self.call_from_thread(
+                    self._on_state_change, kind, payload, token
+                ),
+                on_permission=self._thread_permission,
+                on_run_complete=lambda result: self.call_from_thread(
+                    self._on_run_complete, result, token
+                ),
+                on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, token),
+                is_cancelled=lambda: worker.is_cancelled,
+                guidance_provider=self._drain_guidance,
+            )
+            runner.resume(traj)
+        except Exception as e:
+            self.call_from_thread(self._on_agent_error, f"Resume failed: {e}", token)
+
+    # ── Guidance queue ────────────────────────────────────────────────────────
+
+    def _add_guidance(self, text: str) -> None:
+        with self._guidance_lock:
+            self._pending_guidance.append(text)
+
+    def _drain_guidance(self) -> list[str]:
+        with self._guidance_lock:
+            guidance = list(self._pending_guidance)
+            self._pending_guidance.clear()
+        return guidance
+
+    def _has_pending_guidance(self) -> bool:
+        with self._guidance_lock:
+            return bool(self._pending_guidance)
 
     # ── Event dispatch (UI thread) ───────────────────────────────────────────
 
@@ -314,8 +608,33 @@ class XClawApp(XClawViewMixin, App):
                     remove()
             return
         entry.body = body
+        if len(body) > 200:
+            self._reasoning_full[entry.id] = body
+            entry.body = self._reasoning_summary(entry)
+            entry.status = "folded"
         output = self.query_one("#output", ConversationView)
         output.update_entry(entry)
+
+    def _reasoning_summary(self, entry) -> str:
+        full = self._reasoning_full.get(entry.id, entry.body)
+        return f"[thinking — {len(full.split())} 词，按 T 展开]"
+
+    def action_toggle_thinking(self) -> None:
+        for entry in reversed(self.transcript.entries):
+            if entry.kind == TuiEntryKind.REASONING and entry.id in self._reasoning_full:
+                if entry.status == "folded":
+                    entry.body = self._reasoning_full[entry.id]
+                    entry.status = None
+                else:
+                    entry.body = self._reasoning_summary(entry)
+                    entry.status = "folded"
+                output = self.query_one("#output", ConversationView)
+                output.update_entry(entry)
+                return
+
+    def action_show_help(self) -> None:
+        from src.tui.commands.handlers import _HELP_TEXT
+        self._write_line(_HELP_TEXT, kind=TuiEntryKind.COMMAND)
 
     def _append_tool_args(self, tool_id: str, delta: str) -> None:
         entry = self._tool_entries.get(tool_id)
@@ -378,6 +697,19 @@ class XClawApp(XClawViewMixin, App):
         run_end = [e for e in traj.events if e.type == "run_end"]
         reason = run_end[0].payload.get("reason", "?") if run_end else "?"
         self._set_activity(f"done · {reason}")
+        pending = self._drain_guidance()
+        if pending:
+            text = "\n".join(pending)
+            user_entry = self.transcript.add(TuiEntryKind.USER, text)
+            output = self.query_one("#output", ConversationView)
+            output.add_entry(user_entry)
+            token = self._begin_chat_turn(text)
+            self.run_worker(
+                lambda: self._run_agent_worker(text, token),
+                thread=True,
+                exclusive=True,
+                name="agent",
+            )
 
     def _on_agent_error(self, message: str, token: int) -> None:
         if not self._is_current_chat_turn(token):
@@ -454,6 +786,3 @@ class XClawApp(XClawViewMixin, App):
         result = self.action_quit()
         if isawaitable(result):
             await result
-
-    def action_focus_input(self) -> None:
-        self.query_one("#input").focus()

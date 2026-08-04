@@ -168,6 +168,7 @@ class Agent:
         self._on_permission: Callable[[Operation, Decision], Decision] | None = None
         self.on_tool_result: Callable[[str, str, str, bool], None] | None = None
         self.on_state_change: Callable[[str, dict], None] | None = None
+        self.guidance_provider: Callable[[], list[str]] | None = None
         self._permission_rules: list = []
         self._memory_store = None
         self._repo_index: object | None = None
@@ -265,6 +266,9 @@ class Agent:
             policy = RetryPolicy.from_config(self.config.transport)
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
+                guidance = self._drain_guidance()
+                if guidance:
+                    messages.append(Message(role="user", content="\n".join(guidance)))
                 traj.emit(EventType.turn_start, turn=turn)
                 self._fire_state_change("turn_start", {"turn": turn})
 
@@ -557,6 +561,14 @@ class Agent:
                 return Decision.DENY, content, True
 
         return Decision.ALLOW, "", False
+
+    def _drain_guidance(self) -> list[str]:
+        if self.guidance_provider is None:
+            return []
+        try:
+            return list(self.guidance_provider())
+        except Exception:
+            return []
 
     def add_permission_rule(self, pattern: str, action: str = "allow") -> None:
         from src.agent.permission import Decision, PermissionRule

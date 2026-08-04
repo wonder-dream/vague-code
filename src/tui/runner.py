@@ -37,6 +37,7 @@ class XClawAgentRunner:
         on_error: Callable[[str], None] | None = None,
         is_cancelled: Callable[[], bool] | None = None,
         permission_rules: list[dict] | None = None,
+        guidance_provider: Callable[[], list[str]] | None = None,
     ) -> None:
         self._config = config
         self._backend = backend
@@ -48,6 +49,7 @@ class XClawAgentRunner:
         self.on_error = on_error
         self._is_cancelled = is_cancelled
         self.permission_rules = permission_rules or []
+        self.guidance_provider = guidance_provider
 
     def run_task(self, task: str, workdir: str) -> None:
         """Run a task to completion (blocking; call from the worker thread)."""
@@ -66,6 +68,18 @@ class XClawAgentRunner:
         except Exception as exc:
             if self.on_error is not None:
                 self.on_error(f"{type(exc).__name__}: {exc}")
+    def resume(self, traj) -> None:
+        """Resume a previous run (blocking; call from the worker thread)."""
+        try:
+            agent = self._new_agent()
+            self._wire_agent(agent)
+            result = agent.resume(traj)
+            if self.on_run_complete is not None:
+                self.on_run_complete(result)
+        except Exception as exc:
+            if self.on_error is not None:
+                self.on_error(f"{type(exc).__name__}: {exc}")
+
     def _new_agent(self) -> Agent:
         return Agent(self._config, self._backend)
 
@@ -76,5 +90,7 @@ class XClawAgentRunner:
             agent.on_tool_result = self.on_tool_result
         if self.on_state_change is not None:
             agent.on_state_change = self.on_state_change
+        if self.guidance_provider is not None:
+            agent.guidance_provider = self.guidance_provider
         for rule in self.permission_rules:
             agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))

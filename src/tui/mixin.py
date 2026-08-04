@@ -244,8 +244,9 @@ class XClawViewMixin:
         status: str | None = None,
     ) -> TuiTranscriptEntry:
         entry = self.transcript.add(kind, text, label=label, status=status)
-        output = self.query_one("#output", ConversationView)
-        output.add_entry(entry)
+        output = self._query_mounted("#output")
+        if output is not None:
+            output.add_entry(entry)
         return entry
 
     def _write_markdown_message(self, content: str) -> TuiTranscriptEntry:
