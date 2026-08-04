@@ -64,6 +64,10 @@ _Avoid_: Adapter, Connector, Driver
 控制变量法验证设计决策的实验：固定其他变量，开关单一特性（压缩/记忆/并发），对比 pass rate、token 消耗、正确率等因变量。消融实验的结果是简历上所有百分比数字的数据源。
 _Avoid_: A/B Test, Benchmark Run
 
+**Supervision Agent**:
+Agent 主循环外以轻量单次 LLM 调用运行的监督者：周期性读取轨迹事件流与工作区状态，输出结构化评估（on_track / off_track / needs_verification / stuck / done）与指导文本，经 guidance 通道注入主循环；仅在完成校验通过或连续两次判 stuck 时终止运行。与 Subagent 的区别：Subagent 是执行者（被委派干活、带工具），Supervision Agent 是观察者（只看与说、不碰工具）。
+_Avoid_: Guardian, Observer, Orchestrator
+
 **Fail-to-Pass / Pass-to-Pass**:
 SWE-bench 的验收测试双清单概念。修 bug 任务必须使 fail-to-pass 测试从挂到过，同时 pass-to-pass 测试不回归。保证"修了一个 bug 没引入新的 bug"。
 _Avoid_: Regression Test, Acceptance Test
