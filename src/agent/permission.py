@@ -144,7 +144,7 @@ def evaluate(
         for rule in rules:
             if not rule.pattern:
                 continue
-            if re.search(rule.pattern, op_repr):
+            if _rule_matches(rule.pattern, op_repr):
                 return rule.action
 
     policy = _DEFAULT_POLICIES.get(mode, _DEFAULT_POLICIES[PermissionMode.NORMAL])
@@ -160,3 +160,20 @@ def evaluate(
         return policy["write"]
 
     return policy["write"]
+
+
+def _rule_matches(pattern: str, op_repr: str) -> bool:
+    """Match a persisted rule against an operation repr.
+
+    Rules are persisted from raw tool text (e.g. `bash {'command': 'for /R
+    src %f in (*.py) ...'}`) which may not be a valid regex. Fall back to
+    literal (escaped) matching so one bad rule never breaks permission
+    evaluation.
+    """
+    try:
+        return re.search(pattern, op_repr) is not None
+    except re.error:
+        try:
+            return re.search(re.escape(pattern), op_repr) is not None
+        except re.error:
+            return False

@@ -85,6 +85,19 @@ def test_evaluate_deny_priority() -> None:
     assert evaluate(PermissionMode.AUTO, op, rules) == Decision.DENY
 
 
+def test_evaluate_invalid_regex_rule_falls_back_to_literal() -> None:
+    pattern = "bash {'command': 'for /R src %f in (*.py) do @echo %~zf %f'}"
+    rules = [PermissionRule(pattern=pattern, action=Decision.ALLOW, scope="global")]
+    matching = Operation(tool_name="bash", input={"command": "for /R src %f in (*.py) do @echo %~zf %f"})
+    assert evaluate(PermissionMode.SAFE, matching, rules) == Decision.ALLOW
+
+
+def test_evaluate_invalid_regex_rule_no_match_does_not_crash() -> None:
+    rules = [PermissionRule(pattern="(*) not matching", action=Decision.ALLOW, scope="global")]
+    op = Operation(tool_name="glob", input={"pattern": "**/*.py"})
+    assert evaluate(PermissionMode.SAFE, op, rules) == Decision.ALLOW  # policy fallback
+
+
 def test_evaluate_safe_write_file_deny() -> None:
     op = Operation(tool_name="write_file", input={"path": "a.py", "content": "x"})
     assert evaluate(PermissionMode.SAFE, op) == Decision.DENY
