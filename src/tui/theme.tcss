@@ -6,18 +6,15 @@ Screen {
 }
 
 * {
-    scrollbar-size-vertical: 0;
     scrollbar-size-horizontal: 0;
-    scrollbar-color: transparent;
     scrollbar-background: transparent;
-    scrollbar-color-hover: transparent;
-    scrollbar-background-hover: transparent;
-    scrollbar-color-active: transparent;
-    scrollbar-background-active: transparent;
+    scrollbar-color-hover: #6e6d72;
+    scrollbar-background-hover: #303238;
+    scrollbar-color-active: #7bba55;
+    scrollbar-background-active: #303238;
     scrollbar-corner-color: transparent;
 }
 
-ScrollBar,
 ScrollBarCorner {
     display: none;
 }
@@ -42,6 +39,10 @@ ScrollBarCorner {
     height: 1fr;
     padding: 1 3;
     background: #0f1014;
+    scrollbar-size-vertical: 1;
+    scrollbar-gutter: stable;
+    scrollbar-color: #303238;
+    scrollbar-background: #0f1014;
 }
 
 #output.welcome-active {
