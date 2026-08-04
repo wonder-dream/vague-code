@@ -32,6 +32,7 @@ ADR（Architecture Decision Record）是 XClaw 的架构决策记录。每份 AD
 | 0016 | Repo Map 代码库符号索引 | accepted | — | 0014 |
 | 0017 | 轨迹驱动结构化压缩层 | accepted | 06 | 0013 |
 | 0018 | Subagent 委派（delegate_task） | proposed | 04 | 0015 |
+| 0019 | TUI v2 分层重写（参考包架构） | accepted | 11 | 0017 |
 
 ---
 
@@ -46,7 +47,7 @@ ADR（Architecture Decision Record）是 XClaw 的架构决策记录。每份 AD
 | 08-memory-system | 0014 |
 | 09-model-abstraction | 0002, 0005 |
 | 10-trajectory | 0003 |
-| 11-cli-and-tui | 0001, 0015 |
+| 11-cli-and-tui | 0001, 0015, 0019 |
 | 12-evaluation-harness | 0001 |
 
 ---
