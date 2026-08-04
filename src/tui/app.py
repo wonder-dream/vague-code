@@ -745,6 +745,7 @@ class XClawApp(XClawViewMixin, App):
         self._chat_busy = False
         self._finalize_stream_widget()
         self._stop_activity_animation()
+        self._stop_working_animation()
         self._finish_turn_metrics()
         run_end = [e for e in traj.events if e.type == "run_end"]
         reason = run_end[0].payload.get("reason", "?") if run_end else "?"
@@ -768,6 +769,7 @@ class XClawApp(XClawViewMixin, App):
             return
         self._chat_busy = False
         self._stop_activity_animation()
+        self._stop_working_animation()
         self._finish_turn_metrics()
         self._set_activity("error")
         self._write_line(message, kind=TuiEntryKind.ERROR)

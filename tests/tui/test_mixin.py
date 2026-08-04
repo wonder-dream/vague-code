@@ -115,6 +115,54 @@ def test_tool_activity_line_text_helpers() -> None:
     assert tool_activity_line_text("bash", "error") == "error · bash"
 
 
+async def test_working_animation_stops_on_run_complete() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        token = app._begin_chat_turn("t")
+        app._on_stream_event(ThinkingStart(), token)
+        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        await pilot.pause(0.1)
+        assert app._working_timer is not None
+        assert app._activity_text.startswith("thinking")
+        app._on_run_complete(_FakeTrajectory(), token)
+        await pilot.pause(0.4)
+        assert app._activity_text.startswith("done")
+        assert app._working_timer is None
+        await pilot.pause(0.4)
+        assert app._activity_text.startswith("done")
+
+
+async def test_working_animation_stops_on_agent_error() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        token = app._begin_chat_turn("t")
+        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        await pilot.pause(0.1)
+        app._on_agent_error("boom", token)
+        await pilot.pause(0.4)
+        assert app._activity_text.startswith("error")
+        assert app._working_timer is None
+
+
+async def test_reset_stream_state_stops_timers() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        token = app._begin_chat_turn("t")
+        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        await pilot.pause(0.1)
+        timer = app._working_timer
+        assert timer is not None
+        app._reset_stream_state()
+        assert app._working_timer is None
+        assert app._activity_animation_kind == ""
+        frozen = app._activity_text
+        await pilot.pause(0.4)
+        assert app._activity_text == frozen
+
+
 async def test_full_tool_flow_updates_activity_and_transcript() -> None:
     app = _make_app()
     async with app.run_test() as pilot:

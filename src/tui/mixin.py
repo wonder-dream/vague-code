@@ -48,6 +48,10 @@ class XClawViewMixin:
     _tool_names: dict[str, str]
     _tool_args_buffer: dict[str, str]
     _running_tool_call_ids: set[str]
+    _working_timer: Any
+    _activity_timer: Any
+    _activity_animation_kind: str
+    _activity_animation_detail: str
     workers: Any
 
     if TYPE_CHECKING:
@@ -81,11 +85,8 @@ class XClawViewMixin:
         self._reasoning_buffer = ""
         self._working_text = ""
         self._working_frame_index = 0
-        self._working_timer = None
-        self._activity_animation_kind = ""
-        self._activity_animation_detail = ""
-        self._activity_frame_index = 0
-        self._activity_timer = None
+        self._stop_working_animation()
+        self._stop_activity_animation()
 
     def _is_current_chat_turn(self, token: int) -> bool:
         return token == self._chat_turn_token
@@ -93,7 +94,7 @@ class XClawViewMixin:
     # ── timers ────────────────────────────────────────────────────────────────
 
     def _start_interval_timer(self, attr: str, interval: float, callback, *, name: str) -> None:
-        if getattr(self, attr) is not None or getattr(self, "_loop", None) is None:
+        if getattr(self, attr, None) is not None or getattr(self, "_loop", None) is None:
             return
         setattr(self, attr, self.set_interval(interval, callback, name=name))
 
@@ -187,6 +188,8 @@ class XClawViewMixin:
         self._stop_interval_timer("_working_timer")
 
     def _advance_working_animation(self) -> None:
+        if self._working_timer is None:
+            return
         self._working_frame_index += 1
         self._set_activity(self._working_indicator_body(self._reasoning_buffer))
 
