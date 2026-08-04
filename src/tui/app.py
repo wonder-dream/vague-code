@@ -460,14 +460,68 @@ class XClawApp(XClawViewMixin, App):
         if self._chat_busy:
             self._write_line("Agent 正在运行，请先等待或中断。", kind=TuiEntryKind.SYSTEM)
             return
+        try:
+            from src.agent.trajectory import Trajectory
+            traj = Trajectory.from_db(run_id, self._config.db_path)
+        except Exception as e:
+            self._write_line(f"Resume failed: {e}", kind=TuiEntryKind.ERROR)
+            return
+        self._picker = None
+        self._clear_output()
+        self._replay_trajectory(traj)
         token = self._begin_chat_turn(f"resume {run_id}")
         self._write_line(f"正在恢复会话 {run_id}…", kind=TuiEntryKind.COMMAND)
         self.run_worker(
-            lambda: self._run_resume_worker(run_id, token),
+            lambda: self._run_resume_worker(run_id, traj, token),
             thread=True,
             exclusive=True,
             name="agent",
         )
+
+    def _replay_trajectory(self, traj) -> None:
+        from src.agent.trajectory import EventType
+        from src.tui.state import TuiTranscriptEntry
+        tool_entries: dict[str, TuiTranscriptEntry] = {}
+        for ev in traj.events:
+            if ev.type == EventType.run_start:
+                task = str(ev.payload.get("task") or "").strip()
+                if task:
+                    entry = self.transcript.add(TuiEntryKind.USER, task)
+                    output = self.query_one("#output", ConversationView)
+                    output.add_entry(entry)
+            elif ev.type == EventType.llm_response:
+                for block in ev.payload.get("blocks", []):
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "text" and block.get("text"):
+                        self._write_markdown_message(str(block["text"]))
+                    elif block.get("type") == "tool_use":
+                        name = str(block.get("name") or "tool")
+                        entry = self._write_line(
+                            f"正在调用工具：{name}",
+                            kind=TuiEntryKind.TOOL,
+                            label=f"tool {name} running",
+                            status="running",
+                        )
+                        tool_entries[str(block.get("id") or "")] = entry
+            elif ev.type == EventType.tool_result:
+                tool_id = str(ev.payload.get("tool_use_id") or "")
+                tool_entry = tool_entries.get(tool_id)
+                if tool_id in tool_entries:
+                    tool_entries.pop(tool_id)
+                ok = not ev.payload.get("is_error", False)
+                summary = compact_tool_content(str(ev.payload.get("content") or ""))
+                status = "success" if ok else "error"
+                suffix = f"：{summary}" if summary else ""
+                text = f"工具{'完成' if ok else '失败'}{suffix}"
+                if tool_entry is not None:
+                    parts = tool_entry.label.split()
+                    name = parts[1] if len(parts) > 1 else "tool"
+                    tool_entry.body = text
+                    tool_entry.status = status
+                    tool_entry.label = f"tool {name} {status}"
+                    output = self.query_one("#output", ConversationView)
+                    output.update_entry(tool_entry)
 
     def _run_agent_worker(self, text: str, token: int) -> None:
         worker = get_current_worker()
@@ -494,13 +548,11 @@ class XClawApp(XClawViewMixin, App):
         )
         runner.run_task(text, self._workdir)
 
-    def _run_resume_worker(self, run_id: str, token: int) -> None:
+    def _run_resume_worker(self, run_id: str, traj, token: int) -> None:
         worker = get_current_worker()
         if worker.is_cancelled:
             return
         try:
-            from src.agent.trajectory import Trajectory
-            traj = Trajectory.from_db(run_id, self._config.db_path)
             runner = XClawAgentRunner(
                 config=self._config,
                 backend=self._backend,

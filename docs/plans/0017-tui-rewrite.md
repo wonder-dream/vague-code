@@ -102,3 +102,16 @@ src/tui/
 - `src/cli`（Rich 模式）与 eval 工具链零改动（`on_tool_result` 签名改动仅影响 TUI）
 - 权限规则文件（`.agent/permission-rules.json`）格式不变
 - 参考包 textual 不锁版本，XClaw 为 `>=8.0.0`；M1 spike 先行验证，通不过则降级 Static + 节流
+
+---
+
+## 执行状态（全部完成）
+
+- **M1 骨架 + spike** ✅ `e585fa4` — 新结构 / theme.tcss / state.py / views / 骨架 app；XClawMarkdown 在 textual 8.2.8 验证可移植
+- **M2 事件流** ✅ `48bc6f1` — runner.py 桥 / 流式 Markdown 三层缓冲 / transcript 渲染（agent 小改①）
+- **M3 工具活动流 + metrics** ✅ `3b3ab67` — 活动动画（thinking/streaming/running）/ 回合耗时与工具计数 / 工具状态机
+- **M4 命令系统** ✅ `905d0d3` — commands/ 路由 / picker / 输入历史 / Esc 二次中断 / guidance 队列（agent 小改③）
+- **M5 权限审查** ✅ `5ed8656` — prewrite diff / 拒绝理由回传模型（agent 小改②）/ diff 视图 + feedback 输入
+- **M6 收尾** ✅ — resume 重放（Trajectory.from_db → transcript）/ App 级测试 / 旧文件清理
+
+**范围外（按计划可选，未做）**：附件粘贴（`input/attachments.py` 移植）——Agent 当前仅接受任务文本，附件需先定义语义，留待后续。
