@@ -35,3 +35,4 @@ tui-reference-pack/
 eval/audit_report.html
 eval/results.md
 src/tui/views/__pycache__/
+src/tui/commands/__pycache__/
