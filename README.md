@@ -58,42 +58,50 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融�
 
 ## TUI 模式
 
-`xcode tui <task>` 启动全屏交互式终端界面（基于 Textual 框架）。
+`xcode tui [task]` 启动全屏交互式终端界面（基于 Textual 框架，v2 分层架构见 `docs/adr/0019-tui-v2-architecture.md`）。
 
 ### 布局
-- **[75%] Conversation View** — 流式 LLM 输出，可折叠 thinking/tool result 块
-- **[25%] Sidebar** — 历史会话列表（点击继续）+ 已注入记忆面板
-- **Status Bar** — 运行状态（● / ✓ / ✗）、轮次、令牌、压缩统计、权限模式
-- **Command Input** — 任务输入 + 斜杠命令
+- **Topbar** — brand · 运行状态 · provider/model · 权限模式 · 工作目录（窄屏自动截断）
+- **Conversation View** — 流式 Markdown 渲染；消息类型左边线分色（用户=青 / 助手=绿 / 工具=灰 / 权限=琥珀 / 错误=红）；thinking 超长自动折叠（`T` 展开）
+- **Activity Line** — 状态动画（`thinking [..] / running [=  ] / streaming [>  ]`）+ 回合指标（`12.3s · 2 tools`）
+- **Composer** — 多行输入（`Shift+Enter` 换行），运行中发送进入 guidance 队列，下一轮生效
 
 ### 键绑定
 
 | 键 | 操作 |
 |-------|--------|
-| `Ctrl+C` | 停止 agent |
+| `Enter` | 发送 |
+| `Shift+Enter` | 换行 |
+| `↑` / `↓` | 输入历史（焦点在输入框时） |
+| `Esc` | 聚焦输入框；**运行中按两次**（1 秒内）中断当前回合 |
+| `Ctrl+C` | 有选中先复制 → 运行中中断 → 否则退出 |
 | `T` | 折叠/展开 thinking |
-| `E` | 折叠/展开已聚焦的 tool result |
-| `Tab` / `Shift+Tab` | 在可折叠块之间导航 |
-| `/` | 聚焦命令输入 |
 | `F1` | 帮助 |
 
 ### 斜杠命令
 
 | 命令 | 操作 |
 |-------|--------|
-| `/mode <m>` | 设置权限模式 `safe\|normal\|autoedit\|auto` |
+| `/help` | 帮助（同 `F1`） |
+| `/resume` | picker 选择历史会话继续（重放历史后恢复运行） |
+| `/new` | 清空并开始新会话 |
 | `/clear` | 清空对话视图 |
 | `/save [path]` | 导出 trajectory 为 JSONL |
-| `/help` | 帮助 |
+| `/model` / `/model <name>` | picker 或直接切换模型 |
+| `/mode <m>` | 设置权限模式 `safe\|normal\|autoedit\|auto` |
+| `/permissions` | 列出持久化权限规则 |
 | `/quit` | 退出 |
 
 ### 权限
 交互式确认对话框：`Y` 允许一次，`Ctrl+Y` 始终允许并持久化规则至 `.agent/permission-rules.json`，`N` 拒绝。
+对 `write_file`/`patch` 会先展示**写入前 diff 预览**（红删绿增）；拒绝时可填理由，理由会回传给模型（反馈闭环）。
 
 ### 选项
 ```
-xcode tui <task> [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
+xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 ```
+
+> 提示：`xcode` 命令需要激活虚拟环境（`uv run xcode tui ...` 或先 `.venv\Scripts\Activate.ps1`）。
 
 ---
 
