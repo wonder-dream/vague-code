@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import json
+from inspect import isawaitable
 from pathlib import Path
 
 from textual.app import App, ComposeResult
@@ -7,9 +10,27 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.timer import Timer
-from textual.widgets import Static
+from textual.widgets import Static, TextArea
+from textual.worker import get_current_worker
 
+from src.agent.ir import (
+    ArgsDelta,
+    MessageEnd,
+    MessageStart,
+    RetryNotice,
+    StreamEvent,
+    TextDelta,
+    ThinkingDelta,
+    ThinkingEnd,
+    ThinkingStart,
+    ToolUseEnd,
+    ToolUseStart,
+)
+from src.agent.permission import Decision, Operation
+from src.tui.runner import XClawAgentRunner
 from src.tui.state import TuiEntryKind, TuiTranscript
+from src.tui.streaming import StreamingMixin
+from src.tui.views.activity import compact_tool_content
 from src.tui.views.topbar import topbar_markup
 from src.tui.views.welcome import welcome_renderable
 from src.tui.widgets import ComposerTextArea, XClawScreen, _plain_static
@@ -17,12 +38,12 @@ from src.tui.widgets.conversation import ConversationView
 from src.tui.widgets.status import ActivityLine
 
 
-class XClawApp(App):
+class XClawApp(StreamingMixin, App):
     CSS_PATH = "theme.tcss"
     ALLOW_SELECT = True
 
     BINDINGS = [
-        Binding("ctrl+c", "quit", "Quit", priority=True),
+        Binding("ctrl+c", "copy_output_or_quit", "Copy / interrupt / quit", priority=True),
         Binding("escape", "focus_input", "Focus input"),
     ]
 
@@ -46,11 +67,24 @@ class XClawApp(App):
         self._backend = backend
         self._agent_task = task
         self._workdir = workdir
+        self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._trajectory = None
+        self._total_reclaimed = 0
+        self._activity_text = "idle · ready"
+        self._chat_busy = False
+        self._chat_turn_token = 0
+        self._turn_started_at = 0.0
+        self._turn_tool_count = 0
+        self._tool_entries = {}
+        self._tool_names = {}
+        self._tool_args_buffer = {}
+        self._running_tool_call_ids = set()
+        self._reset_stream_state()
         self.transcript = TuiTranscript()
         self._welcome_widget: Static | None = None
         self._welcome_particle_timer: Timer | None = None
         self._welcome_particle_frame = 0
-        self._activity_text = "idle · ready"
 
     def compose(self) -> ComposeResult:
         yield Static(self._topbar_text(), id="topbar", classes="topbar")
@@ -67,8 +101,12 @@ class XClawApp(App):
                 )
 
     def on_mount(self) -> None:
+        self._loop = asyncio.get_running_loop()
         self.title = f"XClaw — {self._workdir}"
         self._show_welcome()
+        if self._agent_task:
+            self._submit_task(self._agent_task)
+            self._agent_task = ""
 
     def _on_terminal_resized(self) -> None:
         from textual.css.query import NoMatches
@@ -167,21 +205,246 @@ class XClawApp(App):
         if not text:
             return
         self._dismiss_welcome()
-        user_entry = self.transcript.add(TuiEntryKind.USER, text)
-        self._append_entry(user_entry)
-        self._run_task(text)
+        self._submit_task(text)
 
-    def _run_task(self, text: str) -> None:
+    def _submit_task(self, text: str) -> None:
         self._agent_task = text
-        entry = self.transcript.add(
-            TuiEntryKind.SYSTEM,
-            "Agent 引擎将在下一里程碑接入。",
-        )
-        self._append_entry(entry)
-
-    def _append_entry(self, entry) -> None:
+        user_entry = self.transcript.add(TuiEntryKind.USER, text)
         output = self.query_one("#output", ConversationView)
-        output.add_entry(entry)
+        output.add_entry(user_entry)
+        if self._chat_busy:
+            self._write_line("Agent 正在运行，请等待当前回合结束。", kind=TuiEntryKind.SYSTEM)
+            return
+        token = self._begin_chat_turn(text)
+        self.run_worker(
+            lambda: self._run_agent_worker(text, token),
+            thread=True,
+            exclusive=True,
+            name="agent",
+        )
+
+    def _run_agent_worker(self, text: str, token: int) -> None:
+        worker = get_current_worker()
+        runner = XClawAgentRunner(
+            config=self._config,
+            backend=self._backend,
+            permission_rules=self._load_permission_rules(),
+            on_stream_event=lambda ev: self.call_from_thread(
+                self._on_stream_event, ev, token
+            ),
+            on_tool_result=lambda tid, name, content, err: self.call_from_thread(
+                self._on_tool_result, tid, name, content, err, token
+            ),
+            on_state_change=lambda kind, payload: self.call_from_thread(
+                self._on_state_change, kind, payload, token
+            ),
+            on_permission=self._thread_permission,
+            on_run_complete=lambda traj: self.call_from_thread(
+                self._on_run_complete, traj, token
+            ),
+            on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, token),
+            is_cancelled=lambda: worker.is_cancelled,
+        )
+        runner.run_task(text, self._workdir)
+
+    # ── Event dispatch (UI thread) ───────────────────────────────────────────
+
+    def _on_stream_event(self, ev: StreamEvent, token: int) -> None:
+        if not self._is_current_chat_turn(token):
+            return
+        if isinstance(ev, MessageStart):
+            self._set_activity("running · llm responding")
+        elif isinstance(ev, ThinkingStart):
+            self._write_line("", kind=TuiEntryKind.REASONING, status="running")
+        elif isinstance(ev, ThinkingDelta):
+            self._append_reasoning(ev.delta)
+        elif isinstance(ev, ThinkingEnd):
+            self._finalize_reasoning()
+        elif isinstance(ev, TextDelta):
+            self._append_stream_text(ev.delta)
+        elif isinstance(ev, ToolUseStart):
+            self._close_stream_segment_for_tool()
+            self._tool_entries[ev.id] = self._write_line(
+                f"正在调用工具：{ev.name}",
+                kind=TuiEntryKind.TOOL,
+                label=f"tool {ev.name} running",
+                status="running",
+            )
+            self._tool_names[ev.id] = ev.name
+            self._tool_args_buffer[ev.id] = ""
+            self._running_tool_call_ids.add(ev.id)
+            self._turn_tool_count = len(self._running_tool_call_ids)
+        elif isinstance(ev, ArgsDelta):
+            self._append_tool_args(ev.id, ev.delta)
+        elif isinstance(ev, ToolUseEnd):
+            pass
+        elif isinstance(ev, RetryNotice):
+            self._write_line(
+                f"retry {ev.attempt}: {ev.reason}（{ev.delay_s:.1f}s 后重试）",
+                kind=TuiEntryKind.SYSTEM,
+            )
+        elif isinstance(ev, MessageEnd):
+            self._finalize_stream_widget()
+            self._set_activity("running")
+
+    def _append_reasoning(self, delta: str) -> None:
+        if not self.transcript.entries or self.transcript.entries[-1].kind != TuiEntryKind.REASONING:
+            self._write_line("", kind=TuiEntryKind.REASONING, status="running")
+        entry = self.transcript.entries[-1]
+        entry.body += delta
+        self._set_activity("thinking…")
+        output = self.query_one("#output", ConversationView)
+        output.update_entry(entry)
+
+    def _finalize_reasoning(self) -> None:
+        if not self.transcript.entries or self.transcript.entries[-1].kind != TuiEntryKind.REASONING:
+            return
+        entry = self.transcript.entries[-1]
+        body = entry.body.strip()
+        if not body:
+            self.transcript.entries.pop()
+            if entry.widget is not None:
+                remove = getattr(entry.widget, "remove", None)
+                if remove is not None:
+                    remove()
+            return
+        entry.body = body
+        output = self.query_one("#output", ConversationView)
+        output.update_entry(entry)
+
+    def _append_tool_args(self, tool_id: str, delta: str) -> None:
+        entry = self._tool_entries.get(tool_id)
+        if entry is None:
+            return
+        self._tool_args_buffer[tool_id] = self._tool_args_buffer.get(tool_id, "") + delta
+        preview = compact_tool_content(self._tool_args_buffer[tool_id])[:120]
+        tool_name = self._tool_names.get(tool_id, "tool")
+        entry.body = f"正在调用工具：{tool_name} {preview}"
+        output = self.query_one("#output", ConversationView)
+        output.update_entry(entry)
+
+    def _on_tool_result(
+        self, tool_id: str, tool_name: str, content: str, is_error: bool, token: int
+    ) -> None:
+        if not self._is_current_chat_turn(token):
+            return
+        self._running_tool_call_ids.discard(tool_id)
+        self._turn_tool_count = len(self._running_tool_call_ids) or self._turn_tool_count
+        entry = self._tool_entries.pop(tool_id, None)
+        status = "error" if is_error else "success"
+        summary = compact_tool_content(content)
+        suffix = f"：{summary}" if summary else ""
+        text = f"工具{'失败' if is_error else '完成'}：{tool_name}{suffix}"
+        if entry is not None:
+            entry.body = text
+            entry.status = status
+            entry.label = f"tool {tool_name} {status}"
+            self.transcript.record_tool_activity(tool_name, status, summary)
+            output = self.query_one("#output", ConversationView)
+            output.update_entry(entry)
+        else:
+            self._write_line(
+                text,
+                kind=TuiEntryKind.TOOL,
+                label=f"tool {tool_name} {status}",
+                status=status,
+            )
+
+    def _on_state_change(self, kind: str, payload: dict, token: int) -> None:
+        if not self._is_current_chat_turn(token):
+            return
+        if kind == "turn_start":
+            self._set_activity(f"running · turn {payload.get('turn', '?')}")
+        elif kind == "compression":
+            before = payload.get("before", 0)
+            after = payload.get("after", 0)
+            saved = before - after
+            if saved > 0:
+                self._total_reclaimed += saved
+
+    def _on_run_complete(self, traj, token: int) -> None:
+        if not self._is_current_chat_turn(token):
+            return
+        self._trajectory = traj
+        self._chat_busy = False
+        self._finalize_stream_widget()
+        run_end = [e for e in traj.events if e.type == "run_end"]
+        reason = run_end[0].payload.get("reason", "?") if run_end else "?"
+        self._set_activity(f"done · {reason}")
+
+    def _on_agent_error(self, message: str, token: int) -> None:
+        if not self._is_current_chat_turn(token):
+            return
+        self._chat_busy = False
+        self._set_activity("error")
+        self._write_line(message, kind=TuiEntryKind.ERROR)
+
+    # ── Permission bridge ────────────────────────────────────────────────────
+
+    def _thread_permission(self, op: Operation, decision: Decision) -> Decision:
+        if self._loop is None:
+            return Decision.DENY
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                self._show_permission_async(op),
+                self._loop,
+            )
+            return future.result(timeout=120.0)
+        except Exception:
+            return Decision.DENY
+
+    async def _show_permission_async(self, op: Operation) -> Decision:
+        from src.tui.screens.permission import PermissionDialog
+
+        worker = self.run_worker(
+            self._show_permission_worker(op, PermissionDialog),
+            name="permission-dialog",
+            exit_on_error=False,
+        )
+        return await worker.wait()
+
+    async def _show_permission_worker(self, op: Operation, dialog_cls) -> Decision:
+        dialog = dialog_cls(op)
+        decision = await self.push_screen_wait(dialog)
+        if decision == Decision.ALLOW and dialog.always_allow:
+            pattern = f"{op.tool_name} {op.input}"
+            self._save_permission_rule(pattern, "allow")
+        return decision
+
+    def _load_permission_rules(self) -> list[dict]:
+        try:
+            if self._rules_path.is_file():
+                return json.loads(self._rules_path.read_text(encoding="utf-8"))
+        except Exception:
+            import warnings
+            warnings.warn(f"Failed to load permission rules from {self._rules_path}", stacklevel=2)
+        return []
+
+    def _save_permission_rule(self, pattern: str, action: str = "allow") -> None:
+        rules = self._load_permission_rules()
+        rules.append({"pattern": pattern, "action": action})
+        try:
+            self._rules_path.parent.mkdir(parents=True, exist_ok=True)
+            self._rules_path.write_text(
+                json.dumps(rules, ensure_ascii=False, indent=2), encoding="utf-8",
+            )
+        except Exception:
+            import warnings
+            warnings.warn(f"Failed to save permission rules to {self._rules_path}", stacklevel=2)
+
+    # ── Actions ──────────────────────────────────────────────────────────────
+
+    async def action_copy_output_or_quit(self) -> None:
+        focused = self.focused
+        if isinstance(focused, TextArea) and focused.selected_text:
+            focused.action_copy()
+            return
+        if self._chat_busy:
+            self._interrupt_chat_turn()
+            return
+        result = self.action_quit()
+        if isawaitable(result):
+            await result
 
     def action_focus_input(self) -> None:
         self.query_one("#input").focus()

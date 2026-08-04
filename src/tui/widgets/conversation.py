@@ -39,6 +39,26 @@ class ConversationView(VerticalScroll):
             entry.widget = None
             self.add_entry(entry)
 
+    def mount_stream_widget(self) -> XClawMarkdown:
+        """Mount a streaming Markdown widget for an in-progress assistant entry."""
+        widget = XClawMarkdown(
+            classes="message assistant-message streaming",
+            selectable=False,
+        )
+        self.mount(widget)
+        self.scroll_end(animate=False)
+        return widget
+
+    def update_entry(self, entry: TuiTranscriptEntry) -> None:
+        widget = entry.widget
+        if widget is None:
+            return
+        if entry.kind == TuiEntryKind.ASSISTANT and isinstance(widget, XClawMarkdown):
+            widget.update(entry_markdown_text(entry))
+            return
+        if hasattr(widget, "update"):
+            widget.update(entry_plain_text(entry))
+
     def clear(self) -> None:
         self.transcript = TuiTranscript()
         self.remove_children()
