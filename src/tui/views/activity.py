@@ -60,3 +60,19 @@ def compact_tool_content(text: str, max_chars: int = 180) -> str:
     if max_chars <= 3:
         return "." * max_chars
     return normalized[: max_chars - 3] + "..."
+
+
+def tool_activity_line_text(name: str, status: str) -> str:
+    if status == "running":
+        return f"running · {name}"
+    if status == "success":
+        return post_tool_reasoning_text(name)
+    if status == "permission_requested":
+        return "waiting · permission"
+    if status in {"error", "failed"}:
+        return f"error · {name}"
+    return f"{status} · {name}"
+
+
+def post_tool_reasoning_text(name: str) -> str:
+    return f"reading {name} result"

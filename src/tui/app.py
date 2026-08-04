@@ -27,9 +27,9 @@ from src.agent.ir import (
     ToolUseStart,
 )
 from src.agent.permission import Decision, Operation
+from src.tui.mixin import XClawViewMixin
 from src.tui.runner import XClawAgentRunner
 from src.tui.state import TuiEntryKind, TuiTranscript
-from src.tui.streaming import StreamingMixin
 from src.tui.views.activity import compact_tool_content
 from src.tui.views.topbar import topbar_markup
 from src.tui.views.welcome import welcome_renderable
@@ -38,7 +38,7 @@ from src.tui.widgets.conversation import ConversationView
 from src.tui.widgets.status import ActivityLine
 
 
-class XClawApp(StreamingMixin, App):
+class XClawApp(XClawViewMixin, App):
     CSS_PATH = "theme.tcss"
     ALLOW_SELECT = True
 
@@ -135,8 +135,9 @@ class XClawApp(StreamingMixin, App):
         return topbar_markup(self._activity_text, provider, model, mode, cwd, width)
 
     def _refresh_topbar(self) -> None:
-        topbar = self.query_one("#topbar", Static)
-        topbar.update(self._topbar_text())
+        topbar = self._query_mounted("#topbar")
+        if topbar is not None and hasattr(topbar, "update"):
+            topbar.update(self._topbar_text())
 
     def _welcome_compact(self) -> bool:
         return self.size.width < self.COMPACT_WELCOME_MAX_WIDTH or self.size.height < self.COMPACT_WELCOME_MAX_HEIGHT
@@ -253,14 +254,18 @@ class XClawApp(StreamingMixin, App):
         if not self._is_current_chat_turn(token):
             return
         if isinstance(ev, MessageStart):
-            self._set_activity("running · llm responding")
+            self._show_activity_animation("running", "llm responding")
         elif isinstance(ev, ThinkingStart):
             self._write_line("", kind=TuiEntryKind.REASONING, status="running")
         elif isinstance(ev, ThinkingDelta):
             self._append_reasoning(ev.delta)
+            self._append_reasoning_text(ev.delta)
         elif isinstance(ev, ThinkingEnd):
             self._finalize_reasoning()
         elif isinstance(ev, TextDelta):
+            if not self._stream_text_started:
+                self._stream_text_started = True
+                self._complete_working_indicator()
             self._append_stream_text(ev.delta)
         elif isinstance(ev, ToolUseStart):
             self._close_stream_segment_for_tool()
@@ -274,6 +279,7 @@ class XClawApp(StreamingMixin, App):
             self._tool_args_buffer[ev.id] = ""
             self._running_tool_call_ids.add(ev.id)
             self._turn_tool_count = len(self._running_tool_call_ids)
+            self._record_tool_activity(ev.name, "running")
         elif isinstance(ev, ArgsDelta):
             self._append_tool_args(ev.id, ev.delta)
         elif isinstance(ev, ToolUseEnd):
@@ -292,7 +298,6 @@ class XClawApp(StreamingMixin, App):
             self._write_line("", kind=TuiEntryKind.REASONING, status="running")
         entry = self.transcript.entries[-1]
         entry.body += delta
-        self._set_activity("thinking…")
         output = self.query_one("#output", ConversationView)
         output.update_entry(entry)
 
@@ -339,7 +344,6 @@ class XClawApp(StreamingMixin, App):
             entry.body = text
             entry.status = status
             entry.label = f"tool {tool_name} {status}"
-            self.transcript.record_tool_activity(tool_name, status, summary)
             output = self.query_one("#output", ConversationView)
             output.update_entry(entry)
         else:
@@ -349,6 +353,7 @@ class XClawApp(StreamingMixin, App):
                 label=f"tool {tool_name} {status}",
                 status=status,
             )
+        self._record_tool_activity(tool_name, status, summary)
 
     def _on_state_change(self, kind: str, payload: dict, token: int) -> None:
         if not self._is_current_chat_turn(token):
@@ -368,6 +373,8 @@ class XClawApp(StreamingMixin, App):
         self._trajectory = traj
         self._chat_busy = False
         self._finalize_stream_widget()
+        self._stop_activity_animation()
+        self._finish_turn_metrics()
         run_end = [e for e in traj.events if e.type == "run_end"]
         reason = run_end[0].payload.get("reason", "?") if run_end else "?"
         self._set_activity(f"done · {reason}")
@@ -376,6 +383,8 @@ class XClawApp(StreamingMixin, App):
         if not self._is_current_chat_turn(token):
             return
         self._chat_busy = False
+        self._stop_activity_animation()
+        self._finish_turn_metrics()
         self._set_activity("error")
         self._write_line(message, kind=TuiEntryKind.ERROR)
 

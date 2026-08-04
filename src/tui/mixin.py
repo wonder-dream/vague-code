@@ -1,27 +1,28 @@
-"""Streaming Markdown rendering for the XClaw TUI.
+"""Streaming Markdown rendering, activity animations, and turn metrics.
 
-Ported from the firstcoder TUI reference (app/tui_view.py streaming section):
-a per-turn text buffer flushed to the Markdown widget on a 0.2s timer, with a
-guard against overlapping updates so final text is never overwritten.
+Ported from the firstcoder TUI reference (app/tui_view.py): a per-turn text
+buffer flushed to the Markdown widget on a 0.2s timer with guards against
+overlapping updates, plus the thinking/streaming/running activity animations
+and per-turn elapsed/tool-count metrics.
 """
 
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 from src.tui.state import TuiEntryKind, TuiTranscript, TuiTranscriptEntry
+from src.tui.views.activity import tool_activity_line_text
 from src.tui.views.transcript import entry_markdown_text
 from src.tui.widgets.common import XClawMarkdown, _observe_markdown_update
 from src.tui.widgets.conversation import ConversationView
 
 _TURN_START_ACTIVITY = "planning next step..."
-_TURN_DONE_ACTIVITY = "done"
-_ERROR_ACTIVITY = "error"
 
 
-class StreamingMixin:
-    """Per-turn streaming state and rendering helpers.
+class XClawViewMixin:
+    """Per-turn streaming state, activity animations, and rendering helpers.
 
     The host app must define: `transcript`, `_chat_turn_token`,
     `STREAM_RENDER_INTERVAL_SECONDS`, and expose `query_one` / `set_timer` /
@@ -29,6 +30,13 @@ class StreamingMixin:
     """
 
     STREAM_RENDER_INTERVAL_SECONDS = 0.2
+    WORKING_ANIMATION_INTERVAL_SECONDS = 0.18
+    ACTIVITY_ANIMATION_INTERVAL_SECONDS = 0.24
+    WORKING_FRAMES = ("[.  ]", "[.. ]", "[...]", "[ ..]", "[  .]")
+    ACTIVITY_FRAMES = {
+        "running": ("[=   ]", "[==  ]", "[=== ]", "[ ===]", "[  ==]", "[   =]"),
+        "streaming": ("[>   ]", "[>>  ]", "[>>> ]", "[ >>>]", "[  >>]", "[   >]"),
+    }
 
     transcript: TuiTranscript
     _chat_turn_token: int
@@ -48,11 +56,15 @@ class StreamingMixin:
 
         def set_timer(self, *args: Any, **kwargs: Any) -> Any: ...
 
+        def set_interval(self, *args: Any, **kwargs: Any) -> Any: ...
+
         def call_later(self, *args: Any, **kwargs: Any) -> Any: ...
 
         def run_worker(self, *args: Any, **kwargs: Any) -> Any: ...
 
         def _topbar_text(self) -> str: ...
+
+    # ── state ─────────────────────────────────────────────────────────────────
 
     def _reset_stream_state(self) -> None:
         self._stream_text_buffer = ""
@@ -64,21 +76,164 @@ class StreamingMixin:
         self._stream_finalizations: dict[XClawMarkdown, object] = {}
         self._stream_finalized = False
         self._stream_segment_closed_for_tool = False
+        self._stream_reasoning_started = False
+        self._stream_text_started = False
+        self._reasoning_buffer = ""
+        self._working_text = ""
+        self._working_frame_index = 0
+        self._working_timer = None
+        self._activity_animation_kind = ""
+        self._activity_animation_detail = ""
+        self._activity_frame_index = 0
+        self._activity_timer = None
 
     def _is_current_chat_turn(self, token: int) -> bool:
         return token == self._chat_turn_token
 
+    # ── timers ────────────────────────────────────────────────────────────────
+
+    def _start_interval_timer(self, attr: str, interval: float, callback, *, name: str) -> None:
+        if getattr(self, attr) is not None or getattr(self, "_loop", None) is None:
+            return
+        setattr(self, attr, self.set_interval(interval, callback, name=name))
+
+    def _stop_interval_timer(self, attr: str) -> None:
+        timer = getattr(self, attr, None)
+        if timer is None:
+            return
+        timer.stop()
+        setattr(self, attr, None)
+
+    # ── activity line ─────────────────────────────────────────────────────────
+
+    def _query_mounted(self, selector: str):
+        try:
+            return self.query_one(selector)
+        except Exception:
+            return None
+
     def _set_activity(self, text: str) -> None:
         self._activity_text = text
-        activity = self.query_one("#activity")
-        if hasattr(activity, "update_activity"):
+        activity = self._query_mounted("#activity")
+        if activity is not None and hasattr(activity, "update_activity"):
             activity.update_activity(text)
+            if self._turn_started_at:
+                activity.update_metrics(self._turn_elapsed_seconds(), self._turn_tool_count)
+            else:
+                activity.update_metrics(None, 0)
         self._refresh_topbar()
 
     def _refresh_topbar(self) -> None:
-        topbar = self.query_one("#topbar")
-        if hasattr(topbar, "update"):
+        topbar = self._query_mounted("#topbar")
+        if topbar is not None and hasattr(topbar, "update"):
             topbar.update(self._topbar_text())
+
+    def _show_static_activity(self, text: str) -> None:
+        self._show_activity_animation("static", text)
+
+    def _show_activity_animation(self, kind: str, detail: str) -> None:
+        self._activity_animation_kind = kind
+        self._activity_animation_detail = detail
+        self._activity_frame_index = 0
+        self._set_activity(self._activity_animation_body())
+        self._start_activity_animation()
+
+    def _activity_animation_body(self) -> str:
+        if self._activity_animation_kind == "static":
+            return self._activity_animation_detail
+        frames = self.ACTIVITY_FRAMES.get(self._activity_animation_kind) or ("[....]",)
+        frame = frames[self._activity_frame_index % len(frames)]
+        return f"{self._activity_animation_kind} {frame} · {self._activity_animation_detail}"
+
+    def _start_activity_animation(self) -> None:
+        self._start_interval_timer(
+            "_activity_timer",
+            self.ACTIVITY_ANIMATION_INTERVAL_SECONDS,
+            self._advance_activity_animation,
+            name="activity-indicator",
+        )
+
+    def _stop_activity_animation(self) -> None:
+        self._stop_interval_timer("_activity_timer")
+        self._activity_animation_kind = ""
+        self._activity_animation_detail = ""
+
+    def _advance_activity_animation(self) -> None:
+        if not self._activity_animation_kind:
+            return
+        self._activity_frame_index += 1
+        self._set_activity(self._activity_animation_body())
+
+    def _show_working_indicator(self, text: str) -> None:
+        self._stop_activity_animation()
+        self._working_text = text
+        self._working_frame_index = 0
+        self._set_activity(self._working_indicator_body())
+        self._start_working_animation()
+
+    def _working_indicator_body(self, text: str | None = None) -> str:
+        frame = self.WORKING_FRAMES[self._working_frame_index % len(self.WORKING_FRAMES)]
+        return f"thinking {frame} {text if text is not None else self._working_text}"
+
+    def _start_working_animation(self) -> None:
+        self._start_interval_timer(
+            "_working_timer",
+            self.WORKING_ANIMATION_INTERVAL_SECONDS,
+            self._advance_working_animation,
+            name="working-indicator",
+        )
+
+    def _stop_working_animation(self) -> None:
+        self._stop_interval_timer("_working_timer")
+
+    def _advance_working_animation(self) -> None:
+        self._working_frame_index += 1
+        self._set_activity(self._working_indicator_body(self._reasoning_buffer))
+
+    def _complete_working_indicator(self) -> None:
+        self._stop_working_animation()
+        self._show_activity_animation("streaming", "response")
+
+    def _append_reasoning_text(self, text: str) -> None:
+        self._reasoning_buffer += text
+        self._set_activity(self._working_indicator_body(self._reasoning_buffer))
+        self._start_working_animation()
+
+    # ── turn metrics ──────────────────────────────────────────────────────────
+
+    def _start_turn_metrics(self) -> None:
+        self._turn_started_at = time.monotonic()
+        self._turn_tool_count = 0
+        self._running_tool_call_ids = set()
+
+    def _turn_elapsed_seconds(self) -> float:
+        if not self._turn_started_at:
+            return 0.0
+        return max(0.0, time.monotonic() - self._turn_started_at)
+
+    def _finish_turn_metrics(self) -> None:
+        self._turn_started_at = 0.0
+        self._turn_tool_count = 0
+        self._running_tool_call_ids = set()
+
+    def _running_tools_activity_detail(self, fallback_name: str) -> str:
+        running_count = len(self._running_tool_call_ids)
+        if running_count > 1:
+            return f"{running_count} tools running"
+        return fallback_name
+
+    def _record_tool_activity(self, name: str, status: str, summary: str = "") -> None:
+        self.transcript.record_tool_activity(name, status, summary)
+        if status == "running":
+            self._show_activity_animation("running", self._running_tools_activity_detail(name))
+            return
+        if status == "success":
+            self._show_working_indicator(tool_activity_line_text(name, status))
+            return
+        self._stop_working_animation()
+        self._show_static_activity(tool_activity_line_text(name, status))
+
+    # ── transcript helpers ────────────────────────────────────────────────────
 
     def _write_line(
         self,
@@ -244,12 +399,10 @@ class StreamingMixin:
         token = self._chat_turn_token
         self._chat_busy = True
         self._reset_stream_state()
-        self._turn_started_at = 0.0
-        self._turn_tool_count = 0
+        self._start_turn_metrics()
         self._tool_entries = {}
         self._tool_names = {}
         self._tool_args_buffer = {}
-        self._running_tool_call_ids = set()
         self._set_activity(_TURN_START_ACTIVITY)
         return token
 
@@ -257,6 +410,7 @@ class StreamingMixin:
         self._chat_turn_token += 1
         self._chat_busy = False
         self._reset_stream_state()
+        self._finish_turn_metrics()
         for worker in list(self.workers):
             if worker.state.name == "RUNNING" and worker.group != "stream-finalization":
                 worker.cancel()
