@@ -129,11 +129,19 @@ xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 > 2026-08 起评测体系按 `docs/plans/0016-eval-methods.md` 全面升级：真验收（sanity gate 双检 +
 > F2P/P2P 实跑）、pass^k 可靠性、任务集按 OpenAI SWE-bench Verified 官方标注重建。
 
-**现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md`）：**
+**现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md` 与 `docs/handoff/2026-08-05-xclaw-concurrency-and-ablation.md`）：**
 - 任务集 **31 题**（全部官方保留，17 道脏题已剔除），本机可跑 **20 题**（sympy 17 + sphinx 2 + pytest 1）
 - 环境策展 5 仓实证验证（sanity gate 全过）；sklearn/astropy 10 题需 MSVC/Linux CI
-- **真数字待 20 题基线消融产出**：`python -m eval.cli --tasks eval/tasks.json --max-turns 25 --repeat 3`
-- 单一实证：合成任务端到端 `verified=True`（Agent 真修好 bug，judge 5/5）
+- **8 题小消融（2026-08-05，max_turns 25，k=1，$3.05）**：
+
+  | cell | pass | 输入 token | 缓存命中率 | 成本 |
+  |---|---|---|---|---|
+  | 基线全开 | **5/8** | 5.65M | 27% | $1.35 |
+  | 关压缩 | 4/8 | 7.92M | 93% | $0.78 |
+  | 关 RepoMap | 4/8 | 7.01M | 80% | $0.91 |
+
+  要点：① 压缩减少 29% 输入 token（stale_snip 单层回收 14.1 万 token），pass rate 方向性支持（基线 5/8 最高）；② 压缩改写历史导致 KV Cache 命中率从 93% 降至 27%，单 token 成本升 4 倍，净成本反升——压缩与 Cache 的张力待长任务验证；③ 8 题均短，microcompact/auto_compact/truncate 未触发，五层流水线收益需长任务实验。
+- **20 题基线消融待跑**（P1）：`python -m eval.cli --tasks eval/tasks.json --max-turns 25 --repeat 3`
 
 ---
 
