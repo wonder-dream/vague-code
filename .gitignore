@@ -1,6 +1,7 @@
 .venv/
 .env
 .idea/
+.agent/
 Agent.md
 opencode.json
 discussion.md
