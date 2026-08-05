@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from eval.matrix import EvalCell, TaskResult, cell_label
@@ -190,6 +190,27 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
                 f"| {avg('read_before_edit_rate')} | {avg('edit_then_test')} "
                 f"| {avg('permission_denies')} | {touches} |"
             )
+
+    # Supervision Agent 监督质量（plans-0018）
+    if any(r.stats.get("supervision_calls", 0) > 0 for r in results):
+        lines.append("\n## 监督质量（Supervision Agent）\n")
+        lines.append("| 配置 | 监督调用/run | 评估分布 | 监督成本($) | 成本占比 |")
+        lines.append("|------|--------------|----------|-------------|----------|")
+        for key in sorted(by_cell.keys()):
+            rs = [r for r in by_cell[key] if r.stats.get("supervision_calls", 0) > 0]
+            if not rs:
+                continue
+            n = len(rs)
+            calls = round(sum(r.stats.get("supervision_calls", 0) for r in rs) / n, 1)
+            sup_cost = sum(r.stats.get("supervision_cost_usd", 0) for r in rs)
+            cost = sum(r.stats.get("cost_usd", 0) for r in rs)
+            pct = sup_cost / cost * 100 if cost else 0
+            dist: Counter[str] = Counter()
+            for r in rs:
+                for a, c in (r.stats.get("metrics") or {}).get("supervision_assessments", {}).items():
+                    dist[a] += c
+            dist_str = ", ".join(f"{a}:{c}" for a, c in sorted(dist.items())) or "-"
+            lines.append(f"| {key} | {calls} | {dist_str} | ${sup_cost:.4f} | {pct:.1f}% |")
 
     # P2 失败模式分布（仅当存在真验收结果时）
     if has_verified:

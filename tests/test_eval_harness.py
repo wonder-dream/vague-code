@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from eval.harness import (
@@ -219,6 +220,76 @@ def test_extract_stats_filters_by_run_id(tmp_path: Path) -> None:
     one = _extract_stats(str(db), "aaa")      # 过滤：只看 aaa
     assert both["total_turns"] == 20
     assert one["total_turns"] == 10
+
+
+# ── Supervision Agent（plans-0018）：stats 分列 + fake 冒烟 ───────────────
+
+def _seed_db_with_supervision(db_path: Path) -> None:
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE runs (run_id TEXT PRIMARY KEY)")
+    conn.execute("CREATE TABLE events (run_id TEXT, turn INT, type TEXT, payload TEXT)")
+    conn.execute("INSERT INTO runs VALUES ('sup1')")
+    usage = json.dumps({"input_tokens": 3000, "output_tokens": 100,
+                        "cache_read_tokens": 2000})
+    for i in range(3):
+        conn.execute(
+            "INSERT INTO events VALUES ('sup1', ?, 'supervision', ?)",
+            (i * 6, json.dumps({"mode": "periodic", "assessment": "on_track",
+                                "usage": json.loads(usage)})),
+        )
+    conn.execute(
+        "INSERT INTO events VALUES ('sup1', 12, 'supervision', ?)",
+        (json.dumps({"mode": "final", "assessment": "done",
+                     "usage": json.loads(usage)}),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_extract_stats_supervision_breakout(tmp_path: Path) -> None:
+    from eval.harness import _extract_stats
+
+    db = tmp_path / "s.db"
+    _seed_db_with_supervision(db)
+    stats = _extract_stats(str(db), "sup1")
+    assert stats["supervision_calls"] == 4
+    assert stats["supervision_input_tokens"] == 12000
+    assert stats["supervision_output_tokens"] == 400
+    assert stats["supervision_cache_read_tokens"] == 8000
+    assert stats["run_end_reason"] == ""
+
+
+def test_run_eval_fake_with_supervisor_smoke(tmp_path: Path, monkeypatch) -> None:
+    """验收 2：--fake + 监督开不破坏冒烟（fake 返回非 JSON → 重试后跳过）。"""
+    from eval.harness import run_eval
+
+    monkeypatch.setattr("eval.harness.MANIFEST_PATH", tmp_path / "manifest.json")
+    task = {"instance_id": "fake__t1", "repo": "x/y", "base_commit": "a" * 40}
+    cell = EvalCell(compression=True, concurrency=True, repo_map=True, repeat=0)
+    results = run_eval(
+        tasks=[task], matrix=[cell], workdir_base=str(tmp_path / "wd"),
+        use_fake=True, max_turns=5, supervisor=True,
+    )
+    assert len(results) == 1
+    stats = results[0].stats
+    assert stats["supervision_calls"] == 2   # 解析失败重试 1 次后跳过
+    assert stats["supervision_cost_usd"] >= 0
+    assert "supervision" in stats.get("run_end_reason", "") or stats["run_end_reason"] in (
+        "end_turn", "max_turns", "supervisor_done", "stagnant")
+
+
+def test_run_eval_fake_without_supervisor_no_supervision_stats(tmp_path: Path, monkeypatch) -> None:
+    from eval.harness import run_eval
+
+    monkeypatch.setattr("eval.harness.MANIFEST_PATH", tmp_path / "manifest.json")
+    task = {"instance_id": "fake__t2", "repo": "x/y", "base_commit": "a" * 40}
+    cell = EvalCell(compression=True, concurrency=True, repo_map=True, repeat=0)
+    results = run_eval(
+        tasks=[task], matrix=[cell], workdir_base=str(tmp_path / "wd"),
+        use_fake=True, max_turns=5, supervisor=False,
+    )
+    assert results[0].stats["supervision_calls"] == 0
 
 
 # ── repo 本地缓存：归档 → 恢复 roundtrip（网络免疫 + 480 runs 免重复 clone） ──

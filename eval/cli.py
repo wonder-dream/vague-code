@@ -39,13 +39,17 @@ def main():
     p.add_argument("--fake", action="store_true", help="Use FakeBackend instead of real LLM")
     p.add_argument("--workdir", default="eval/.workdir", help="Base directory for task repos")
     p.add_argument("--model", default="deepseek-v4-flash", help="Model name")
-    p.add_argument("--max-turns", type=int, default=40,
-                   help="Max agent turns per run (25 too low for hard tasks; "
-                        "agents end_turn early when done, cap is a safety net)")
+    p.add_argument("--max-turns", type=int, default=500,
+                   help="Max agent turns per run (fuse: only stops out-of-control "
+                        "runs; normal runs stop via end_turn/supervisor_done)")
     p.add_argument("--fresh", action="store_true",
                    help="Ignore manifest and rerun already-done cells")
     p.add_argument("--max-cost", type=float, default=None,
                    help="Global cost budget in USD; stop when exceeded (input/output price-based)")
+    p.add_argument("--supervisor", action="store_true",
+                   help="Enable Supervision Agent (ADR-0020): periodic + completion checks")
+    p.add_argument("--supervisor-model", default=None,
+                   help="Supervisor model (default: same as --model)")
     p.add_argument("--price-input", type=float, default=0.28,
                    help="USD per 1M input tokens (default: deepseek-chat approx)")
     p.add_argument("--price-output", type=float, default=1.10,
@@ -86,8 +90,11 @@ def main():
     print(f"Loaded {len(tasks)} tasks from {args.tasks}")
 
     if args.config:
-        from eval.matrix import parse_cell_label
-        matrix = [parse_cell_label(args.config)]
+        from eval.matrix import EvalCell, parse_cell_label
+        base = parse_cell_label(args.config)
+        # --config + --repeat：扩展为 k 次重复（pass^k 用），r0..r{k-1}
+        matrix = [EvalCell(base.compression, base.concurrency, base.repo_map, rep)
+                  for rep in range(args.repeat)]
     else:
         matrix = build_matrix(args.repeat, design=args.design,
                               ablation_repeat=args.ablation_repeat)
@@ -111,6 +118,7 @@ def main():
             resume=not args.fresh, max_cost=args.max_cost,
             price_input=args.price_input, price_output=args.price_output,
             price_cache=args.price_cache,
+            supervisor=args.supervisor, supervisor_model=args.supervisor_model,
         )
         results += run_eval(
             tasks=load_tasks(args.ablation_tasks), matrix=ablation,
@@ -118,6 +126,7 @@ def main():
             max_turns=args.max_turns, resume=not args.fresh, max_cost=args.max_cost,
             price_input=args.price_input, price_output=args.price_output,
             price_cache=args.price_cache,
+            supervisor=args.supervisor, supervisor_model=args.supervisor_model,
         )
     else:
         results = run_eval(
@@ -132,6 +141,8 @@ def main():
             price_input=args.price_input,
             price_output=args.price_output,
             price_cache=args.price_cache,
+            supervisor=args.supervisor,
+            supervisor_model=args.supervisor_model,
         )
 
     if not args.fresh and not args.fake:

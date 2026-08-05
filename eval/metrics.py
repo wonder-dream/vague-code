@@ -37,6 +37,8 @@ class RunMetrics:
     permission_denies: int = 0
     denied_tools: list[str] = field(default_factory=list)
     run_end_reason: str = ""
+    supervision_calls: int = 0
+    supervision_assessments: Counter[str] = field(default_factory=Counter)
 
     def to_dict(self) -> dict:
         return {k: (v if not isinstance(v, Counter) else dict(v))
@@ -101,6 +103,11 @@ def metrics_from_events(events: list[Any], run_id: str = "") -> RunMetrics:
                 tool = ev.payload.get("tool", "")
                 if tool not in m.denied_tools:
                     m.denied_tools.append(tool)
+        elif etype == "supervision":
+            m.supervision_calls += 1
+            assessment = ev.payload.get("assessment")
+            if assessment:
+                m.supervision_assessments[assessment] += 1
         elif etype == "run_end":
             m.run_end_reason = ev.payload.get("reason", "")
 

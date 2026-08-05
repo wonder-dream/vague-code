@@ -73,9 +73,31 @@ class RepoMapConfig:
 
 
 @dataclass
+class SupervisionConfig:
+    """Supervision Agent 配置（ADR-0020）：监督者无工具，只"看"与"说"。
+
+    enabled=False 为默认（ADR-0020 #8：未充分评测前不作为产品默认路径）。
+    period: 周期监督的轮数间隔；model: None = 同主 agent 模型。
+    """
+    enabled: bool = False
+    period: int = 6
+    model: str | None = None
+    max_input_tokens: int = 6000
+    stuck_limit: int = 2
+
+    def __post_init__(self) -> None:
+        if self.period < 1:
+            raise ValueError(f"period must be >= 1, got {self.period}")
+        if self.stuck_limit < 1:
+            raise ValueError(f"stuck_limit must be >= 1, got {self.stuck_limit}")
+        if self.max_input_tokens < 1:
+            raise ValueError(f"max_input_tokens must be >= 1, got {self.max_input_tokens}")
+
+
+@dataclass
 class AgentConfig:
     model: str = "deepseek-v4-flash"
-    max_turns: int = 20
+    max_turns: int = 500
     db_path: str = "runs/runs.db"
     transport: TransportConfig = field(default_factory=TransportConfig)
     compression: CompressionConfig = field(default_factory=CompressionConfig)
@@ -83,6 +105,7 @@ class AgentConfig:
     permission_mode: str = "normal"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     repo_map: RepoMapConfig = field(default_factory=RepoMapConfig)
+    supervision: SupervisionConfig = field(default_factory=SupervisionConfig)
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:

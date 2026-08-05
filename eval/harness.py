@@ -169,6 +169,10 @@ def _extract_stats(trajectory_path: str, run_id: str = "") -> dict[str, Any]:
         "cache_read_tokens": 0,
         "permission_checks": 0,
         "run_end_reason": "",
+        "supervision_calls": 0,
+        "supervision_input_tokens": 0,
+        "supervision_output_tokens": 0,
+        "supervision_cache_read_tokens": 0,
     }
 
     for turn, etype, payload_json in events:
@@ -194,6 +198,12 @@ def _extract_stats(trajectory_path: str, run_id: str = "") -> dict[str, Any]:
             stats["cache_read_tokens"] += usage.get("cache_read_tokens", 0)
         elif etype == "permission_check":
             stats["permission_checks"] += 1
+        elif etype == "supervision":
+            stats["supervision_calls"] += 1
+            usage = payload.get("usage", {})
+            stats["supervision_input_tokens"] += usage.get("input_tokens", 0)
+            stats["supervision_output_tokens"] += usage.get("output_tokens", 0)
+            stats["supervision_cache_read_tokens"] += usage.get("cache_read_tokens", 0)
         elif etype == "run_end":
             stats["run_end_reason"] = payload.get("reason", "")
 
@@ -333,15 +343,17 @@ def run_eval(
     workdir_base: str,
     use_fake: bool = False,
     model_name: str = "deepseek-v4-flash",
-    max_turns: int = 50,
+    max_turns: int = 500,
     resume: bool = True,
     max_cost: float | None = None,
     price_input: float = 0.28,
     price_output: float = 1.10,
     price_cache: float = 0.07,
+    supervisor: bool = False,
+    supervisor_model: str | None = None,
 ) -> list[TaskResult]:
     from src.agent.loop import Agent
-    from src.agent.config import AgentConfig, MemoryConfig
+    from src.agent.config import AgentConfig, MemoryConfig, SupervisionConfig
     from src.agent.ir import ModelResponse, NormalizedUsage, StopReason, TextBlock
 
     results: list[TaskResult] = []
@@ -408,13 +420,14 @@ def run_eval(
                 concurrent_tools=cell.concurrency,
                 permission_mode="auto",
                 memory=MemoryConfig(enabled=False),
+                supervision=SupervisionConfig(enabled=supervisor, model=supervisor_model),
             )
             config.compression.enabled = cell.compression
             config.repo_map.enabled = cell.repo_map
             config.db_path = _run_db_path(instance_id, cell)
 
             if use_fake:
-                from src.agent.ir import Message
+                from src.agent.ir import Message, MessageEnd, MessageStart
 
                 class _FakeBackend:
                     def __init__(self):
@@ -427,8 +440,16 @@ def run_eval(
                             usage=NormalizedUsage(input_tokens=10, output_tokens=5),
                         )
                     def stream(self, messages, tools=None, config=None):
+                        # 正常 end_turn 流（空流会让 agent 走 stream_disconnect 死路，
+                        # 监督钩子永远不触发，fake 冒烟就测不到监督链路）
                         self.call_count += 1
-                        return iter(())
+                        return iter([
+                            MessageStart(model=config.get("model", "fake")),
+                            MessageEnd(
+                                stop_reason=StopReason.end_turn,
+                                usage=NormalizedUsage(input_tokens=10, output_tokens=5),
+                            ),
+                        ])
                 backend = _FakeBackend()
             else:
                 backend = _build_deepseek_backend(model_name)
@@ -442,6 +463,15 @@ def run_eval(
                 cost = _run_cost(stats, price_input, price_output, price_cache)
                 stats["cost_usd"] = round(cost, 6)
                 total_cost += cost
+                # 监督成本分列（验收 5：监督增量 < 主 run 成本 15% 的可对比口径）
+                sup_fresh = max(stats.get("supervision_input_tokens", 0)
+                                - stats.get("supervision_cache_read_tokens", 0), 0)
+                stats["supervision_cost_usd"] = round(
+                    sup_fresh / 1e6 * price_input
+                    + stats.get("supervision_cache_read_tokens", 0) / 1e6 * price_cache
+                    + stats.get("supervision_output_tokens", 0) / 1e6 * price_output,
+                    6,
+                )
                 # #8: 依赖冻结指纹进 run 元数据（reproducibility 证据）
                 stats["deps_sha1"] = _venv_lock_sha1(task)
                 lock = Path("eval") / ".venvs" / venv_key(task) / "requirements.lock"

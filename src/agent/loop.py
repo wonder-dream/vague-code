@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import time
 import uuid
 from collections.abc import Iterator
@@ -154,6 +156,35 @@ class RunHandle:
         return self._traj
 
 
+# ── Supervision Agent（ADR-0020 / plans-0018）──────────────────────────────
+
+SUPERVISION_ASSESSMENTS = ("on_track", "off_track", "needs_verification", "stuck", "done")
+
+SUPERVISION_SYSTEM_PROMPT = """你是代码修复任务的监督者（Supervisor）。你只"看"和"说"，不执行任何工具。
+
+对主 agent 的进展做五值评估：
+- on_track: 方向正确，正在有效推进。注意：持续读取新文件、grep 新位置、深入理解代码——即使尚未编辑——是有效推进，应判 on_track。复杂任务的第一次编辑往往发生在 20-30 轮之后，探索本身不是停滞。
+- off_track: 偏离了任务方向
+- needs_verification: 已有产出但尚未用测试验证
+- stuck: 原地打转——连续重复相同的命令/反复读同一文件、没有新的探索动作，且没有编辑产出
+- done: 任务已完成（工作区 diff 非空 且 尾部测试类命令 exit 0 通过）
+
+只输出一个 JSON 对象，不要输出其他文字：
+{"assessment": "<五值之一>", "guidance": "<给主 agent 的中文导航建议，1-3 句>", "evidence": "<判定依据的简要引用>"}"""
+
+
+def _extract_json_obj(raw: str) -> dict | None:
+    """从模型输出中提取 JSON 对象（仿 eval/judge.py 的 _extract_json）。"""
+    for m in re.finditer(r"\{.*\}", raw, re.DOTALL):
+        try:
+            d = json.loads(m.group(0))
+            if isinstance(d, dict):
+                return d
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 # ── Agent ──────────────────────────────────────────────────────────────────
 
 class Agent:
@@ -264,8 +295,23 @@ class Agent:
     ) -> Iterator[StreamEvent]:
         try:
             policy = RetryPolicy.from_config(self.config.transport)
+            self._stuck_streak = 0
+            self._edits_at_last_stuck = 0
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
+                # 周期监督（ADR-0020 #2）：每 period 轮一次，turn=0 时无轨迹可看，跳过
+                if (self.config.supervision.enabled and turn > 0
+                        and turn % self.config.supervision.period == 0):
+                    verdict = self._run_supervision(traj, turn, mode="periodic")
+                    if verdict is not None:
+                        assessment, guidance = verdict
+                        if self._maybe_stop_supervision(traj, turn, assessment):
+                            return
+                        if guidance:
+                            messages.append(Message(
+                                role="user",
+                                content=f"[监督反馈 {assessment}]\n{guidance}",
+                            ))
                 guidance = self._drain_guidance()
                 if guidance:
                     messages.append(Message(role="user", content="\n".join(guidance)))
@@ -408,6 +454,20 @@ class Agent:
                 })
 
                 if resp.stop_reason in (StopReason.end_turn, StopReason.stop_sequence):
+                    # 完成校验（ADR-0020 #3）：主 agent 声明完成时监督者全局判定
+                    if self.config.supervision.enabled:
+                        verdict = self._run_supervision(traj, turn, mode="final")
+                        if verdict is not None:
+                            assessment, guidance = verdict
+                            if self._maybe_stop_supervision(traj, turn, assessment):
+                                return
+                            if guidance:
+                                messages.append(Message(
+                                    role="user",
+                                    content=f"[监督反馈 {assessment}]\n{guidance}",
+                                ))
+                            turn_box[0] += 1
+                            continue
                     traj.emit(EventType.run_end, payload={"reason": "end_turn"})
                     return
 
@@ -575,6 +635,222 @@ class Agent:
             return list(self.guidance_provider())
         except Exception:
             return []
+
+    # ── Supervision Agent（ADR-0020 / plans-0018）──────────────────────────
+
+    def _run_supervision(
+        self,
+        traj: Trajectory,
+        turn: int,
+        mode: str = "periodic",
+    ) -> tuple[str, str] | None:
+        """单次监督调用：构造输入 → backend.complete（无工具）→ 解析五值 JSON。
+
+        解析失败重试 1 次后跳过（返回 None）。每次调用（含失败）落
+        `supervision` 事件供审计。返回 (assessment, guidance) 或 None。
+        """
+        cfg = self.config.supervision
+        model = cfg.model or self.config.model
+        prompt = self._supervision_input(traj, turn, mode)
+
+        for attempt in range(2):
+            try:
+                resp = self.backend.complete(
+                    [
+                        Message(role="system", content=SUPERVISION_SYSTEM_PROMPT),
+                        Message(role="user", content=prompt),
+                    ],
+                    tools=None,
+                    config={"model": model},
+                )
+            except Exception as e:
+                traj.emit(EventType.error, turn=turn, payload={
+                    "kind": "supervision_error", "message": str(e),
+                })
+                return None
+
+            parsed: dict | None = None
+            text = "".join(b.text for b in resp.message.content if isinstance(b, TextBlock))
+            data = _extract_json_obj(text)
+            if data and data.get("assessment") in SUPERVISION_ASSESSMENTS:
+                parsed = {
+                    "assessment": data["assessment"],
+                    "guidance": str(data.get("guidance", "")),
+                    "evidence": str(data.get("evidence", "")),
+                }
+            traj.emit(EventType.supervision, turn=turn, payload={
+                "mode": mode,
+                "attempt": attempt + 1,
+                "assessment": parsed["assessment"] if parsed else None,
+                "guidance": parsed["guidance"] if parsed else "",
+                "evidence": parsed["evidence"] if parsed else "",
+                "parse_error": "" if parsed else "invalid_json",
+                "usage": resp.usage.to_dict(),
+                "input_chars": len(prompt),
+            })
+            if parsed:
+                return parsed["assessment"], parsed["guidance"]
+        return None
+
+    def _supervision_input(self, traj: Trajectory, turn: int, mode: str) -> str:
+        """监督输入构造：任务文本（仅周期监督）+ 过程信号 + diff stat + 尾部轨迹。"""
+        cfg = self.config.supervision
+        sections: list[str] = []
+
+        if mode == "periodic":
+            task = ""
+            for e in traj.events:
+                if e.type == EventType.run_start:
+                    task = e.payload.get("task", "")
+                    break
+            if task:
+                sections.append(f"## 任务\n{task[:2000]}")
+
+        stats = self._supervision_process_signals(traj)
+        sections.append(
+            "## 过程信号\n"
+            f"- 已进行 turn: {stats['turns']}；工具调用: {stats['tool_total']}"
+            f"（bash {stats['bash_calls']} 次，去重 {stats['unique_commands']} 种，"
+            f"重复 {stats['repeated_commands']} 次）\n"
+            f"- 编辑（write_file/patch）: {stats['edits']} 次；工具错误: {stats['errors']} 次\n"
+            f"- 探索: 读取/搜索过 {stats['unique_files']} 个不同路径"
+            f"（最近一次新路径于 turn {stats['last_new_file_turn']}）\n"
+            f"- 测试信号: PASS {stats['test_pass']} / FAIL {stats['test_fail']}"
+        )
+
+        diff_stat = self._supervision_diff_stat()
+        if diff_stat:
+            sections.append(f"## 工作区 diff stat\n{diff_stat}")
+
+        transcript = self._supervision_transcript(
+            traj, max_turns=12, max_chars=cfg.max_input_tokens * 3,
+        )
+        sections.append(f"## 轨迹（尾部 12 轮）\n{transcript}")
+        sections.append("只输出 JSON：{\"assessment\": \"...\", \"guidance\": \"...\", \"evidence\": \"...\"}")
+        return "\n\n".join(sections)
+
+    @staticmethod
+    def _supervision_process_signals(traj: Trajectory) -> dict:
+        stats = {"turns": 0, "tool_total": 0, "bash_calls": 0, "edits": 0,
+                 "errors": 0, "test_pass": 0, "test_fail": 0,
+                 "unique_files": 0, "last_new_file_turn": -1,
+                 "unique_commands": 0, "repeated_commands": 0}
+        seen_files: set[str] = set()
+        seen_cmds: set[str] = set()
+        for e in traj.events:
+            if e.type == EventType.turn_start:
+                stats["turns"] += 1
+            elif e.type == EventType.tool_call:
+                stats["tool_total"] += 1
+                name = e.payload.get("name", "")
+                inp = e.payload.get("input") or {}
+                if name == "bash":
+                    stats["bash_calls"] += 1
+                    cmd = str(inp.get("command", ""))
+                    if cmd in seen_cmds:
+                        stats["repeated_commands"] += 1
+                    else:
+                        seen_cmds.add(cmd)
+                elif name in ("write_file", "patch"):
+                    stats["edits"] += 1
+                elif name in ("read_file", "grep", "code_search"):
+                    path = str(inp.get("path") or "")
+                    if path and path not in seen_files:
+                        seen_files.add(path)
+                        stats["last_new_file_turn"] = e.turn if e.turn is not None else stats["turns"]
+            elif e.type == EventType.tool_result:
+                if e.payload.get("is_error"):
+                    stats["errors"] += 1
+                content = e.payload.get("content", "")
+                if "[test] PASS" in content:
+                    stats["test_pass"] += 1
+                elif "[test] FAIL" in content:
+                    stats["test_fail"] += 1
+        stats["unique_files"] = len(seen_files)
+        stats["unique_commands"] = len(seen_cmds)
+        return stats
+
+    def _supervision_diff_stat(self) -> str:
+        workdir = getattr(self, "_workdir", "")
+        if not workdir:
+            return ""
+        try:
+            proc = subprocess.run(
+                ["git", "-C", workdir, "diff", "--stat", "HEAD"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=10,
+            )
+            if proc.returncode != 0:
+                return ""
+            return proc.stdout.strip()[:2000]
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _supervision_transcript(
+        traj: Trajectory, max_turns: int = 12, max_chars: int = 24000,
+    ) -> str:
+        """尾部轨迹转写：按 turn 收集最近的 tool_call/tool_result/agent 文本。"""
+        total_turns = sum(1 for e in traj.events if e.type == EventType.turn_start)
+        min_turn = max(0, total_turns - max_turns) if total_turns > max_turns else 0
+
+        lines: list[str] = []
+        for e in traj.events:
+            t = e.turn if e.turn is not None else -1
+            if t < min_turn:
+                continue
+            if e.type == EventType.turn_start:
+                lines.append(f"--- turn {t} ---")
+            elif e.type == EventType.llm_response:
+                for b in e.payload.get("blocks", []):
+                    if b.get("type") == "text" and b.get("text", "").strip():
+                        lines.append(f"[agent] {b['text'][:400]}")
+            elif e.type == EventType.tool_call:
+                lines.append(
+                    f"[tool_call] {e.payload.get('name')}"
+                    f"({json.dumps(e.payload.get('input', {}), ensure_ascii=False)[:300]})"
+                )
+            elif e.type == EventType.tool_result:
+                content = e.payload.get("content", "")
+                if len(content) > 600:
+                    content = content[:600] + f"...[truncated {len(content)} chars]"
+                err = "(!error)" if e.payload.get("is_error") else ""
+                lines.append(f"[tool_result{err}] {content}")
+
+        text = "\n".join(lines)
+        if len(text) > max_chars:
+            text = text[-max_chars:] + "\n...[transcript truncated]"
+        return text
+
+    @staticmethod
+    def _count_edits(traj: Trajectory) -> int:
+        return sum(
+            1 for e in traj.events
+            if e.type == EventType.tool_call and e.payload.get("name") in ("write_file", "patch")
+        )
+
+    def _maybe_stop_supervision(self, traj: Trajectory, turn: int, assessment: str) -> bool:
+        """按监督评估决定是否终止。返回 True 表示已 emit run_end 终止。
+
+        stuck 判停（ADR-0020 #4）：连续 stuck_limit 次 stuck 且**两次判定之间**
+        零编辑才终止；两次 stuck 之间发生过编辑说明有推进，累计清零。
+        """
+        cfg = self.config.supervision
+        if assessment == "done":
+            traj.emit(EventType.run_end, payload={"reason": "supervisor_done"})
+            return True
+        if assessment == "stuck":
+            edits = self._count_edits(traj)
+            if self._stuck_streak > 0 and edits != self._edits_at_last_stuck:
+                self._stuck_streak = 0
+            self._stuck_streak += 1
+            self._edits_at_last_stuck = edits
+            if self._stuck_streak >= cfg.stuck_limit:
+                traj.emit(EventType.run_end, payload={"reason": "stagnant"})
+                return True
+        else:
+            self._stuck_streak = 0
+        return False
 
     def add_permission_rule(self, pattern: str, action: str = "allow") -> None:
         from src.agent.permission import Decision, PermissionRule

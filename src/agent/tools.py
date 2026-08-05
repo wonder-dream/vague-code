@@ -17,6 +17,45 @@ MAX_GREP_FILE_SIZE = 5_242_880
 MAX_GREP_FILE_COUNT = 500
 MAX_GREP_RESULTS = 500
 
+# bash 工具测试结果结构化（plans/0018）：测试类命令的判定关键词。
+# 与 eval/metrics.py 的 TEST_KEYWORDS 同源但独立（产品层不依赖 eval 层）。
+TEST_COMMAND_KEYWORDS = ("pytest", "unittest", "nose", "tox", "make test",
+                         "run_tests", "run-tests", "nosetests")
+
+
+def _is_test_command(command: str) -> bool:
+    cmd = (command or "").strip().lower()
+    return any(kw in cmd for kw in TEST_COMMAND_KEYWORDS)
+
+
+def _summarize_test_output(stdout: str, stderr: str, exit_code: int) -> str:
+    """从 pytest 风格输出提取结构化 PASS/FAIL 信号。
+
+    规则：`N passed` / `M failed` / `X error`（pytest 汇总行）命中时按数量判
+    PASS/FAIL；解析不出时 fallback exit code（0=PASS，非 0=FAIL）。
+    返回一行 `[test] PASS (3 passed)` 或 `[test] FAIL (1 failed)`；无法判定
+    时返回空串（保持原输出不变）。
+    """
+    text = stdout + "\n" + stderr
+    m = re.search(r"(\d+)\s+passed", text)
+    n_passed = int(m.group(1)) if m else 0
+    m = re.search(r"(\d+)\s+failed", text)
+    n_failed = int(m.group(1)) if m else 0
+    m = re.search(r"(\d+)\s+error", text)
+    n_error = int(m.group(1)) if m else 0
+    if n_passed or n_failed or n_error:
+        if n_failed or n_error:
+            detail = []
+            if n_failed:
+                detail.append(f"{n_failed} failed")
+            if n_error:
+                detail.append(f"{n_error} error")
+            return f"[test] FAIL ({', '.join(detail)})"
+        return f"[test] PASS ({n_passed} passed)"
+    if exit_code == 0:
+        return "[test] PASS (exit 0)"
+    return f"[test] FAIL (exit {exit_code})"
+
 @dataclass
 class Tool:
     spec: ToolSpec
@@ -256,6 +295,12 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
             stdout = stdout[:MAX_OUTPUT] + f"\n\n[... 标准输出截断于 {MAX_OUTPUT:_} 字节]"
         if len(stderr) > MAX_OUTPUT:
             stderr = stderr[:MAX_OUTPUT] + f"\n\n[... 标准错误输出截断于 {MAX_OUTPUT:_} 字节]"
+        # 测试结果结构化（plans/0018 #5）：测试类命令追加 PASS/FAIL 行，给模型明确信号
+        if _is_test_command(command):
+            verdict = _summarize_test_output(stdout, stderr, proc.returncode)
+            if verdict:
+                return (f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n"
+                        f"标准错误输出:\n{stderr}\n\n{verdict}")
         return f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n标准错误输出:\n{stderr}"
     return handler
 

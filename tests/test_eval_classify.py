@@ -60,6 +60,21 @@ def test_env_error_classified_as_test_fail() -> None:
     assert classify(_r(False, error="sanity gate: F2P expected assertion-fail")) == "test_fail"
 
 
+def test_stagnant_class() -> None:
+    assert classify(_r(False, run_end="stagnant")) == "stagnant"
+    # 停滞优先于 timeout 判断
+    assert classify(_r(False, reason="no_diff", run_end="stagnant")) == "stagnant"
+
+
+def test_supervisor_done_with_verified_false_is_test_fail() -> None:
+    assert classify(_r(False, reason="f2p:fail", run_end="supervisor_done")) == "test_fail"
+    assert classify(_r(False, reason="no_diff", run_end="supervisor_done")) == "test_fail"
+
+
+def test_supervisor_done_with_verified_true_is_success() -> None:
+    assert classify(_r(True, run_end="supervisor_done")) == "success"
+
+
 def test_distribution_and_chart() -> None:
     results = [_r(True), _r(False, reason="no_diff"),
                _r(False, reason="f2p:fail"), _r(False, reason="no_diff")]

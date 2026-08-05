@@ -147,6 +147,37 @@ def test_generate_report_includes_failure_distribution(tmp_path: Path) -> None:
     assert "测试不过" in text or "伪完成" in text
 
 
+def test_generate_report_includes_supervision_section(tmp_path: Path) -> None:
+    def _sup_r(instance: str, calls: int, cost: float) -> TaskResult:
+        return TaskResult(
+            instance_id=instance, cell=_cell(), passed=None, verified=None,
+            stats={
+                "total_turns": 3,
+                "supervision_calls": calls,
+                "supervision_cost_usd": cost,
+                "cost_usd": 1.0,
+                "metrics": {"supervision_assessments": {"on_track": 2, "done": 1}},
+            },
+        )
+
+    out = tmp_path / "report.md"
+    reporter.generate_report(
+        [_sup_r("A", 3, 0.05), _sup_r("B", 3, 0.05)], str(out),
+    )
+    text = out.read_text(encoding="utf-8")
+    assert "## 监督质量" in text
+    assert "监督调用/run" in text
+    assert "on_track:4" in text and "done:2" in text  # 两 run 聚合
+    assert "5.0%" in text  # 0.10 / 2.00 成本占比
+
+
+def test_generate_report_no_supervision_section_when_absent(tmp_path: Path) -> None:
+    results = [_r("A", _cell(repeat=0), True)]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    assert "## 监督质量" not in out.read_text(encoding="utf-8")
+
+
 # ── P0-5: audit_tasks ────────────────────────────────────────────────────
 
 def test_audit_excludes_dirty_tasks(tmp_path: Path, monkeypatch) -> None:

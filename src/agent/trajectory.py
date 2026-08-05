@@ -35,6 +35,7 @@ class EventType(str, Enum):
     compression = "compression"
     permission_check = "permission_check"
     mode_change = "mode_change"
+    supervision = "supervision"
 
 
 @dataclass
@@ -167,6 +168,12 @@ class Trajectory:
                 mem_keys = {f.name for f in dc_fields(MC)}
                 filtered_m = {k: v for k, v in memory_data.items() if k in mem_keys}
                 config.memory = MC(**filtered_m)
+            supervision_data = config_data.get("supervision")
+            if supervision_data and isinstance(supervision_data, dict):
+                from src.agent.config import SupervisionConfig as SC
+                sup_keys = {f.name for f in dc_fields(SC)}
+                filtered_s = {k: v for k, v in supervision_data.items() if k in sup_keys}
+                config.supervision = SC(**filtered_s)
             traj = cls(run_id=run_id, config=config)
             for row in conn.execute(
                 "SELECT turn, ts, type, payload FROM events WHERE run_id=? ORDER BY rowid",

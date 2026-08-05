@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.config import AgentConfig, CompressionConfig, TransportConfig
+from src.agent.config import AgentConfig, CompressionConfig, SupervisionConfig, TransportConfig
 from src.agent.ir import (
     Block,
     Message,
@@ -1554,3 +1554,252 @@ def test_concurrent_tools_unknown_tool(tmp_path):
     tool_results = [e for e in traj.events if e.type == EventType.tool_result]
     assert len(tool_results) >= 1
     assert all(r.payload.get("is_error") for r in tool_results)
+
+
+# ── Supervision Agent（plans-0018 / ADR-0020）──────────────────────────────
+
+class _SupFakeBackend:
+    """区分主 agent 调用（tools!=None）与监督调用（tools=None）。"""
+
+    def __init__(self, main: list, sup: list):
+        self.main = list(main)
+        self.sup = list(sup)
+        self.main_call_count = 0
+        self.sup_call_count = 0
+
+    def complete(self, messages, tools=None, config=None):
+        if tools is None:
+            r = self.sup[self.sup_call_count]
+            self.sup_call_count += 1
+        else:
+            r = self.main[self.main_call_count]
+            self.main_call_count += 1
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def _sup_response(assessment, guidance="继续推进", evidence="依据"):
+    return ModelResponse(
+        message=Message(role="assistant", content=[TextBlock(text=json.dumps({
+            "assessment": assessment, "guidance": guidance, "evidence": evidence,
+        }, ensure_ascii=False))]),
+        stop_reason=StopReason.end_turn,
+        usage=NormalizedUsage(input_tokens=100, output_tokens=10),
+    )
+
+
+def _sup_agent(tmp_path, main, sup, period=2):
+    config = AgentConfig(
+        max_turns=20,
+        db_path=str(tmp_path / "sup.db"),
+        supervision=SupervisionConfig(enabled=True, period=period, stuck_limit=2),
+    )
+    backend = _SupFakeBackend(main, sup)
+    agent = Agent(config, backend, tools=DEFAULT_TOOLS)
+    return agent, backend
+
+
+def _run_end_reason(traj) -> str:
+    return next(e for e in traj.events if e.type == EventType.run_end).payload["reason"]
+
+
+def test_supervision_disabled_no_supervision_calls(tmp_path):
+    config = AgentConfig(max_turns=5, db_path=str(tmp_path / "t.db"))
+    backend = _SupFakeBackend(main=[_text_response("ok")], sup=[])
+    traj = Agent(config, backend, tools=DEFAULT_TOOLS).run("hi", str(tmp_path))
+    assert _run_end_reason(traj) == "end_turn"
+    assert backend.sup_call_count == 0
+    assert not any(e.type == EventType.supervision for e in traj.events)
+
+
+def test_supervision_final_done_stops_run(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[
+            _tool_use_response(("b1", "bash", {"command": "echo hi"})),
+            _tool_use_response(("b2", "bash", {"command": "echo hi"})),
+            _text_response("done now"),
+        ],
+        sup=[_sup_response("on_track"), _sup_response("done")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "supervisor_done"
+    sups = [e for e in traj.events if e.type == EventType.supervision]
+    assert len(sups) == 2
+    assert sups[0].payload["mode"] == "periodic"
+    assert sups[0].payload["assessment"] == "on_track"
+    assert sups[1].payload["mode"] == "final"
+    assert sups[1].payload["assessment"] == "done"
+    assert backend.main_call_count == 3
+
+
+def test_supervision_stagnant_after_two_stuck_without_edits(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[_tool_use_response(("b", "bash", {"command": "echo hi"}))] * 6,
+        sup=[_sup_response("stuck"), _sup_response("stuck")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "stagnant"
+    assert backend.main_call_count == 4
+
+
+def test_supervision_stuck_resets_on_on_track(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[_tool_use_response(("b", "bash", {"command": "echo hi"}))] * 9,
+        sup=[_sup_response("stuck"), _sup_response("on_track"),
+             _sup_response("stuck"), _sup_response("stuck")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "stagnant"
+    assert backend.main_call_count == 8
+
+
+def test_supervision_stuck_with_edits_between_not_stagnant(tmp_path):
+    # 两次 stuck 但之间有一次编辑 → 有推进，不判停
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[
+            _tool_use_response(("b", "bash", {"command": "echo hi"})),
+            _tool_use_response(("b2", "bash", {"command": "echo hi"})),
+            _tool_use_response(("w", "write_file", {"path": "a.py", "content": "x"})),
+            _text_response("ok"),
+        ],
+        sup=[_sup_response("stuck"), _sup_response("stuck"), _sup_response("done")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "supervisor_done"
+
+
+def test_supervision_final_non_done_sends_back(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[
+            _tool_use_response(("b", "bash", {"command": "echo hi"})),
+            _text_response("im done"),
+            _text_response("im done"),
+        ],
+        sup=[_sup_response("needs_verification", guidance="跑测试验证"),
+             _sup_response("on_track", guidance="继续"),
+             _sup_response("done")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "supervisor_done"
+    assert backend.main_call_count == 3
+
+
+def test_supervision_parse_failure_retry_once_then_skip(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[_text_response("ok")],
+        sup=[_sup_response("这不是JSON"), _sup_response("也解析不出")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "end_turn"
+    sups = [e for e in traj.events if e.type == EventType.supervision]
+    assert len(sups) == 2
+    assert all(s.payload["parse_error"] == "invalid_json" for s in sups)
+    assert all(s.payload["assessment"] is None for s in sups)
+
+
+def test_supervision_parse_retry_recovers(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[_text_response("ok")],
+        sup=[_sup_response("garbage"), _sup_response("done")],
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    assert _run_end_reason(traj) == "supervisor_done"
+
+
+def test_supervision_turn0_skipped(tmp_path):
+    agent, backend = _sup_agent(
+        tmp_path,
+        main=[_text_response("ok")],
+        sup=[_sup_response("done")],
+        period=1,
+    )
+    traj = agent.run("fix something", str(tmp_path))
+    sups = [e for e in traj.events if e.type == EventType.supervision]
+    assert len(sups) == 1
+    assert sups[0].payload["mode"] == "final"
+    assert sups[0].turn == 0
+
+
+def test_supervision_transcript_truncated(tmp_path):
+    config = AgentConfig(db_path=str(tmp_path / "t.db"),
+                         supervision=SupervisionConfig(enabled=True))
+    agent = Agent(config, _SupFakeBackend([_text_response("ok")], [_sup_response("done")]),
+                  tools=DEFAULT_TOOLS)
+    traj = Trajectory(run_id="x", config=config)
+    traj.emit(EventType.turn_start, turn=0)
+    traj.emit(EventType.tool_call, turn=0, payload={"name": "bash", "input": {"command": "echo hi"}})
+    traj.emit(EventType.tool_result, turn=0, payload={
+        "tool_use_id": "a", "content": "hello" * 10000,
+    })
+    text = agent._supervision_transcript(traj, max_turns=12, max_chars=2000)
+    assert len(text) <= 2000 + len("...[transcript truncated]")
+    assert "truncated" in text
+
+
+def test_supervision_input_task_only_periodic(tmp_path):
+    config = AgentConfig(db_path=str(tmp_path / "t.db"),
+                         supervision=SupervisionConfig(enabled=True))
+    agent = Agent(config, _SupFakeBackend([_text_response("ok")], [_sup_response("done")]),
+                  tools=DEFAULT_TOOLS)
+    traj = Trajectory(run_id="x", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "TASK-ABC", "workdir": str(tmp_path),
+        "system_prompt": "", "config": {}, "tools": [],
+    })
+    periodic = agent._supervision_input(traj, 6, "periodic")
+    assert "TASK-ABC" in periodic
+    final = agent._supervision_input(traj, 6, "final")
+    assert "TASK-ABC" not in final
+
+
+def test_extract_json_obj():
+    from src.agent.loop import _extract_json_obj
+    assert _extract_json_obj('{"assessment": "done"}') == {"assessment": "done"}
+    assert _extract_json_obj('text {"a": 1} tail') == {"a": 1}
+    assert _extract_json_obj('no json here') is None
+    assert _extract_json_obj('{"bad json"') is None
+
+
+def test_supervision_process_signals_exploration(tmp_path):
+    config = AgentConfig(db_path=str(tmp_path / "t.db"),
+                         supervision=SupervisionConfig(enabled=True))
+    agent = Agent(config, _SupFakeBackend([_text_response("ok")], [_sup_response("done")]),
+                  tools=DEFAULT_TOOLS)
+    traj = Trajectory(run_id="x", config=config)
+    traj.emit(EventType.turn_start, turn=1)
+    traj.emit(EventType.tool_call, turn=1, payload={"name": "read_file", "input": {"path": "a.py"}})
+    traj.emit(EventType.tool_call, turn=2, payload={"name": "read_file", "input": {"path": "a.py"}})
+    traj.emit(EventType.tool_call, turn=3, payload={"name": "grep", "input": {"path": "b.py", "pattern": "x"}})
+    traj.emit(EventType.tool_call, turn=4, payload={"name": "bash", "input": {"command": "echo hi"}})
+    traj.emit(EventType.tool_call, turn=5, payload={"name": "bash", "input": {"command": "echo hi"}})
+    s = agent._supervision_process_signals(traj)
+    assert s["unique_files"] == 2
+    assert s["last_new_file_turn"] == 3
+    assert s["repeated_commands"] == 1
+    assert s["unique_commands"] == 1
+    assert s["bash_calls"] == 2
+
+
+def test_supervision_input_includes_exploration(tmp_path):
+    config = AgentConfig(db_path=str(tmp_path / "t.db"),
+                         supervision=SupervisionConfig(enabled=True))
+    agent = Agent(config, _SupFakeBackend([_text_response("ok")], [_sup_response("done")]),
+                  tools=DEFAULT_TOOLS)
+    traj = Trajectory(run_id="x", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "TASK-ABC", "workdir": str(tmp_path),
+        "system_prompt": "", "config": {}, "tools": [],
+    })
+    traj.emit(EventType.turn_start, turn=1)
+    traj.emit(EventType.tool_call, turn=1, payload={"name": "read_file", "input": {"path": "a.py"}})
+    text = agent._supervision_input(traj, 6, "periodic")
+    assert "探索:" in text
+    assert "重复 0 次" in text

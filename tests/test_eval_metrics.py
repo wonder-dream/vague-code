@@ -83,6 +83,21 @@ def test_error_calls_and_permission_denies() -> None:
     assert m.denied_tools == ["bash"]
 
 
+def test_supervision_events_counted() -> None:
+    evs = [
+        _ev(EventType.supervision, 6, {"mode": "periodic", "assessment": "on_track", "usage": {}}),
+        _ev(EventType.supervision, 12, {"mode": "periodic", "assessment": "stuck", "usage": {}}),
+        _ev(EventType.supervision, 12, {"mode": "final", "assessment": None, "usage": {}}),
+        _ev(EventType.supervision, 18, {"mode": "periodic", "assessment": "stuck", "usage": {}}),
+        _ev(EventType.supervision, 18, {"mode": "periodic", "assessment": "on_track", "usage": {}}),
+    ]
+    m = metrics_from_events(evs)
+    assert m.supervision_calls == 5
+    assert dict(m.supervision_assessments) == {"on_track": 2, "stuck": 2}
+    d = m.to_dict()
+    assert d["supervision_assessments"] == {"on_track": 2, "stuck": 2}
+
+
 def test_tool_counts() -> None:
     evs = [
         _tool("read_file", {"path": "a.py"}, 1),

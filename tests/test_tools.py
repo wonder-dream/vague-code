@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.tools import DEFAULT_TOOLS
+from src.agent.tools import DEFAULT_TOOLS, _is_test_command, _summarize_test_output
 
 
 # ── helpers ──────────────────────────────────────────────────────
@@ -671,3 +671,52 @@ def test_bash_chcp_command_not_doubled(tmp_path):
         assert "hello" in result2
     finally:
         tmod.subprocess.Popen = orig_popen
+
+
+# ── bash 测试结果结构化（plans/0018 #5） ───────────────────────────────
+
+def test_is_test_command():
+    assert _is_test_command("python -m pytest tests/test_x.py")
+    assert _is_test_command("pytest")
+    assert _is_test_command("python -m unittest test_x")
+    assert _is_test_command("make test")
+    assert not _is_test_command("echo hello")
+    assert not _is_test_command("python run.py")
+    assert not _is_test_command("")
+
+
+def test_summarize_pytest_pass():
+    out = _summarize_test_output(
+        "collected 3 items\n...\n3 passed in 0.5s", "", 0)
+    assert out == "[test] PASS (3 passed)"
+
+
+def test_summarize_pytest_failed():
+    out = _summarize_test_output(
+        "1 passed, 1 failed in 0.5s", "", 1)
+    assert out == "[test] FAIL (1 failed)"
+
+
+def test_summarize_pytest_error_on_stderr():
+    out = _summarize_test_output(
+        "", "ERROR: 2 errors in 1.0s", 1)
+    assert out == "[test] FAIL (2 error)"
+
+
+def test_summarize_fallback_exit_code():
+    assert _summarize_test_output("nothing here", "", 0) == "[test] PASS (exit 0)"
+    assert _summarize_test_output("nothing here", "", 3) == "[test] FAIL (exit 3)"
+
+
+def test_bash_appends_test_verdict(tmp_path):
+    ws = _ws(tmp_path)
+    handler = DEFAULT_TOOLS["bash"].bind(str(ws))
+    result = handler({"command": "echo pytest && echo \"2 passed in 1s\""})
+    assert "[test] PASS (2 passed)" in result
+
+
+def test_bash_non_test_command_no_verdict(tmp_path):
+    ws = _ws(tmp_path)
+    handler = DEFAULT_TOOLS["bash"].bind(str(ws))
+    result = handler({"command": "echo hello"})
+    assert "[test]" not in result
