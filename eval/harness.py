@@ -252,15 +252,18 @@ def _force_remove(p: Path) -> None:
         raise RuntimeError(f"cannot remove stale workdir: {p}")
 
 
-def _set_workdir(task: dict, base_dir: str, use_fake: bool = False) -> str:
+def _set_workdir(task: dict, base_dir: str, use_fake: bool = False, cell: EvalCell | None = None) -> str:
     """Clone repo at base_commit into workdir (fake 模式跳过克隆，用临时空目录).
 
+    workdir 按 instance + cell 隔离（U5 修复）：并行评测时不同 cell 互不
+    干扰，避免 _force_remove/clone 互删目录导致 checkout failed。
     缓存优先（eval/.cache/repos/<repo>__<commit>.tar.gz）：预热一次后
     480 runs 免重复 clone，且 GitHub 网络抖动免疫。
     """
     repo_url = f"https://github.com/{task['repo']}.git"
     commit = task["base_commit"]
-    workdir = str(Path(base_dir) / task["instance_id"])
+    suffix = f"__{cell_label(cell)}" if cell is not None else ""
+    workdir = str(Path(base_dir) / f"{task['instance_id']}{suffix}")
 
     if use_fake:
         Path(workdir).mkdir(parents=True, exist_ok=True)
@@ -273,7 +276,7 @@ def _set_workdir(task: dict, base_dir: str, use_fake: bool = False) -> str:
     cached = REPO_CACHE / f"{venv_key(task)}.tar.gz"
     if cached.exists():
         import tarfile
-        tmp_dir = Path(base_dir) / f".restore_{task['instance_id']}"
+        tmp_dir = Path(base_dir) / f".restore_{task['instance_id']}{suffix}"
         try:
             shutil.rmtree(tmp_dir, ignore_errors=True)
             with tarfile.open(cached, "r:gz") as t:
@@ -356,7 +359,7 @@ def run_eval(
                 continue
 
             try:
-                workdir = _set_workdir(task, workdir_base, use_fake=use_fake)
+                workdir = _set_workdir(task, workdir_base, use_fake=use_fake, cell=cell)
             except Exception as e:
                 results.append(TaskResult(
                     instance_id=instance_id, cell=cell,

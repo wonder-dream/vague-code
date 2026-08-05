@@ -8,6 +8,7 @@ from src.agent.concurrency import (
     ResourceScope,
     ScopeType,
     _extract_scope,
+    _normalize_path,
     _pattern_prefix,
     _scopes_conflict,
     execute_concurrent,
@@ -221,6 +222,92 @@ def test_schedule_two_writes_same_file() -> None:
     ]
     groups = schedule(calls, "/ws")
     assert len(groups) >= 2  # same path write → conflict → separate groups
+
+
+# ── P0 回归：根级 glob / 全库 grep 必须与写操作冲突 ─────────────────────
+
+def test_scope_glob_root_pattern_is_workspace() -> None:
+    call = ToolUseBlock(id="c1", name="glob", input={"pattern": "**/*.py"})
+    s = _extract_scope(call, "/ws")
+    assert s.scope_type == ScopeType.WORKSPACE
+    assert s.op_type == OpType.READ
+
+
+def test_scope_grep_no_path_is_workspace() -> None:
+    call = ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"})
+    s = _extract_scope(call, "/ws")
+    assert s.scope_type == ScopeType.WORKSPACE
+    assert s.op_type == OpType.READ
+
+
+def test_schedule_root_glob_conflicts_with_write() -> None:
+    calls = [
+        ToolUseBlock(id="c1", name="glob", input={"pattern": "**/*.py"}),
+        ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "x"}),
+    ]
+    groups = schedule(calls, "/ws")
+    assert len(groups) == 2
+
+
+def test_schedule_full_grep_conflicts_with_write() -> None:
+    calls = [
+        ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"}),
+        ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "x"}),
+    ]
+    groups = schedule(calls, "/ws")
+    assert len(groups) == 2
+
+
+def test_schedule_two_full_greps_still_concurrent() -> None:
+    calls = [
+        ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"}),
+        ToolUseBlock(id="c2", name="grep", input={"pattern": "FIXME"}),
+    ]
+    groups = schedule(calls, "/ws")
+    assert len(groups) == 1
+
+
+# ── P1 回归：Windows 路径大小写归一化 ───────────────────────────────────
+
+def test_normalize_path_case_platform() -> None:
+    import os
+    if os.name == "nt":
+        assert _normalize_path("SRC/A.PY") == _normalize_path("src/a.py")
+    else:
+        assert _normalize_path("SRC/A.PY") != _normalize_path("src/a.py")
+
+
+def test_schedule_case_insensitive_conflict_on_windows() -> None:
+    import os
+    calls = [
+        ToolUseBlock(id="c1", name="read_file", input={"path": "SRC/A.PY"}),
+        ToolUseBlock(id="c2", name="write_file", input={"path": "src/a.py", "content": "x"}),
+    ]
+    groups = schedule(calls, "/ws")
+    if os.name == "nt":
+        assert len(groups) == 2
+    else:
+        assert len(groups) == 1
+
+
+# ── P2 回归：超时后立即返回 ─────────────────────────────────────────────
+
+def test_execute_timeout_returns_promptly(tmp_path, monkeypatch) -> None:
+    import time
+    monkeypatch.setattr("src.agent.concurrency._CONCURRENT_TIMEOUT", 0.1)
+    calls = [ToolUseBlock(id="c1", name="bash", input={"command": "sleep"})]
+
+    def slow_handler(_: dict) -> str:
+        time.sleep(2)
+        return "late"
+
+    t0 = time.monotonic()
+    results = execute_concurrent(calls, {"bash": slow_handler}, str(tmp_path))
+    elapsed = time.monotonic() - t0
+    assert len(results) == 1
+    assert results[0].is_error
+    assert "超时" in results[0].content
+    assert elapsed < 1.0  # 修复前 with 块会等待慢任务完成（~2s）
 
 
 # ── execute_concurrent ──────────────────────────────────────────────────────

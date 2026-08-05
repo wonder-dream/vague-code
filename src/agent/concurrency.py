@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
@@ -48,7 +49,10 @@ def _pattern_prefix(pattern: str) -> str:
 
 
 def _normalize_path(path: str) -> str:
-    return path.replace("\\", "/")
+    p = path.replace("\\", "/")
+    # Windows 文件系统大小写不敏感：归一化为小写，避免 read "SRC/A.PY" 与
+    # write "src/a.py" 指向同一文件却被判为不冲突的竞态。
+    return p.lower() if os.name == "nt" else p
 
 
 def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
@@ -75,11 +79,17 @@ def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
 
     if name == "glob":
         pattern = inp.get("pattern", "")
-        prefix = _pattern_prefix(pattern)
+        prefix = _normalize_path(_pattern_prefix(pattern))
+        if not prefix:
+            # 根级模式（**/*.py、*.py）覆盖整个工作区 → 视为 WORKSPACE
+            return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.READ)
         return ResourceScope(path=prefix, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     if name == "grep":
         path = _normalize_path(inp.get("path") or "")
+        if not path:
+            # 未指定搜索目录 → 扫整个工作区 → 视为 WORKSPACE
+            return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.READ)
         return ResourceScope(path=path, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     if name == "code_search":
@@ -172,9 +182,10 @@ def execute_concurrent(
                     )
                 continue
 
-        with ThreadPoolExecutor(max_workers=max(1, min(len(group), 4))) as executor:
-            future_map: dict[Future, str] = {}
-            group_failed = False
+        executor = ThreadPoolExecutor(max_workers=max(1, min(len(group), 4)))
+        future_map: dict[Future, str] = {}
+        group_failed = False
+        try:
             for call in group:
                 handler = handlers.get(call.name)
                 if handler is None:
@@ -210,6 +221,9 @@ def execute_concurrent(
                             content=f"[超过 {_CONCURRENT_TIMEOUT} 秒超时]",
                             is_error=True,
                         )
+        finally:
+            # 超时后立即返回，不等待后台任务（原 with 块会隐式 shutdown(wait=True)）
+            executor.shutdown(wait=False, cancel_futures=True)
 
         if group_failed:
             failed_scopes.extend(g_scopes)
