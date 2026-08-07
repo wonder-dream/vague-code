@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — 2026-08-07
+
+### Added
+
+- **10 题全量基线 + 消融实验完成**（78 runs，$25.08）：核心层 10 实例 × k3 pass^3 达标 **8/10（80%）**；消融层 8 实例 × 3 单变量关闭配置 × k2——关 RepoMap 零损失（16/16）、关压缩 15/16、关并发 14/16，三变量整体无显著消融效应（损失集中在 21612 单题）
+- **监督全量复验**（ADR-0020 标准 4/5）：stagnant 1.3%、监督增量 6.8%，双达标
+- **压缩结论定案**（87 runs 累计）：40 轮任务仅触发 stale_snip，microcompact/structured_snip/auto_compact/truncate 零触发，五层流水线后半段在短任务集无收益
+
+### Changed
+
+- 评测报告链：`runs/eval/results_20260807-{135536,161222,162351}.json` + `b10_p{1,2,3}.md` + `b10_baseline_report.md`；handoff `docs/handoff/2026-08-07-xclaw-baseline-complete.md`
+
 ## [Unreleased] — 2026-08-04
 
 ### Added
