@@ -44,7 +44,7 @@ class TestSubprocessArgs:
 
     def test_no_args_errors(self):
         """xcode with no args — parser.error about missing task."""
-        result = _run()
+        result = _run(env={"DEEPSEEK_API_KEY": "sk-fake"})
         assert result.returncode == 2  # argparse parser.error
         # The project's .env may provide a key, so message may vary.
         # But without --resume and no task positional, parser.error fires
