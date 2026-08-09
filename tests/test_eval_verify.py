@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -13,6 +15,14 @@ from eval.verify import (
     reset_workdir,
     verify_run,
 )
+
+
+def _rmtree(d: Path) -> None:
+    """强制删除测试工作区：Windows 上 .git 内对象文件是只读的，普通 rmtree 会 PermissionError。"""
+    def onerror(fn, path, _exc):
+        os.chmod(path, 0o777)
+        fn(path)
+    shutil.rmtree(d, onerror=onerror)
 
 APP = "def add(a, b):\n    return a + b\n"
 TEST_BASE = "from app import add\n\ndef test_add():\n    assert add(1, 2) == 3\n"
@@ -93,8 +103,7 @@ def test_apply_and_reset_test_files() -> None:
         reset_test_files(d, parse_test_paths(TEST_PATCH))
         assert TEST_BASE == (d / "test_app.py").read_text(encoding="utf-8")
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 def test_reset_test_files_ignores_patch_added_files(tmp_path: Path) -> None:
@@ -116,8 +125,7 @@ def test_reset_test_files_removes_agent_created_untracked() -> None:
         reset_test_files(d, ["test_extra.py"])
         assert not (d / "test_extra.py").exists()
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 # ── diff_empty / reset_workdir（P0-2） ───────────────────────────────────
@@ -130,8 +138,7 @@ def test_diff_empty_true_on_clean() -> None:
         (d / "app.py").write_text("x\n", encoding="utf-8")
         assert diff_empty(d) is False
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 def test_reset_workdir_removes_changes_and_untracked() -> None:
@@ -144,8 +151,7 @@ def test_reset_workdir_removes_changes_and_untracked() -> None:
         assert (d / "app.py").read_text(encoding="utf-8") == APP
         assert not (d / "junk.txt").exists()
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 # ── verify_run（P0-1） ───────────────────────────────────────────────────
@@ -160,8 +166,7 @@ def test_verify_no_diff(monkeypatch) -> None:
                         "PASS_TO_PASS": []}, d, env)
         assert r.verified is False and r.reason == "no_diff"
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 class _Run:
@@ -184,8 +189,7 @@ def test_verify_f2p_pass(monkeypatch) -> None:
                         "PASS_TO_PASS": ["test_app.py::test_add"]}, d, _env(d))
         assert r.verified is True and r.f2p_pass is True and r.p2p_pass is True
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 def test_verify_f2p_fail(monkeypatch) -> None:
@@ -202,15 +206,10 @@ def test_verify_f2p_fail(monkeypatch) -> None:
         assert r.verified is False and r.f2p_pass is False
         assert r.reason == "f2p:fail"
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)
 
 
 # ── P2P 批量模式（大 P2P 集一次跑完，省 pytest 启动开销） ──────────────
-
-class _BatchProc:
-    pass
-
 
 def test_run_node_ids_batch_marks_all_on_failure(monkeypatch) -> None:
     d = Path("tmp_vr_batch")
@@ -231,5 +230,4 @@ def test_run_node_ids_batch_marks_all_on_failure(monkeypatch) -> None:
         assert len(runs) == 3
         assert all(r.state == "fail" for r in runs)
     finally:
-        import shutil
-        shutil.rmtree(d, ignore_errors=True)
+        _rmtree(d)

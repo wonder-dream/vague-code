@@ -720,3 +720,79 @@ def test_bash_non_test_command_no_verdict(tmp_path):
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
     result = handler({"command": "echo hello"})
     assert "[test]" not in result
+
+# ?? ?? python -c ?????ADR-0029? ?????????????????????????????????????
+
+def test_multiline_python_c_runs_from_temp_script(tmp_path) -> None:
+    import tempfile
+    from src.agent.tools import _bash_factory
+
+    handler = _bash_factory(str(tmp_path))
+    code = (
+        "import sys\n"
+        "for i in range(3):\n"
+        "    print('line', i)\n"
+        "print('done')"
+    )
+    result = handler({"command": f"python -c \"{code}\""})
+    assert "line 0" in result
+    assert "line 1" in result
+    assert "line 2" in result
+    assert "done" in result
+    leftovers = list(Path(tempfile.gettempdir()).glob("xclaw_*.py"))
+    assert not leftovers, "temp scripts must be cleaned up"
+
+
+def test_single_line_python_c_untouched(tmp_path) -> None:
+    from src.agent.tools import _bash_factory
+
+    handler = _bash_factory(str(tmp_path))
+    result = handler({"command": "python -c \"print('ok')\""})
+    assert "ok" in result
+
+
+def test_grep_excludes_noise_dirs(tmp_path) -> None:
+    from src.agent.tools import _grep_factory
+
+    (tmp_path / "runs").mkdir()
+    (tmp_path / "runs" / "log.jsonl").write_text("secret_token_abc", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text("secret_token_abc", encoding="utf-8")
+    g = _grep_factory(str(tmp_path))
+    out = g({"pattern": "secret_token_abc", "path": "."})
+    assert "runs" not in out
+    assert "a.py" in out
+
+
+def test_bash_interactive_confirm_gets_guidance(tmp_path) -> None:
+    from src.agent.tools import _bash_factory
+
+    ws = tmp_path
+    (ws / "tmp_a.py").write_text("print(1)", encoding="utf-8")
+    (ws / "tmp_b.py").write_text("print(2)", encoding="utf-8")
+    (ws / "src").mkdir()
+    handler = _bash_factory(str(ws))
+    result = handler(
+        {"command": "del tmp_a.py tmp_b.py 2>&1; python -m ruff check src"}
+    )
+    assert "交互确认提示" in result
+    assert "del /Q" in result or "os.remove" in result
+    assert "cmd.exe" in result or ";" in result
+
+
+def test_bash_normal_output_unaffected(tmp_path) -> None:
+    from src.agent.tools import _bash_factory
+
+    handler = _bash_factory(str(tmp_path))
+    result = handler({"command": "echo hello"})
+    assert "交互确认提示" not in result
+    assert "hello" in result
+
+
+def test_bash_spec_describes_cmd_exe() -> None:
+    from src.agent.tools import BASH_SPEC
+
+    assert "cmd.exe" in BASH_SPEC.description
+    assert "&" in BASH_SPEC.description
+    assert "del /Q" in BASH_SPEC.description
+

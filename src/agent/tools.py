@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 import sys
+import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
-import re
 
 from src.agent.ir import ToolSpec
 
@@ -17,10 +20,34 @@ MAX_GREP_FILE_SIZE = 5_242_880
 MAX_GREP_FILE_COUNT = 500
 MAX_GREP_RESULTS = 500
 
+# 搜索工具排除的噪音目录（避免命中构建产物/轨迹日志等）
+EXCLUDED_DIRS = {
+    ".git", ".venv", "__pycache__", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", "node_modules", "runs", ".opencode", ".idea", ".agent",
+}
+
+
+def _path_in_excluded_dir(path: Path, root: Path) -> bool:
+    """True when any ancestor directory of `path` is in the exclusion set."""
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return True
+    return any(part in EXCLUDED_DIRS for part in rel.parts[:-1])
+
 # bash 工具测试结果结构化（plans/0018）：测试类命令的判定关键词。
 # 与 eval/metrics.py 的 TEST_KEYWORDS 同源但独立（产品层不依赖 eval 层）。
 TEST_COMMAND_KEYWORDS = ("pytest", "unittest", "nose", "tox", "make test",
                          "run_tests", "run-tests", "nosetests")
+
+# cmd.exe 交互确认提示（del/rmdir 等对目录或通配符参数会弹出确认）。
+# stdin 为 DEVNULL 时读到 EOF 视为拒绝，命令静默失败（rc=1）。
+INTERACTIVE_CONFIRM_PATTERNS = (
+    r"are you sure \(y/n\)",
+    r"是否确认\(y/n\)",
+    r"确认删除",
+    r"confirm.*\(y/n\)",
+)
 
 
 def _is_test_command(command: str) -> bool:
@@ -55,6 +82,25 @@ def _summarize_test_output(stdout: str, stderr: str, exit_code: int) -> str:
     if exit_code == 0:
         return "[test] PASS (exit 0)"
     return f"[test] FAIL (exit {exit_code})"
+
+
+def _looks_like_interactive_confirm(stdout: str, exit_code: int) -> bool:
+    """True when the command output shows cmd.exe 交互确认提示（stdin 无输入 → 静默拒绝）。"""
+    if exit_code == 0 and not re.search(r"退出码|error", stdout, re.I):
+        return False
+    return any(re.search(p, stdout, re.I) for p in INTERACTIVE_CONFIRM_PATTERNS)
+
+
+def _interactive_confirm_guidance(command: str, stdout: str, exit_code: int) -> str:
+    return (
+        f"退出码: {exit_code}\n标准输出:\n{stdout}\n\n"
+        f"[交互确认提示] 命令触发了 cmd.exe 的删除确认（stdin 无输入被拒绝）。"
+        f"本工具无法应答交互式提示。请改用非交互写法：\n"
+        f"  - 删除文件：del /Q <文件>（或 python -c \"import os; os.remove(...)\"）\n"
+        f"  - 删除目录：rmdir /S /Q <目录>（或 shutil.rmtree）\n"
+        f"  - 注意本环境是 Windows cmd.exe：命令分隔符用 &，不用 ;\n"
+    )
+
 
 @dataclass
 class Tool:
@@ -133,6 +179,8 @@ def _glob_factory(workdir: str) -> Callable[[dict], str]:
         result = []
         for path in root.glob(pattern):
             if not path.resolve().is_relative_to(root):
+                continue
+            if _path_in_excluded_dir(path, root):
                 continue
             result.append(str(path.relative_to(root)))
 
@@ -217,6 +265,8 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
         file_count = 0
         item_count = 0
         for file in search_root.rglob(include):
+            if _path_in_excluded_dir(file, root):
+                continue
             item_count += 1
             # Safety: stop after scanning too many items (deep directory trees)
             if item_count > 5000:
@@ -249,6 +299,32 @@ def _grep_factory(workdir: str) -> Callable[[dict], str]:
 
 def _bash_factory(workdir: str) -> Callable[[dict], str]:
     root = Path(workdir).resolve()
+
+    _MULTILINE_PY_C = re.compile(r'python\s+-c\s+"([\s\S]*?)"')
+
+    def _rewrite_multiline_python(command: str) -> tuple[Path, str] | None:
+        """Rewrite `python -c "multi-line code"` to a temp script file.
+
+        cmd.exe corrupts -c arguments containing newlines (rc=0, no output);
+        running the code from a .py file preserves newlines. Returns
+        (script_path, rewritten_command), or None when not affected.
+        """
+        if "\n" not in command:
+            return None
+        match = _MULTILINE_PY_C.search(command)
+        if match is None:
+            return None
+        code = match.group(1)
+        if "\n" not in code:
+            return None
+        script = Path(tempfile.gettempdir()) / f"xclaw_{uuid.uuid4().hex[:8]}.py"
+        try:
+            script.write_text(code, encoding="utf-8")
+        except OSError:
+            return None
+        rewritten = command[: match.start()] + f'python "{script}"' + command[match.end():]
+        return script, rewritten
+
     def handler(input: dict) -> str:
         command = input.get("command", "")
         if command is None:
@@ -262,46 +338,67 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
                 raise PermissionError(f"Path traversal detected: {cwd_str}")
         else:
             cwd_path = root
+        temp_script: Path | None = None
+        rewritten = _rewrite_multiline_python(command)
+        if rewritten is not None:
+            temp_script, command = rewritten
         if not command.strip().lower().startswith("chcp"):
             command = f"chcp 65001 >nul & {command}"
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=cwd_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.DEVNULL,
-        )
+        env = dict(os.environ)
+        env["PYTHONUTF8"] = "1"
+        env["PYTHONUNBUFFERED"] = "1"
         try:
-            stdout_bytes, stderr_bytes = proc.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            if sys.platform == "win32":
-                subprocess.run(
-                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                    capture_output=True, timeout=5,
-                )
-            stdout_bytes, stderr_bytes = proc.communicate()
-            stdout_partial = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
-            stderr_partial = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
-            raise RuntimeError(
-                f"命令在 30 秒后超时\n"
-                f"部分标准输出:\n{stdout_partial}\n"
-                f"部分标准错误输出:\n{stderr_partial}"
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=cwd_path,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,
+                env=env,
             )
-        stdout = stdout_bytes.decode("utf-8", errors="replace")
-        stderr = stderr_bytes.decode("utf-8", errors="replace")
-        if len(stdout) > MAX_OUTPUT:
-            stdout = stdout[:MAX_OUTPUT] + f"\n\n[... 标准输出截断于 {MAX_OUTPUT:_} 字节]"
-        if len(stderr) > MAX_OUTPUT:
-            stderr = stderr[:MAX_OUTPUT] + f"\n\n[... 标准错误输出截断于 {MAX_OUTPUT:_} 字节]"
-        # 测试结果结构化（plans/0018 #5）：测试类命令追加 PASS/FAIL 行，给模型明确信号
-        if _is_test_command(command):
-            verdict = _summarize_test_output(stdout, stderr, proc.returncode)
-            if verdict:
-                return (f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n"
-                        f"标准错误输出:\n{stderr}\n\n{verdict}")
-        return f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n标准错误输出:\n{stderr}"
+            try:
+                stdout_bytes, stderr_bytes = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired as exc:
+                if sys.platform == "win32":
+                    subprocess.run(
+                        ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                        capture_output=True, timeout=5,
+                    )
+                proc.kill()
+                try:
+                    stdout_bytes, stderr_bytes = proc.communicate(timeout=10)
+                except subprocess.TimeoutExpired:
+                    stdout_bytes = exc.stdout or b""
+                    stderr_bytes = exc.stderr or b""
+                stdout_partial = stdout_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
+                stderr_partial = stderr_bytes.decode("utf-8", errors="replace")[:MAX_OUTPUT]
+                raise RuntimeError(
+                    f"命令在 30 秒后超时\n"
+                    f"部分标准输出:\n{stdout_partial}\n"
+                    f"部分标准错误输出:\n{stderr_partial}"
+                )
+            stdout = stdout_bytes.decode("utf-8", errors="replace")
+            stderr = stderr_bytes.decode("utf-8", errors="replace")
+            if len(stdout) > MAX_OUTPUT:
+                stdout = stdout[:MAX_OUTPUT] + f"\n\n[... 标准输出截断于 {MAX_OUTPUT:_} 字节]"
+            if len(stderr) > MAX_OUTPUT:
+                stderr = stderr[:MAX_OUTPUT] + f"\n\n[... 标准错误输出截断于 {MAX_OUTPUT:_} 字节]"
+            # 测试结果结构化（plans/0018 #5）：测试类命令追加 PASS/FAIL 行，给模型明确信号
+            if _is_test_command(command):
+                verdict = _summarize_test_output(stdout, stderr, proc.returncode)
+                if verdict:
+                    return (f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n"
+                            f"标准错误输出:\n{stderr}\n\n{verdict}")
+            if _looks_like_interactive_confirm(stdout, proc.returncode):
+                return _interactive_confirm_guidance(command, stdout, proc.returncode)
+            return f"退出码: {proc.returncode}\n标准输出:\n{stdout}\n标准错误输出:\n{stderr}"
+        finally:
+            if temp_script is not None:
+                try:
+                    temp_script.unlink(missing_ok=True)
+                except OSError:
+                    pass
     return handler
 
 READ_FILE_SPEC = ToolSpec(
@@ -372,7 +469,10 @@ GREP_SPEC = ToolSpec(
 
 BASH_SPEC = ToolSpec(
     name="bash",
-    description="执行 shell 命令并返回其输出。分别返回标准输出和标准错误输出。",
+    description="执行 shell 命令并返回其输出。分别返回标准输出和标准错误输出。"
+                "注意：本环境是 Windows，实际使用 cmd.exe（非 bash）。"
+                "多命令分隔符用 &（不用 ;）；删除文件用 del /Q 或 python os.remove，"
+                "删除目录用 rmdir /S /Q，避免交互确认提示导致失败。",
     parameters={
         "type": "object",
         "properties": {
