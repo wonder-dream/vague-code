@@ -22,12 +22,30 @@ class _FakeAgent:
     def __init__(self, events) -> None:
         self._events = events
         self.rules: list[tuple[str, str]] = []
+        self.calls: list[str] = []
+        self.ended = 0
 
     def start(self, task: str, workdir: str):
+        self.calls.append("start")
         self.task = task
         self.workdir = workdir
         self.handle = _FakeHandle(self._events)
         return self.handle
+
+    def chat(self, task: str, workdir: str):
+        self.calls.append("chat")
+        self.task = task
+        self.workdir = workdir
+        self.handle = _FakeHandle(self._events)
+        return self.handle
+
+    def chat_resume(self, run_id: str):
+        self.calls.append(f"chat_resume:{run_id}")
+        self.handle = _FakeHandle(self._events)
+        return self.handle
+
+    def chat_end(self) -> None:
+        self.ended += 1
 
     def add_permission_rule(self, pattern: str, action: str = "allow") -> None:
         self.rules.append((pattern, action))
@@ -67,16 +85,16 @@ class _Event:
         self.kind = kind
 
 
-def test_run_task_forwards_events_and_completion() -> None:
+def test_run_chat_forwards_events_and_completion() -> None:
     events = [_Event("message_start"), _Event("text_delta")]
     runner, callbacks = _make_runner(events)
-    runner.run_task("hello", "/tmp/work")
+    runner.run_chat("hello", "/tmp/work")
     assert len(callbacks["on_stream_event"]) == 2
     assert callbacks["on_run_complete"] and callbacks["on_run_complete"][0][0] is not None
     assert callbacks["on_error"] == []
 
 
-def test_run_task_cancelled_closes_handle_without_completion() -> None:
+def test_run_chat_cancelled_closes_handle_without_completion() -> None:
     events = [_Event("a"), _Event("b"), _Event("c")]
 
     def stop_after_first() -> bool:
@@ -90,23 +108,23 @@ def test_run_task_cancelled_closes_handle_without_completion() -> None:
         return captured["agent"]
 
     runner._new_agent = new_agent
-    runner.run_task("t", ".")
+    runner.run_chat("t", ".")
     assert len(callbacks["on_stream_event"]) == 1
     assert callbacks["on_run_complete"] == []
     assert captured["agent"].handle.closed is True
 
 
-def test_run_task_error_forwarded() -> None:
+def test_run_chat_error_forwarded() -> None:
     def boom():
         raise RuntimeError("backend exploded")
 
     runner, callbacks = _make_runner([])
     runner._new_agent = boom
-    runner.run_task("t", ".")
+    runner.run_chat("t", ".")
     assert callbacks["on_error"] and callbacks["on_error"][0][0] == "RuntimeError: backend exploded"
 
 
-def test_run_task_applies_permission_rules() -> None:
+def test_run_chat_applies_permission_rules() -> None:
     runner, _ = _make_runner([], permission_rules=[
         {"pattern": "bash echo", "action": "allow"},
     ])
@@ -117,8 +135,56 @@ def test_run_task_applies_permission_rules() -> None:
         return captured["agent"]
 
     runner._new_agent = new_agent
-    runner.run_task("t", ".")
+    runner.run_chat("t", ".")
     assert captured["agent"].rules == [("bash echo", "allow")]
+
+
+def test_run_chat_reuses_agent_across_turns() -> None:
+    runner, _ = _make_runner([])
+    captured: dict = {}
+
+    def new_agent():
+        captured["agent"] = _FakeAgent([])
+        return captured["agent"]
+
+    runner._new_agent = new_agent
+    runner.run_chat("first", ".")
+    runner.run_chat("second", ".")
+    assert captured["agent"].calls == ["chat", "chat"]
+
+
+def test_chat_resume_uses_same_agent() -> None:
+    runner, _ = _make_runner([])
+    captured: dict = {}
+
+    def new_agent():
+        captured["agent"] = _FakeAgent([])
+        return captured["agent"]
+
+    runner._new_agent = new_agent
+    runner.run_chat("first", ".")
+    runner.chat_resume("run123")
+    assert captured["agent"].calls == ["chat", "chat_resume:run123"]
+
+
+def test_end_chat_clears_agent() -> None:
+    runner, _ = _make_runner([])
+    captured: dict = {}
+
+    def new_agent():
+        captured["agent"] = _FakeAgent([])
+        return captured["agent"]
+
+    runner._new_agent = new_agent
+    runner.run_chat("first", ".")
+    runner.end_chat()
+    assert captured["agent"].ended == 1
+    assert runner._agent is None
+    first_agent = captured["agent"]
+    runner.run_chat("second", ".")
+    assert runner._agent is not None
+    assert runner._agent is not first_agent
+    assert captured["agent"].ended == 0
 
 
 def test_permission_callback_wired() -> None:

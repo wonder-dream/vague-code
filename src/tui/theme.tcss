@@ -25,6 +25,49 @@ ScrollBarCorner {
     overflow: hidden;
 }
 
+#app-body {
+    height: 1fr;
+    layout: horizontal;
+}
+
+#sidebar {
+    width: 28;
+    min-width: 28;
+    max-width: 28;
+    background: #101114;
+    border-right: solid #303238;
+    padding: 1 0;
+}
+
+#sidebar.hidden {
+    display: none;
+}
+
+.sidebar-header {
+    color: #6e6d72;
+    text-style: bold;
+    padding: 0 1 0 1;
+    margin: 0 0 1 0;
+}
+
+#session-rows {
+    height: auto;
+}
+
+#session-rows > Static {
+    padding: 0 1 0 1;
+    color: #cfd1d6;
+}
+
+#session-rows > Static:hover {
+    background: #1c1e24;
+}
+
+#session-rows > Static.sidebar-selected {
+    background: #23252b;
+    text-style: bold;
+}
+
 .topbar {
     height: auto;
     min-height: 2;
@@ -165,6 +208,65 @@ ScrollBarCorner {
 
 .streaming {
     border-left: solid #7bba55;
+}
+
+/* Confirm dialog (ADR-0027) */
+ConfirmDialog {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.55);
+}
+
+#confirm-dialog {
+    padding: 1 2;
+    border: round #4a4c54;
+    width: 60;
+    max-width: 90%;
+    height: auto;
+    background: #16161a;
+}
+
+#confirm-title {
+    text-style: bold;
+    margin: 0 0 1 0;
+    padding: 0 0 1 0;
+    border-bottom: solid #303238;
+}
+
+.confirm-message {
+    color: #cfd1d6;
+    margin: 0 0 1 0;
+    padding: 0 0 0 1;
+    border-left: solid #4a4c54;
+    background: #101114;
+}
+
+#confirm-buttons {
+    height: 3;
+    align: center middle;
+    padding: 0;
+}
+
+#confirm-buttons Button {
+    margin: 0 0 0 1;
+    border: none;
+    background: #23252b;
+    color: #cfd1d6;
+}
+
+#confirm-buttons Button:focus {
+    text-style: bold;
+    background: #3a3d45;
+    color: #ffffff;
+}
+
+#confirm-buttons Button.error {
+    background: #4b2f2f;
+    color: #e07c7c;
+}
+
+#confirm-buttons Button.error:focus {
+    background: #5c3a3a;
+    color: #ffb4b4;
 }
 
 /* Permission dialog */

@@ -1,7 +1,9 @@
 """Mixin activity-animation, turn-metrics, and tool-activity tests."""
 
-import time
+import tempfile
 from pathlib import Path
+
+import time
 
 from src.agent.config import AgentConfig
 from src.agent.ir import (
@@ -17,20 +19,17 @@ from src.tui.app import XClawApp
 from src.tui.state import TuiEntryKind
 from src.tui.views.activity import tool_activity_line_text, turn_metrics_text
 
-_TUI_THEME = str(Path(__file__).resolve().parents[2] / "src" / "tui" / "theme.tcss")
-
 
 class _FakeBackend:
     name = "fake"
 
 
 class _FakeTrajectory:
+    run_id = "fake-run"
     events = []
 
 
 class _TestApp(XClawApp):
-    CSS_PATH = _TUI_THEME
-
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []
@@ -42,7 +41,7 @@ class _TestApp(XClawApp):
 
 
 def _make_app(**kwargs) -> _TestApp:
-    config = AgentConfig(model="m", max_turns=2, db_path="runs/runs.db")
+    config = AgentConfig(model="m", max_turns=2, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
     config.permission_mode = "normal"
     return _TestApp(config=config, backend=_FakeBackend(), workdir=".", **kwargs)
 
@@ -119,13 +118,14 @@ async def test_working_animation_stops_on_run_complete() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("t")
-        app._on_stream_event(ThinkingStart(), token)
-        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
+        app._on_stream_event(ThinkingStart(), state, token)
+        app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
         await pilot.pause(0.1)
         assert app._working_timer is not None
         assert app._activity_text.startswith("thinking")
-        app._on_run_complete(_FakeTrajectory(), token)
+        app._on_run_complete(_FakeTrajectory(), state, token)
         await pilot.pause(0.4)
         assert app._activity_text.startswith("done")
         assert app._working_timer is None
@@ -137,10 +137,11 @@ async def test_working_animation_stops_on_agent_error() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("t")
-        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
+        app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
         await pilot.pause(0.1)
-        app._on_agent_error("boom", token)
+        app._on_agent_error("boom", state, token)
         await pilot.pause(0.4)
         assert app._activity_text.startswith("error")
         assert app._working_timer is None
@@ -150,8 +151,9 @@ async def test_reset_stream_state_stops_timers() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("t")
-        app._on_stream_event(ThinkingDelta(delta="planning"), token)
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
+        app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
         await pilot.pause(0.1)
         timer = app._working_timer
         assert timer is not None
@@ -167,21 +169,24 @@ async def test_full_tool_flow_updates_activity_and_transcript() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("run")
-        app._on_stream_event(ThinkingStart(), token)
-        app._on_stream_event(ThinkingDelta(delta="plan"), token)
-        app._on_stream_event(ToolUseStart(id="t1", name="bash"), token)
-        app._on_stream_event(ArgsDelta(id="t1", delta='{"command": "ls"}'), token)
+        state = app._begin_new_session("run")
+        token = app._begin_session_turn(state)
+        app._on_stream_event(ThinkingStart(), state, token)
+        app._on_stream_event(ThinkingDelta(delta="plan"), state, token)
+        app._on_stream_event(ToolUseStart(id="t1", name="bash"), state, token)
+        app._on_stream_event(ArgsDelta(id="t1", delta='{"command": "ls"}'), state, token)
         await pilot.pause()
         assert app._activity_animation_kind == "running"
         assert app._activity_timer is not None
-        app._on_tool_result("t1", "bash", "ok", False, token)
+        app._on_tool_result("t1", "bash", "ok", False, state, token)
         await pilot.pause()
         assert app._activity_text.startswith("thinking")
-        app._on_stream_event(TextDelta(delta="done."), token)
-        app._on_stream_event(MessageEnd(stop_reason=StopReason.end_turn), token)
+        app._on_stream_event(TextDelta(delta="done."), state, token)
+        app._on_stream_event(MessageEnd(stop_reason=StopReason.end_turn), state, token)
         await pilot.pause(0.4)
         tool_entry = [e for e in app.transcript.entries if e.kind == TuiEntryKind.TOOL]
         assert tool_entry and tool_entry[0].status == "success"
         assert app.transcript.recent_tools[-1].name == "bash"
-        app._on_run_complete(_FakeTrajectory(), token)
+        app._on_run_complete(_FakeTrajectory(), state, token)
+
+

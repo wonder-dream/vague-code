@@ -1,7 +1,7 @@
 """Command routing, picker, input history, Esc interrupt, and guidance tests."""
 
+import tempfile
 from pathlib import Path
-
 
 from src.agent.config import AgentConfig
 from src.agent.ir import (
@@ -21,32 +21,29 @@ from src.tui.picker import (
     visible_picker_window,
 )
 
-_TUI_THEME = str(Path(__file__).resolve().parents[2] / "src" / "tui" / "theme.tcss")
-
 
 class _FakeBackend:
     name = "fake"
 
 
 class _FakeTrajectory:
+    run_id = "fake-run"
     events = []
 
 
 class _TestApp(XClawApp):
-    CSS_PATH = _TUI_THEME
-
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []
 
-    def _run_agent_worker(self, text: str, token: int) -> None:
+    def _run_agent_worker(self, state, text: str, token: int) -> None:
         for ev in self._fake_events:
-            self.call_from_thread(self._on_stream_event, ev, token)
-        self.call_from_thread(self._on_run_complete, _FakeTrajectory(), token)
+            self.call_from_thread(self._on_stream_event, ev, state, token)
+        self.call_from_thread(self._on_run_complete, _FakeTrajectory(), state, token)
 
 
 def _make_app(**kwargs) -> _TestApp:
-    config = AgentConfig(model="m", max_turns=2, db_path="runs/runs.db")
+    config = AgentConfig(model="m", max_turns=2, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
     config.permission_mode = "normal"
     kwargs.setdefault("workdir", ".")
     return _TestApp(config=config, backend=_FakeBackend(), **kwargs)
@@ -162,16 +159,19 @@ def test_input_history_recall() -> None:
     assert app._recall_input_history("down") == ""
 
 
-def test_escape_interrupt_requires_two_presses() -> None:
+async def test_escape_interrupt_requires_two_presses() -> None:
     app = _make_app()
-    token = app._begin_chat_turn("t")
-    assert app._chat_busy is True
-    assert app._handle_escape_interrupt() is True  # first press: hint only
-    assert app._chat_busy is True
-    assert app._is_current_chat_turn(token) is True
-    assert app._handle_escape_interrupt() is True  # second press: interrupt
-    assert app._chat_busy is False
-    assert app._is_current_chat_turn(token) is False
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
+        assert state.busy is True
+        assert app._handle_escape_interrupt() is True  # first press: hint only
+        assert state.busy is True
+        assert state.active_token == token
+        assert app._handle_escape_interrupt() is True  # second press: interrupt
+        assert state.busy is False
+        assert state.active_token is None
 
 
 def test_escape_focuses_input_when_idle() -> None:
@@ -181,12 +181,15 @@ def test_escape_focuses_input_when_idle() -> None:
 
 # ── guidance ─────────────────────────────────────────────────────────────────
 
-def test_guidance_queue_drain() -> None:
+async def test_guidance_queue_drain() -> None:
     app = _make_app()
-    app._add_guidance("please continue")
-    app._add_guidance("focus on tests")
-    assert app._drain_guidance() == ["please continue", "focus on tests"]
-    assert app._drain_guidance() == []
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session("g")
+        app._add_guidance(state, "please continue")
+        app._add_guidance(state, "focus on tests")
+        assert app._drain_guidance(state) == ["please continue", "focus on tests"]
+        assert app._drain_guidance(state) == []
 
 
 async def test_submit_while_busy_queues_guidance() -> None:
@@ -200,7 +203,7 @@ async def test_submit_while_busy_queues_guidance() -> None:
         await pilot.pause(0.1)
         app._submit_task("guidance note")
         await pilot.pause()
-        assert app._has_pending_guidance() or "guidance note" in [e.body for e in app.transcript.entries]
+        assert "guidance note" in [e.body for e in app.transcript.entries]
         await pilot.pause(0.5)
 
 
@@ -210,12 +213,13 @@ async def test_thinking_folds_long_content_and_toggles() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("t")
-        app._on_stream_event(ThinkingStart(), token)
-        app._on_stream_event(ThinkingDelta(delta="word " * 100), token)
-        app._on_stream_event(ThinkingEnd(signature=None), token)
-        app._on_stream_event(TextDelta(delta="answer"), token)
-        app._on_stream_event(MessageEnd(stop_reason=StopReason.end_turn), token)
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
+        app._on_stream_event(ThinkingStart(), state, token)
+        app._on_stream_event(ThinkingDelta(delta="word " * 100), state, token)
+        app._on_stream_event(ThinkingEnd(signature=None), state, token)
+        app._on_stream_event(TextDelta(delta="answer"), state, token)
+        app._on_stream_event(MessageEnd(stop_reason=StopReason.end_turn), state, token)
         await pilot.pause(0.4)
         reasoning = [e for e in app.transcript.entries if e.kind.value == "reasoning"]
         assert reasoning and reasoning[0].status == "folded"
@@ -225,3 +229,77 @@ async def test_thinking_folds_long_content_and_toggles() -> None:
         assert reasoning[0].body.startswith("word")
         app.action_toggle_thinking()
         assert reasoning[0].status == "folded"
+
+
+# ── /compact ─────────────────────────────────────────────────────────────────
+
+def test_compact_command_routes_to_action() -> None:
+    app = _make_app()
+    result = app._command_handler.handle("/compact")
+    assert result.handled
+    assert result.action == {"type": "compact_session"}
+
+
+async def test_compact_without_session_prompts() -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._handle_slash("/compact")
+        await pilot.pause()
+        assert any(
+            e.body == "当前没有活动会话。"
+            for e in app.transcript.entries
+        )
+
+
+async def test_compact_busy_session_rejected(monkeypatch) -> None:
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session("t")
+        app._begin_session_turn(state)
+        assert state.busy is True
+        app._handle_slash("/compact")
+        await pilot.pause()
+        assert any(
+            "运行中" in e.body
+            for e in app.transcript.entries
+        )
+
+
+async def test_compact_reclaims_tokens(monkeypatch) -> None:
+    class _CompactAgent:
+        def compact_chat(self):
+            return {"before": 50_000, "after": 5_000, "affected": 6}
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session("t")
+        state.agent = _CompactAgent()  # type: ignore[assignment]
+        app._handle_slash("/compact")
+        await pilot.pause(0.3)
+        assert any(
+            "已压缩：回收 43.9k tokens" in e.body
+            for e in app.transcript.entries
+        )
+
+
+async def test_compact_failure_reports_error(monkeypatch) -> None:
+    class _BoomAgent:
+        def compact_chat(self):
+            raise RuntimeError("boom")
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session("t")
+        state.agent = _BoomAgent()  # type: ignore[assignment]
+        app._handle_slash("/compact")
+        await pilot.pause(0.3)
+        assert any(
+            "压缩失败" in e.body
+            for e in app.transcript.entries
+        )
+
+
