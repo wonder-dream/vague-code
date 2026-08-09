@@ -34,7 +34,8 @@ def test_encode_assistant_thinking_only_does_not_crash():
     body = encode_request([msg])
     asst_msgs = [m for m in body["messages"] if m["role"] == "assistant"]
     assert len(asst_msgs) == 1
-    assert asst_msgs[0].get("content") == ""
+    assert asst_msgs[0].get("content") is None
+    assert asst_msgs[0].get("reasoning_content") == "hmm..."
 
 
 def test_encode_text_only():
@@ -72,7 +73,8 @@ def test_encode_assistant_with_tool_use():
     }
 
 
-def test_encode_assistant_thinking_dropped():
+def test_encode_assistant_thinking_returned_as_reasoning_content():
+    """DeepSeek 思考模式 + 工具调用：reasoning_content 必须回传并参与计费。"""
     messages = [
         Message(role="assistant", content=[
             ThinkingBlock(text="I should read the file"),
@@ -80,8 +82,9 @@ def test_encode_assistant_thinking_dropped():
         ]),
     ]
     body = encode_request(messages)
-    assert body["messages"][0].get("content") is None
-    assert len(body["messages"][0]["tool_calls"]) == 1
+    asst = body["messages"][0]
+    assert asst.get("reasoning_content") == "I should read the file"
+    assert len(asst["tool_calls"]) == 1
 
 
 def test_encode_user_tool_results():

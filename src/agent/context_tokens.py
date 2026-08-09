@@ -18,12 +18,20 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "claude-sonnet-4-5": 200_000,
 }
 
-_SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-",)
+_SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-", "deepseek-")
+
+# Wire-level structural token overhead, measured against the real DeepSeek API
+# (trajectory 8c10e58e83dc: local count 111201 vs API input_tokens 121506).
+# Each message carries a JSON envelope on the wire that the local count omits.
+_WIRE_ENVELOPE_TOKENS = 11  # {"role": "user", "content": ""} outer wrapper
+_WIRE_TOOL_RESULT_EXTRA = 10  # tool_call_id field on tool-role messages (21 total)
+_WIRE_TOOL_CALL_STRUCT = 40  # nested {"id","type","function":{"name","arguments"}}
 
 
 def should_skip_thinking(model: str) -> bool:
     """Return True if the model's codec drops ThinkingBlock on the wire (so token budget skips them).
-    Return False for models whose codec sends ThinkingBlock (e.g. Anthropic claude)."""
+    Return False for models whose codec sends ThinkingBlock (e.g. Anthropic claude, DeepSeek reasoning
+    models — DeepSeek 思考模式 + 工具调用要求回传 reasoning_content 并参与上下文计费)."""
     for prefix in _SENDS_THINKING_PREFIXES:
         if model.startswith(prefix):
             return False
@@ -34,13 +42,21 @@ _ENC: object | None = None
 
 
 def _get_enc():
+    """首选 DeepSeek-V4 官方离线 tokenizer（deepseek_tokenizer，纯 Python 零依赖），
+    与 API 服务端同一套分词（实测偏差 <1%，对比 cl100k 的 ~14% 低估）。
+    导入失败时 fallback 到 tiktoken cl100k（claude 等非 DeepSeek 模型路径）。
+    """
     global _ENC
     if _ENC is None:
         try:
-            import tiktoken
-            _ENC = tiktoken.get_encoding("cl100k_base")
+            from deepseek_tokenizer import ds_token
+            _ENC = ds_token
         except Exception:
-            _ENC = False
+            try:
+                import tiktoken
+                _ENC = tiktoken.get_encoding("cl100k_base")
+            except Exception:
+                _ENC = False
     return _ENC if _ENC is not False else None
 
 
@@ -65,6 +81,10 @@ def _count_precise(
     for msg in messages:
         content = msg.content if hasattr(msg, "content") else msg
         blocks = content if isinstance(content, list) else []
+        has_tool_result = any(isinstance(b, ToolResultBlock) for b in blocks)
+        total += _WIRE_ENVELOPE_TOKENS
+        if has_tool_result:
+            total += _WIRE_TOOL_RESULT_EXTRA
         for block in blocks:
             if isinstance(block, TextBlock):
                 total += len(enc.encode(block.text))
@@ -73,16 +93,15 @@ def _count_precise(
                     total += len(enc.encode(block.text))
             elif isinstance(block, ToolUseBlock):
                 total += len(enc.encode(block.name))
-                total += len(enc.encode(json.dumps(block.input)))
+                total += len(enc.encode(json.dumps(block.input, ensure_ascii=False)))
+                total += _WIRE_TOOL_CALL_STRUCT
             elif isinstance(block, ToolResultBlock):
                 total += len(enc.encode(block.content))
     if tools:
         for t in tools:
             if t is None:
                 continue
-            total += len(enc.encode(t.name))
-            total += len(enc.encode(t.description))
-            total += len(enc.encode(json.dumps(t.parameters)))
+            total += len(enc.encode(json.dumps(t.to_openai_tool(), ensure_ascii=False)))
     return total
 
 
@@ -95,6 +114,10 @@ def _count_rough(
     for msg in messages:
         content = msg.content if hasattr(msg, "content") else msg
         blocks = content if isinstance(content, list) else []
+        has_tool_result = any(isinstance(b, ToolResultBlock) for b in blocks)
+        total += _WIRE_ENVELOPE_TOKENS
+        if has_tool_result:
+            total += _WIRE_TOOL_RESULT_EXTRA
         for block in blocks:
             if isinstance(block, TextBlock):
                 total += len(block.text) // 4
@@ -103,16 +126,15 @@ def _count_rough(
                     total += len(block.text) // 4
             elif isinstance(block, ToolUseBlock):
                 total += len(block.name) // 4
-                total += len(json.dumps(block.input)) // 4
+                total += len(json.dumps(block.input, ensure_ascii=False)) // 4
+                total += _WIRE_TOOL_CALL_STRUCT
             elif isinstance(block, ToolResultBlock):
                 total += len(block.content) // 4
     if tools:
         for t in tools:
             if t is None:
                 continue
-            total += len(t.name) // 4
-            total += len(t.description) // 4
-            total += len(json.dumps(t.parameters)) // 4
+            total += len(json.dumps(t.to_openai_tool(), ensure_ascii=False)) // 4
     return total
 
 

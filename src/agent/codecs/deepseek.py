@@ -70,6 +70,7 @@ def encode_request(
 def _encode_assistant(msg: Message) -> dict[str, Any]:
     text_parts: list[str] = []
     tool_calls: list[dict[str, Any]] = []
+    reasoning_parts: list[str] = []
     for block in msg.content:
         if isinstance(block, TextBlock):
             text_parts.append(block.text)
@@ -80,7 +81,8 @@ def _encode_assistant(msg: Message) -> dict[str, Any]:
                 "function": {"name": block.name, "arguments": _dump_json(block.input)},
             })
         elif isinstance(block, ThinkingBlock):
-            continue
+            # DeepSeek 思考模式 + 工具调用：reasoning_content 必须回传并参与上下文计费
+            reasoning_parts.append(block.text)
         else:
             raise ValueError(f"unexpected block in assistant message: {type(block).__name__}")
     result: dict[str, Any] = {"role": "assistant"}
@@ -88,7 +90,9 @@ def _encode_assistant(msg: Message) -> dict[str, Any]:
         result["content"] = "".join(text_parts)
     if tool_calls:
         result["tool_calls"] = tool_calls
-    if not text_parts and not tool_calls:
+    if reasoning_parts:
+        result["reasoning_content"] = "".join(reasoning_parts)
+    if not text_parts and not tool_calls and not reasoning_parts:
         result["content"] = ""
     return result
 
