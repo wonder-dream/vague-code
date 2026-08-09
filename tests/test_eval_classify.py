@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eval.classify import CLASS_LABELS, classify, render_chart, write_chart
+from eval.classify import classify
 from eval.matrix import EvalCell, TaskResult
 
 
@@ -73,20 +73,3 @@ def test_supervisor_done_with_verified_false_is_test_fail() -> None:
 
 def test_supervisor_done_with_verified_true_is_success() -> None:
     assert classify(_r(True, run_end="supervisor_done")) == "success"
-
-
-def test_distribution_and_chart() -> None:
-    results = [_r(True), _r(False, reason="no_diff"),
-               _r(False, reason="f2p:fail"), _r(False, reason="no_diff")]
-    dist = {k: v for k, v in __import__("eval.classify", fromlist=["distribution"]).distribution(results).items()}
-    assert dist["no_diff"] == 2
-    lines = render_chart(results)
-    assert any(CLASS_LABELS["no_diff"] in line for line in lines)
-    assert "总 runs: 4" in lines
-
-
-def test_write_chart(tmp_path) -> None:
-    results = [_r(True), _r(False, reason="no_diff")]
-    out = tmp_path / "dist.md"
-    write_chart(results, out)
-    assert "失败模式分布" in out.read_text(encoding="utf-8")

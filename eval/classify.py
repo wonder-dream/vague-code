@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from collections import Counter
-from pathlib import Path
-
 from eval.matrix import TaskResult
 
 # ── 八类失败（见 0016 计划 P2）───────────────────────────────────────────
@@ -19,8 +16,6 @@ CLASS_LABELS: dict[str, str] = {
     "gaming_tests": "钻空子型伪完成",
     "stagnant": "停滞(监督判停)",
 }
-
-FAILURE_CLASSES = [k for k in CLASS_LABELS if k != "success"]
 
 
 def classify(r: TaskResult, injected: bool = False) -> str:
@@ -60,30 +55,3 @@ def classify(r: TaskResult, injected: bool = False) -> str:
         return "test_fail"          # 有产出但测试没过（改错或环境）
 
     return "misunderstood"          # 兜底：end_turn 但挂了
-
-
-def distribution(results: list[TaskResult]) -> dict[str, int]:
-    return dict(Counter(classify(r) for r in results))
-
-
-def render_chart(results: list[TaskResult]) -> list[str]:
-    """失败模式分布图（EDD 决策闭环：哪类占比高 → 该修压缩/权限/提示词）。"""
-    counts = distribution(results)
-    total = len(results) or 1
-    lines = ["# 失败模式分布", "",
-             f"总 runs: {len(results)}", ""]
-    lines.append("| 类别 | 数量 | 占比 | 条形 |")
-    lines.append("|------|------|------|------|")
-    for cls in [c for c in [*FAILURE_CLASSES, "success"] if c in counts]:
-        n = counts[cls]
-        pct = n / total * 100
-        bar = "█" * max(1, round(pct / 5))
-        lines.append(f"| {CLASS_LABELS[cls]} | {n} | {pct:.0f}% | {bar} |")
-    return lines
-
-
-def write_chart(results: list[TaskResult], out: str | Path) -> None:
-    p = Path(out)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(render_chart(results)), encoding="utf-8")
-    print(f"Failure distribution chart saved to {out}")

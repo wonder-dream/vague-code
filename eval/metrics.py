@@ -6,7 +6,7 @@ import subprocess
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from eval.verify import parse_test_paths
 
@@ -180,44 +180,6 @@ def diff_touches_test_files(workdir: str | Path, test_patch: str) -> list[str]:
     return sorted(touched)
 
 
-# ── 轨迹匹配分级（gold）────────────────────────────────────────────────
-
-def _lcs(a: list[str], b: list[str]) -> int:
-    if not a or not b:
-        return 0
-    prev = [0] * (len(b) + 1)
-    for x in a:
-        cur = [0] * (len(b) + 1)
-        for j, y in enumerate(b, 1):
-            cur[j] = prev[j - 1] + 1 if x == y else max(prev[j], cur[j - 1])
-        prev = cur
-    return prev[-1]
-
-
-def _is_subsequence(sub: list[str], seq: list[str]) -> bool:
-    it = iter(seq)
-    return all(x in it for x in sub)
-
-
-def trajectory_grade(actual: list[str], gold: list[str]) -> tuple[str, float, float]:
-    """分级：exact / ordered（按序子序列，允许插入）/ any / miss。
-
-    返回 (grade, precision, recall)，precision/recall 基于 LCS 有序覆盖。
-    """
-    lcs = _lcs(actual, gold)
-    precision = lcs / len(actual) if actual else 0.0
-    recall = lcs / len(gold) if gold else 0.0
-    if actual == gold:
-        grade = "exact"
-    elif gold and _is_subsequence(gold, actual):
-        grade = "ordered"
-    elif gold and set(gold) <= set(actual):
-        grade = "any"
-    else:
-        grade = "miss"
-    return grade, round(precision, 3), round(recall, 3)
-
-
 GOLD_PATH = Path("eval") / "gold_trajectories.json"
 
 
@@ -229,22 +191,3 @@ def load_gold(path: str | Path = GOLD_PATH) -> dict[str, list[str]]:
     if not isinstance(data, list):
         return {}
     return {d["instance_id"]: d["tools"] for d in data if "tools" in d}
-
-
-# ── 汇总（供 reporter）─────────────────────────────────────────────────
-
-def aggregate(metrics: Iterable[RunMetrics]) -> dict[str, float | int]:
-    lst = list(metrics)
-    n = len(lst) or 1
-    return {
-        "runs": len(lst),
-        "avg_tool_total": round(sum(m.tool_total for m in lst) / n, 1),
-        "avg_redundant_reads": round(sum(m.redundant_reads for m in lst) / n, 1),
-        "avg_redundant_greps": round(sum(m.redundant_greps for m in lst) / n, 1),
-        "avg_error_calls": round(sum(m.error_calls for m in lst) / n, 1),
-        "read_before_edit_rate": round(
-            sum(m.read_before_edit_rate for m in lst) / n, 3),
-        "edit_then_test_rate": round(
-            sum(1 for m in lst if m.edit_then_test) / n, 3),
-        "permission_denies_total": sum(m.permission_denies for m in lst),
-    }

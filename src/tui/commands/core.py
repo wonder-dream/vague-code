@@ -36,9 +36,6 @@ class CompositeCommandHandler:
     def __init__(self, handlers: list[CommandHandler] | None = None) -> None:
         self._handlers: list[CommandHandler] = list(handlers or [])
 
-    def register(self, handler: CommandHandler) -> None:
-        self._handlers.append(handler)
-
     def handle(self, text: str) -> CommandResult:
         for handler in self._handlers:
             result = handler.handle(text)

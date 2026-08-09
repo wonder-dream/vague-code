@@ -4,8 +4,6 @@ from pathlib import Path
 
 from src.agent.context_rules import load_rules
 
-_RULES_FILENAME = ".agent/rules.md"
-
 
 def test_no_rules_returns_empty(tmp_path: Path) -> None:
     result = load_rules(str(tmp_path))

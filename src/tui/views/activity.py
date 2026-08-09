@@ -46,13 +46,6 @@ def format_elapsed_time(elapsed_seconds: float) -> str:
     return f"{minutes}m {seconds}s"
 
 
-def compact_tool_arguments(arguments) -> str:
-    if not arguments:
-        return ""
-    rendered = str(arguments)
-    return compact_tool_content(rendered, max_chars=120)
-
-
 def compact_tool_content(text: str, max_chars: int = 180) -> str:
     normalized = " ".join(text.split())
     if len(normalized) <= max_chars:

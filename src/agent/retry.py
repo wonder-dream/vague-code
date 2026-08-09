@@ -31,7 +31,6 @@ except ImportError:
 from src.agent.config import TransportConfig  # noqa: E402
 from src.agent.ir import (  # noqa: E402
     Message,
-    ModelResponse,
     StreamDisconnect,
     TextBlock,
     ThinkingBlock,
@@ -141,17 +140,3 @@ def estimate_input_tokens(messages: list[Message], tools: list[ToolSpec] | None 
     for tool in tools or []:
         total += len(json.dumps(tool.to_openai_tool(), ensure_ascii=False)) // 4 + 8
     return max(total, 1)
-
-
-def response_signature(resp: ModelResponse) -> dict:
-    return {
-        "stop_reason": resp.stop_reason.value,
-        "tools": [
-            {
-                "name": b.name,
-                "args_canonical": json.dumps(b.input, sort_keys=True, ensure_ascii=False),
-            }
-            for b in resp.message.content
-            if isinstance(b, ToolUseBlock)
-        ],
-    }

@@ -12,7 +12,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
-from src.tui.state import TuiEntryKind, TuiTranscript, TuiTranscriptEntry
+from src.tui.state import TuiEntryKind, TuiTranscriptEntry
 from src.tui.views.activity import tool_activity_line_text
 from src.tui.views.transcript import entry_markdown_text
 from src.tui.widgets.common import XClawMarkdown, _observe_markdown_update
@@ -38,7 +38,7 @@ class XClawViewMixin:
         "streaming": ("[>   ]", "[>>  ]", "[>>> ]", "[ >>>]", "[  >>]", "[   >]"),
     }
 
-    transcript: TuiTranscript
+    transcript: Any
     _chat_turn_token: int
     _chat_busy: bool
     _activity_text: str
@@ -77,10 +77,8 @@ class XClawViewMixin:
         self._stream_rendered_text = ""
         self._stream_flush_timer = None
         self._stream_markdown_update = None
-        self._stream_finalizations: dict[XClawMarkdown, object] = {}
         self._stream_finalized = False
         self._stream_segment_closed_for_tool = False
-        self._stream_reasoning_started = False
         self._stream_text_started = False
         self._reasoning_buffer = ""
         self._working_text = ""
@@ -367,14 +365,12 @@ class XClawViewMixin:
         self._stream_rendered_text = self._stream_text_buffer
         self._stream_finalized = True
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             update_result = widget.update(final_markdown)
             _observe_markdown_update(update_result)
             widget.set_selectable(True)
             return
-        completion = loop.create_future()
-        self._stream_finalizations[widget] = completion
 
         async def finalize() -> None:
             try:
@@ -382,12 +378,8 @@ class XClawViewMixin:
                     await pending_update
                 await widget.update(final_markdown)
                 widget.set_selectable(True)
-            except BaseException as error:
-                if not completion.done():
-                    completion.set_exception(error)
-            else:
-                if not completion.done():
-                    completion.set_result(None)
+            except BaseException:
+                pass
 
         self.run_worker(
             finalize(),

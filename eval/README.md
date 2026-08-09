@@ -27,8 +27,8 @@ EDD（Evaluation-Driven Development）评测体系，按 **P0 真验收 → P0.5
 | sympy/sympy | 17 | ✅ sanity gate 全过（2017 老题 py3.9 / 2020+ py3.11 按日期选版） |
 | sphinx-doc/sphinx | 2 | ✅（2023 用新依赖；2021 前按 `install_by_date` 用 Jinja2<3.1 等旧 pin） |
 | pytest-dev/pytest | 1 | ✅（src 布局 + `_pytest._version` 桩；parametrize id 版本敏感 → 剥参） |
-| scikit-learn / astropy | 10 | ❌ env_broken：C 扩展需 MSVC 编译，本机无；可在 Linux/CI 跑 |
-| sphinx-8721 | 1 | ❌ F2P 判别器在本环境不复现（env 行为差异） |
+
+> 已移除 `tasks.json` 中本机无法使用的题目（sanity gate 判定 env_broken）：scikit-learn/astropy 10 题（C 扩展需 MSVC 编译）、sphinx-8721（F2P 判别器在本环境不复现）。若在 Linux/CI 环境运行，可从 git 历史恢复这些实例。
 
 **策略**：不 editable 安装仓库本体（本机无 MSVC），只装依赖 wheel；`verify` 注入 `PYTHONPATH=<workdir>`（+ `src/` 若存在）让 import 命中任务源码；编译守卫用 `sysmodules` 桩（sitecustomize 注入）。
 
@@ -104,9 +104,7 @@ python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge
 
 ## 已知限制
 
-- **MSVC 编译依赖**：本机无 MSVC，scikit-learn / astropy（及 matplotlib 若入集）的 C 扩展无法源码构建 → env_broken。Linux/CI 或装有 Build Tools 的机器可跑（`REPO_SETUP` 切回 editable 构建即可）。
 - **pytest 任务 parametrize id 版本敏感**：SWE-bench 数据集的参数化 node id 由新版 pytest 生成，与任务 base_commit 的 pytest 版本可能不匹配（如 `test_skipif_reporting["hasattr(sys,'...]`）。已对 pytest-7432 剥离参数后缀（名字级稳定）；若新增 pytest 任务需同样处理。
-- **sphinx-8721**：F2P 判别器在本环境不复现（epub 行为随依赖版本变化），标 env_broken。
 - **对抗注入集（`adversarial_tasks.json`）**：任务已定义，harness 尚未支持 `task_type=adversarial` 的执行与拦截判定（P2 后续）。
 - **gold 轨迹**（`gold_trajectories.json`）：待人工按实际解标注 5-10 题后，`metrics.py` 的轨迹匹配分级/工具 P-R 才有参照。
 - **judge 人工一致性审计**：`python -m eval.judge --audit 20` 出样本 → 人工打分 → `--consistency` 计算（judge 与人类一致性数字待产出）。

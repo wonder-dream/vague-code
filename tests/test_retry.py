@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import random
 
 import httpx
@@ -21,9 +20,6 @@ from openai import (
 from src.agent.config import TransportConfig
 from src.agent.ir import (
     Message,
-    ModelResponse,
-    NormalizedUsage,
-    StopReason,
     TextBlock,
     ToolUseBlock,
 )
@@ -31,7 +27,6 @@ from src.agent.retry import (
     RetryPolicy,
     classify_llm_error,
     estimate_input_tokens,
-    response_signature,
 )
 
 
@@ -183,54 +178,3 @@ class TestEstimateInputTokens:
         tools = [ToolSpec(name="read_file", description="Read a file", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})]
         t = estimate_input_tokens(msgs, tools)
         assert t >= 4
-
-
-# ── response_signature ───────────────────────────────────────────────────────
-
-
-class TestResponseSignature:
-    def test_text_only(self):
-        resp = ModelResponse(
-            message=Message(role="assistant", content=[TextBlock(text="done")]),
-            stop_reason=StopReason.end_turn,
-            usage=NormalizedUsage(input_tokens=1, output_tokens=1),
-        )
-        sig = response_signature(resp)
-        assert sig["stop_reason"] == "end_turn"
-        assert sig["tools"] == []
-
-    def test_tool_use(self):
-        resp = ModelResponse(
-            message=Message(role="assistant", content=[
-                ToolUseBlock(id="c1", name="read_file", input={"path": "a.txt"}),
-                ToolUseBlock(id="c2", name="grep", input={"pattern": "TODO"}),
-            ]),
-            stop_reason=StopReason.tool_use,
-            usage=NormalizedUsage(input_tokens=5, output_tokens=3),
-        )
-        sig = response_signature(resp)
-        assert len(sig["tools"]) == 2
-        assert sig["tools"][0]["name"] == "read_file"
-        assert sig["tools"][0]["args_canonical"] == json.dumps({"path": "a.txt"}, sort_keys=True)
-
-    def test_signature_same_for_different_ids(self):
-        r1 = ModelResponse(
-            message=Message(role="assistant", content=[ToolUseBlock(id="x1", name="read", input={"path": "f.txt"})]),
-            stop_reason=StopReason.tool_use, usage=NormalizedUsage(1, 1),
-        )
-        r2 = ModelResponse(
-            message=Message(role="assistant", content=[ToolUseBlock(id="x2", name="read", input={"path": "f.txt"})]),
-            stop_reason=StopReason.tool_use, usage=NormalizedUsage(1, 1),
-        )
-        assert response_signature(r1) == response_signature(r2)
-
-    def test_signature_different_for_different_tools(self):
-        r1 = ModelResponse(
-            message=Message(role="assistant", content=[ToolUseBlock(id="c1", name="read", input={"path": "a.txt"})]),
-            stop_reason=StopReason.tool_use, usage=NormalizedUsage(1, 1),
-        )
-        r2 = ModelResponse(
-            message=Message(role="assistant", content=[ToolUseBlock(id="c2", name="read", input={"path": "b.txt"})]),
-            stop_reason=StopReason.tool_use, usage=NormalizedUsage(1, 1),
-        )
-        assert response_signature(r1) != response_signature(r2)

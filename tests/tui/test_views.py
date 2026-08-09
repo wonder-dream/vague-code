@@ -1,7 +1,6 @@
 from src.tui.state import TuiEntryKind, TuiTranscriptEntry
 from src.tui.views.activity import (
     activity_markup,
-    compact_tool_arguments,
     compact_tool_content,
     format_elapsed_time,
     truncate_activity_text,
@@ -52,11 +51,6 @@ def test_compact_tool_content() -> None:
     long = " ".join(str(i) for i in range(200))
     assert len(compact_tool_content(long)) == 180
     assert compact_tool_content(long).endswith("...")
-
-
-def test_compact_tool_arguments() -> None:
-    assert compact_tool_arguments(None) == ""
-    assert compact_tool_arguments({"k": 1}) == "{'k': 1}"
 
 
 # ── topbar ───────────────────────────────────────────────────────────────────

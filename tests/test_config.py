@@ -61,6 +61,5 @@ def test_max_turns_500_no_warning():
 
 
 def test_max_turns_above_fuse_warns():
-    import warnings
     with pytest.warns(UserWarning):
         AgentConfig(max_turns=501)

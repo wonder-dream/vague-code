@@ -8,7 +8,6 @@ from src.agent.trajectory import Event, EventType
 from eval.metrics import (
     diff_touches_test_files,
     metrics_from_events,
-    trajectory_grade,
 )
 
 
@@ -108,34 +107,6 @@ def test_tool_counts() -> None:
     assert m.tool_total == 3
     assert m.unique_tools == 2
     assert m.tool_counts["read_file"] == 2
-
-
-# ── 轨迹匹配分级 ────────────────────────────────────────────────────────
-
-def test_trajectory_grade_exact() -> None:
-    g, p, r = trajectory_grade(["read_file", "write_file"], ["read_file", "write_file"])
-    assert g == "exact" and p == 1.0 and r == 1.0
-
-
-def test_trajectory_grade_ordered_allows_insertions() -> None:
-    gold = ["read_file", "patch", "bash"]
-    actual = ["grep", "read_file", "glob", "patch", "read_file", "bash", "bash"]
-    g, p, r = trajectory_grade(actual, gold)
-    assert g == "ordered" and r == 1.0
-
-
-def test_trajectory_grade_any_order() -> None:
-    gold = ["read_file", "patch"]
-    actual = ["patch", "read_file"]
-    g, p, r = trajectory_grade(actual, gold)
-    assert g == "any"
-
-
-def test_trajectory_grade_miss() -> None:
-    gold = ["read_file", "patch", "bash"]
-    actual = ["glob", "grep"]
-    g, p, r = trajectory_grade(actual, gold)
-    assert g == "miss" and r == 0.0
 
 
 # ── diff 触碰测试文件（P0-3 / P2 钻空子） ────────────────────────────────

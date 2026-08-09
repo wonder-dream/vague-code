@@ -34,13 +34,6 @@ class TuiPickerState:
             return
         self.selected_index = max(0, min(len(self.items) - 1, self.selected_index + delta))
 
-    @property
-    def selected_item(self) -> TuiPickerItem | None:
-        if not self.items:
-            return None
-        index = max(0, min(self.selected_index, len(self.items) - 1))
-        return self.items[index]
-
 
 def visible_picker_window(
     items: list[TuiPickerItem], *, selected_index: int, limit: int

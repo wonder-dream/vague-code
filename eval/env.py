@@ -136,10 +136,6 @@ class EnvSpec:
     repo: str
     shims_dir: Path | None = None
 
-    @property
-    def pip(self) -> list[str]:
-        return [str(self.python), "-m", "pip"]
-
     def run(self, cmd: list[str], cwd: Path, timeout: int = 900) -> subprocess.CompletedProcess:
         return subprocess.run(
             cmd, cwd=str(cwd), capture_output=True, text=True,
