@@ -51,6 +51,7 @@ def topbar_markup(
     mode: str,
     cwd: str,
     width: int,
+    running_count: int = 0,
 ) -> str:
     """Render the full topbar row, truncating rightmost segments on narrow terms."""
     segments = [
@@ -60,6 +61,8 @@ def topbar_markup(
         _mode_markup(mode),
         f"[#6e6d72]{escape(cwd)}[/]",
     ]
+    if running_count > 0:
+        segments.append(f"[#7bba55]{running_count} running[/]")
     joined = SEPARATOR.join(segments)
     if _markup_width(joined) <= width:
         return joined

@@ -25,18 +25,23 @@ class PermissionDialog(ModalScreen[Decision]):
     optional feedback reason that is passed back to the model.
     """
 
-    def __init__(self, operation: Operation, *args, **kwargs):
+    def __init__(self, operation: Operation, *args, session_label: str = "", **kwargs):
         super().__init__(*args, **kwargs)
         self._op = operation
         self.always_allow: bool = False
+        self._session_label = session_label
+
+    def on_mount(self) -> None:
+        self.query_one("#perm-allow", Button).focus()
 
     def compose(self) -> ComposeResult:
         op = self._op
         accent = tool_accent(op.tool_name)
         glyph = tool_glyph(op.tool_name)
+        session_tag = f"  [#303238]会话 {escape(self._session_label)}[/]" if self._session_label else ""
         header = (
             f"[{accent} bold]{escape(glyph)} {escape(permission_title(op.tool_name))}[/]"
-            f"  [#808185]{escape(op.tool_name)}[/]"
+            f"  [#808185]{escape(op.tool_name)}[/]{session_tag}"
         )
         with Vertical(id="permission-dialog"):
             yield Static(header, id="perm-header")

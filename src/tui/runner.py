@@ -4,6 +4,10 @@ The XClaw Agent runs in a worker thread (`@work(thread=True)`); this runner owns
 the agent lifecycle and forwards every event to UI-side callbacks, which the app
 installs per turn. Kept free of Textual imports so it can be unit-tested with a
 fake agent.
+
+Since ADR-0025 the runner keeps a single Agent instance across turns: chat
+messages continue the same session (context continuity), and resume routes by
+run mode (chat_resume for chat sessions, resume for task checkpoints).
 """
 
 from __future__ import annotations
@@ -18,9 +22,9 @@ from src.agent.permission import Decision, Operation
 
 
 class XClawAgentRunner:
-    """Runs `Agent.start()` in the caller's thread and forwards events.
+    """Runs `Agent.chat()` / `Agent.resume()` in the caller's thread and forwards events.
 
-    The app must install the callbacks below before calling `run_task`; all of
+    The app must install the callbacks below before calling `run_chat`; all of
     them may be invoked from the agent thread (call_from_thread as needed).
     """
 
@@ -50,26 +54,36 @@ class XClawAgentRunner:
         self._is_cancelled = is_cancelled
         self.permission_rules = permission_rules or []
         self.guidance_provider = guidance_provider
+        self._agent: Agent | None = None
 
-    def run_task(self, task: str, workdir: str) -> None:
-        """Run a task to completion (blocking; call from the worker thread)."""
+    def run_chat(self, task: str, workdir: str) -> None:
+        """Run one chat turn (blocking; call from the worker thread)."""
         try:
-            agent = self._new_agent()
-            self._wire_agent(agent)
-            handle = agent.start(task, workdir)
-            for ev in handle:
-                if self._is_cancelled and self._is_cancelled():
-                    handle.close()
-                    return
-                if self.on_stream_event is not None:
-                    self.on_stream_event(ev)
-            if self.on_run_complete is not None:
-                self.on_run_complete(handle.trajectory)
+            handle = self._ensure_agent().chat(task, workdir)
+            self._iterate(handle)
         except Exception as exc:
             if self.on_error is not None:
                 self.on_error(f"{type(exc).__name__}: {exc}")
+
+    def chat_resume(self, run_id: str) -> None:
+        """Resume a chat session (blocking; call from the worker thread)."""
+        try:
+            handle = self._ensure_agent().chat_resume(run_id)
+            self._iterate(handle)
+        except Exception as exc:
+            if self.on_error is not None:
+                self.on_error(f"{type(exc).__name__}: {exc}")
+
+    def end_chat(self) -> None:
+        if self._agent is not None:
+            try:
+                self._agent.chat_end()
+            except Exception:
+                pass
+            self._agent = None
+
     def resume(self, traj) -> None:
-        """Resume a previous run (blocking; call from the worker thread)."""
+        """Resume a previous task run (blocking; call from the worker thread)."""
         try:
             agent = self._new_agent()
             self._wire_agent(agent)
@@ -79,6 +93,23 @@ class XClawAgentRunner:
         except Exception as exc:
             if self.on_error is not None:
                 self.on_error(f"{type(exc).__name__}: {exc}")
+
+    def _iterate(self, handle) -> None:
+        for ev in handle:
+            if self._is_cancelled and self._is_cancelled():
+                handle.close()
+                return
+            if self.on_stream_event is not None:
+                self.on_stream_event(ev)
+        if self.on_run_complete is not None:
+            self.on_run_complete(handle.trajectory)
+
+    def _ensure_agent(self) -> Agent:
+        if self._agent is None:
+            agent = self._new_agent()
+            self._wire_agent(agent)
+            self._agent = agent
+        return self._agent
 
     def _new_agent(self) -> Agent:
         return Agent(self._config, self._backend)

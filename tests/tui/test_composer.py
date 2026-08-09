@@ -1,12 +1,11 @@
 """Composer key handling and exit/copy behavior tests."""
 
+import tempfile
 from pathlib import Path
 
 from src.agent.config import AgentConfig
 from src.tui.app import XClawApp
 from src.tui.widgets.common import ComposerTextArea
-
-_TUI_THEME = str(Path(__file__).resolve().parents[2] / "src" / "tui" / "theme.tcss")
 
 
 class _FakeBackend:
@@ -14,11 +13,11 @@ class _FakeBackend:
 
 
 class _TestApp(XClawApp):
-    CSS_PATH = _TUI_THEME
+    pass
 
 
 def _make_app(**kwargs) -> _TestApp:
-    config = AgentConfig(model="m", max_turns=2, db_path="runs/runs.db")
+    config = AgentConfig(model="m", max_turns=2, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
     config.permission_mode = "normal"
     return _TestApp(config=config, backend=_FakeBackend(), workdir=".", **kwargs)
 
@@ -104,3 +103,5 @@ async def test_ctrl_c_with_selection_copies_textarea() -> None:
         await pilot.pause(0.1)
         assert copied == ["selec"]
         assert app.return_value is None
+
+

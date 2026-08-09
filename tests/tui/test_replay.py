@@ -7,15 +7,13 @@ from src.agent.trajectory import EventType, Trajectory
 from src.tui.app import XClawApp
 from src.tui.state import TuiEntryKind
 
-_TUI_THEME = str(Path(__file__).resolve().parents[2] / "src" / "tui" / "theme.tcss")
-
 
 class _FakeBackend:
     name = "fake"
 
 
 class _ReplayApp(XClawApp):
-    CSS_PATH = _TUI_THEME
+    pass
 
 
 def _build_trajectory(db_path: str, run_id: str = "run1") -> Trajectory:

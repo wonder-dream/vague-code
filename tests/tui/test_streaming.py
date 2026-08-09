@@ -1,5 +1,6 @@
 """App-level streaming tests: drive XClawApp events with a stub agent worker."""
 
+import tempfile
 from pathlib import Path
 
 from src.agent.config import AgentConfig
@@ -18,33 +19,30 @@ from src.agent.ir import (
 from src.tui.app import XClawApp
 from src.tui.state import TuiEntryKind
 
-_TUI_THEME = str(Path(__file__).resolve().parents[2] / "src" / "tui" / "theme.tcss")
-
 
 class _FakeBackend:
     name = "fake"
 
 
 class _FakeTrajectory:
+    run_id = "fake-run"
     events = []
 
 
 class _StreamTestApp(XClawApp):
-    CSS_PATH = _TUI_THEME
-
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []
         self._trajectory_events = []
 
-    def _run_agent_worker(self, text: str, token: int) -> None:
+    def _run_agent_worker(self, state, text: str, token: int) -> None:
         for ev in self._fake_events:
-            self.call_from_thread(self._on_stream_event, ev, token)
-        self.call_from_thread(self._on_run_complete, _FakeTrajectory(), token)
+            self.call_from_thread(self._on_stream_event, ev, state, token)
+        self.call_from_thread(self._on_run_complete, _FakeTrajectory(), state, token)
 
 
 def _make_app(**kwargs) -> _StreamTestApp:
-    config = AgentConfig(model="test-model", max_turns=2, db_path="runs/runs.db")
+    config = AgentConfig(model="test-model", max_turns=2, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
     config.permission_mode = "normal"
     return _StreamTestApp(config=config, backend=_FakeBackend(), workdir=".", **kwargs)
 
@@ -112,7 +110,8 @@ async def test_tool_call_and_result_update_entry() -> None:
         await pilot.pause()
         app._submit_task("run")
         await pilot.pause()
-        app._on_tool_result("t1", "bash", "ok output", False, app._chat_turn_token)
+        state = app._sessions.current
+        app._on_tool_result("t1", "bash", "ok output", False, state, state.active_token)
         await pilot.pause(0.4)
         tool_entries = [e for e in app.transcript.entries if e.kind == TuiEntryKind.TOOL]
         assert tool_entries and tool_entries[0].status == "success"
@@ -123,9 +122,10 @@ async def test_stale_events_dropped_after_interrupt() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        token = app._begin_chat_turn("t")
+        state = app._begin_new_session("t")
+        token = app._begin_session_turn(state)
         app._interrupt_chat_turn()
-        app._on_stream_event(TextDelta(delta="stale"), token)
+        app._on_stream_event(TextDelta(delta="stale"), state, token)
         await pilot.pause(0.4)
         assert not any(e.kind == TuiEntryKind.ASSISTANT for e in app.transcript.entries)
 
@@ -135,3 +135,5 @@ async def test_task_autostart_on_mount() -> None:
     async with app.run_test() as pilot:
         await pilot.pause(0.4)
         assert any(e.kind == TuiEntryKind.USER and e.body == "auto task" for e in app.transcript.entries)
+
+

@@ -34,6 +34,7 @@ class ConversationView(VerticalScroll):
         return _plain_static(entry_plain_text(entry), classes=classes)
 
     def render_transcript(self) -> None:
+        """Rebuild all entry widgets from the current transcript (session switch)."""
         self.remove_children()
         for entry in self.transcript.entries:
             entry.widget = None

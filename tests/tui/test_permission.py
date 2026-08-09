@@ -74,11 +74,23 @@ class TestPermissionDialog:
         body = dialog.query_one("#perm-body")
         assert "ls" in str(body.render())
 
-    async def test_y_approves(self, pilot) -> None:
-        dialog = pilot.app.query_one(PermissionDialog)
-        dialog.on_key(type("K", (), {"key": "y"})())
-        await pilot.pause()
-        assert pilot.app.pop_screen is not None or True
+    async def test_y_approves(self) -> None:
+        op = Operation(tool_name="bash", input={"command": "ls"}, command="ls")
+        decision_holder = {}
+
+        class _HostApp(App):
+            def on_mount(self) -> None:
+                self.push_screen(
+                    PermissionDialog(op),
+                    callback=lambda decision: decision_holder.__setitem__("decision", decision),
+                )
+
+        async with _HostApp().run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            assert getattr(pilot.app.focused, "id", None) == "perm-allow"
+            await pilot.press("y")
+            await pilot.pause()
+            assert decision_holder["decision"] == Decision.ALLOW
 
     async def test_deny_with_feedback_sets_operation(self) -> None:
         op = Operation(tool_name="bash", input={"command": "rm x"}, command="rm x")
