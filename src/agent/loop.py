@@ -203,6 +203,10 @@ class Agent:
         self._permission_rules: list = []
         self._memory_store = None
         self._repo_index: object | None = None
+        self._chat_traj: Trajectory | None = None
+        self._chat_messages: list[Message] | None = None
+        self._chat_bound_tools: dict[str, Callable[[dict], str]] | None = None
+        self._chat_turn: int = 0
         if config.memory.enabled:
             try:
                 from src.agent.memory import MemoryStore
@@ -223,6 +227,164 @@ class Agent:
         return handle.trajectory
 
     def start(self, task: str, workdir: str) -> RunHandle:
+        traj, messages, bound_tools = self._init_run(task, workdir)
+        if messages is None:
+            return RunHandle(iter([]), traj)
+        gen = self._run_gen(traj, messages, [0], bound_tools)
+        return RunHandle(gen, traj)
+
+    # ── Chat session (multi-turn conversation, ADR-0025) ─────────────────────
+
+    def chat(self, text: str, workdir: str) -> RunHandle:
+        """会话内连续对话：首轮初始化会话，后续轮延续上下文与 turn 计数。
+
+        每轮结束（end_turn）后会话暂停而非终止；`chat_end()` 显式结束。
+        跨进程续会话用 `chat_resume(run_id)`。
+        """
+        if self._chat_messages is None:
+            traj, messages, bound_tools = self._init_run(text, workdir, mode="chat")
+            if messages is None:
+                return RunHandle(iter([]), traj)
+            self._chat_traj = traj
+            self._chat_messages = messages
+            self._chat_bound_tools = bound_tools
+        else:
+            self._chat_messages.append(Message(role="user", content=text))
+        assert self._chat_traj is not None and self._chat_messages is not None
+        assert self._chat_bound_tools is not None
+        gen = self._run_gen(
+            self._chat_traj, self._chat_messages, [self._chat_turn],
+            self._chat_bound_tools, chat_mode=True,
+        )
+        return RunHandle(gen, self._chat_traj)
+
+    def chat_resume(self, run_id: str) -> RunHandle:
+        """恢复一个历史会话（mode=chat 的 run）：重建消息历史后继续对话。
+
+        与 `resume()` 的区别：resume 是断点续跑（重放/继续未完成工具执行）；
+        chat_resume 只恢复对话上下文，不重放工具。
+        """
+        if self._chat_messages is not None:
+            raise ValueError("已有活动会话，请先 chat_end() 再恢复其他会话")
+        traj = Trajectory.from_db(run_id, self.config.db_path)
+        messages = traj.to_messages()
+        workdir = ""
+        for e in traj.events:
+            if e.type == EventType.run_start:
+                workdir = e.payload.get("workdir", "")
+                break
+        bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
+        last_llm = next((e for e in reversed(traj.events) if e.type == EventType.llm_response), None)
+        self._chat_traj = traj
+        self._chat_messages = messages
+        self._chat_bound_tools = bound_tools
+        self._chat_turn = (last_llm.turn or 0) + 1 if last_llm else 0
+        gen = self._run_gen(
+            traj, messages, [self._chat_turn], bound_tools, chat_mode=True,
+        )
+        return RunHandle(gen, traj)
+
+    def chat_end(self) -> None:
+        """结束当前会话：emit run_end(reason=chat_end) + 落库 + 清空会话状态。"""
+        if self._chat_traj is None:
+            return
+        if not any(e.type == EventType.run_end for e in self._chat_traj.events):
+            self._chat_traj.emit(EventType.run_end, payload={"reason": "chat_end"})
+        self._persist(self._chat_traj)
+        self._chat_traj = None
+        self._chat_messages = None
+        self._chat_bound_tools = None
+        self._chat_turn = 0
+
+    def compact_chat(self, keep_turns: int | None = None) -> dict:
+        """手动压缩当前会话（对应 opencode /compact）。
+
+        绕过压缩阈值，强制执行 stale_snip + auto_compact（LLM 摘要），
+        只保留 system + 摘要 + 最近 keep_turns 轮。压缩后同步内存消息、
+        写入轨迹 compression 事件并落库。返回 {"before", "after", "affected"}。
+        """
+        if self._chat_messages is None or self._chat_traj is None:
+            raise ValueError("当前没有活动会话")
+        from src.agent.context_compress import auto_compact, stale_snip
+        from src.agent.context_tokens import compute_budget, should_skip_thinking
+
+        budget = compute_budget(self.config.model)
+        cfg = self.config.compression
+        skip_thinking = should_skip_thinking(self.config.model)
+        messages = self._chat_messages
+
+        messages, stale_report = stale_snip(
+            messages, cfg.stale_snip_keep_recent, self._tool_specs, skip_thinking
+        )
+        messages, compact_report = auto_compact(
+            messages, self.backend, self.config.model,
+            cfg.auto_compact_keep_turns if keep_turns is None else keep_turns,
+            self._tool_specs, skip_thinking,
+        )
+        self._chat_messages = messages
+
+        for report in (stale_report, compact_report):
+            self._chat_traj.emit(EventType.compression, turn=self._chat_turn, payload={
+                "layer": report.layer,
+                "before_tokens": report.before_tokens,
+                "after_tokens": report.after_tokens,
+                "affected": report.affected,
+                "budget": budget,
+                "skip_thinking": report.skip_thinking,
+                **({"detail": report.detail} if report.detail else {}),
+            })
+        self._persist(self._chat_traj)
+        self._fire_state_change("compression", {
+            "layer": "manual_compact",
+            "before": compact_report.before_tokens,
+            "after": compact_report.after_tokens,
+            "budget": budget,
+            "affected": compact_report.affected,
+            "utilization": round(compact_report.after_tokens / budget, 4) if budget > 0 else 0.0,
+        })
+        return {
+            "before": compact_report.before_tokens,
+            "after": compact_report.after_tokens,
+            "affected": compact_report.affected,
+        }
+
+    @property
+    def in_chat(self) -> bool:
+        return self._chat_messages is not None
+
+    def summarize(self, task: str, reply: str, max_chars: int = 15) -> str:
+        """Generate a short session title via a light LLM call (ADR-0026).
+
+        Falls back to a truncated task on any failure. Does not consume a turn
+        or write trajectory events.
+        """
+        from src.agent.ir import TextBlock
+
+        try:
+            messages = [
+                Message(
+                    role="system",
+                    content="为下面这段对话生成一个 15 字以内的中文标题，只输出标题本身，不要引号。",
+                ),
+                Message(role="user", content=f"任务：{task}\n回复：{reply[:500]}"),
+            ]
+            resp = self.backend.complete(
+                messages, tools=None, config={"model": self.config.model},
+            )
+            text = "".join(
+                b.text for b in resp.message.content if isinstance(b, TextBlock)
+            ).strip()
+            text = text.strip("""'\"「」『』""").strip()
+            if text:
+                return text[:max_chars]
+        except Exception:
+            pass
+        return (task or "会话").strip()[:max_chars]
+
+    def _init_run(
+        self, task: str, workdir: str, *, mode: str | None = None,
+    ) -> tuple[Trajectory, list[Message] | None, dict[str, Callable[[dict], str]]]:
+        """初始化一次运行/会话：traj + 首条消息 + 绑定工具（start 与 chat 首轮共用）。"""
         self._workdir = workdir
         run_id = uuid.uuid4().hex[:12]
         traj = Trajectory(run_id=run_id, config=self.config)
@@ -255,6 +417,7 @@ class Agent:
             "system_prompt": system_prompt,
             "config": self.config.to_public_dict(),
             "tools": sorted(self._tool_registry.keys()),
+            **({"mode": mode} if mode else {}),
         })
 
         try:
@@ -263,7 +426,7 @@ class Agent:
             traj.emit(EventType.error, payload={"kind": "tool_bind_error", "message": str(e)})
             traj.emit(EventType.run_end, payload={"reason": "tool_bind_error"})
             self._persist(traj)
-            return RunHandle(iter([]), traj)
+            return traj, None, {}
 
         messages: list[Message] = [
             Message(role="system", content=system_prompt),
@@ -274,8 +437,7 @@ class Agent:
         if self._memory_store and task.strip():
             from src.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
             self._tool_specs.append(MEMORY_SEARCH_SPEC)
-            memory_search_handler = make_memory_search_handler(self._memory_store)
-            bound_tools["memory_search"] = memory_search_handler
+            bound_tools["memory_search"] = make_memory_search_handler(self._memory_store)
 
         # Repo map: register code_search tool when index is available
         if self._repo_index is not None:
@@ -283,8 +445,7 @@ class Agent:
             self._tool_specs.append(CODE_SEARCH_SPEC)
             bound_tools["code_search"] = make_code_search_handler(self._repo_index)
 
-        gen = self._run_gen(traj, messages, [0], bound_tools)
-        return RunHandle(gen, traj)
+        return traj, messages, bound_tools
 
     def _run_gen(
         self,
@@ -292,6 +453,8 @@ class Agent:
         messages: list[Message],
         turn_box: list[int],
         bound_tools: dict[str, Callable[[dict], str]],
+        *,
+        chat_mode: bool = False,
     ) -> Iterator[StreamEvent]:
         try:
             policy = RetryPolicy.from_config(self.config.transport)
@@ -312,9 +475,9 @@ class Agent:
                                 role="user",
                                 content=f"[监督反馈 {assessment}]\n{guidance}",
                             ))
-                guidance = self._drain_guidance()
-                if guidance:
-                    messages.append(Message(role="user", content="\n".join(guidance)))
+                queued_guidance = self._drain_guidance()
+                if queued_guidance:
+                    messages.append(Message(role="user", content="\n".join(queued_guidance)))
                 traj.emit(EventType.turn_start, turn=turn)
                 self._fire_state_change("turn_start", {"turn": turn})
 
@@ -351,6 +514,8 @@ class Agent:
                             "kind": "truncation_fallback_failed",
                             "message": str(_ce),
                         })
+                if chat_mode:
+                    self._chat_messages = messages
                 if reports:
                     for r in reports:
                         traj.emit(EventType.compression, turn=turn, payload={
@@ -468,6 +633,11 @@ class Agent:
                                 ))
                             turn_box[0] += 1
                             continue
+                    if chat_mode:
+                        assert self._chat_messages is not None
+                        self._chat_messages.append(resp.message)
+                        self._chat_turn = turn_box[0] + 1
+                        return
                     traj.emit(EventType.run_end, payload={"reason": "end_turn"})
                     return
 

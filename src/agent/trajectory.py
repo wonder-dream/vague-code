@@ -75,7 +75,8 @@ SCHEMA_RUNS = """CREATE TABLE IF NOT EXISTS runs (
     workdir     TEXT,
     config_json TEXT,
     status      TEXT,
-    created_at  REAL
+    created_at  REAL,
+    title       TEXT
 )"""
 
 SCHEMA_EVENTS = """CREATE TABLE IF NOT EXISTS events (
@@ -212,6 +213,20 @@ class Trajectory:
                 messages.append(Message(role="user", content=cast(list[Block], pending_tool_results[:])))
                 pending_tool_results.clear()
 
+        def apply_summary(ev: Event) -> None:
+            """Replay an auto_compact: keep system, replace earlier history with the summary."""
+            detail = ev.payload.get("detail") or {}
+            summary_text = detail.get("summary_text")
+            if not summary_text:
+                return
+            system = messages[0] if messages and messages[0].role == "system" else None
+            messages.clear()
+            if system is not None:
+                messages.append(system)
+            messages.append(
+                Message(role="user", content=[TextBlock(text=f"[会话摘要]\n{summary_text}")])
+            )
+
         for ev in self.events:
             if ev.type == EventType.run_start:
                 if messages and messages[-1].role == "user":
@@ -252,6 +267,10 @@ class Trajectory:
                     )
                 except ValueError:
                     pass
+            elif ev.type == EventType.compression:
+                if ev.payload.get("layer") == "auto_compact" and ev.payload.get("affected", 0) > 0:
+                    flush_results()
+                    apply_summary(ev)
 
         flush_results()
         return messages
@@ -272,11 +291,19 @@ class Trajectory:
             conn.execute(SCHEMA_RUNS)
             conn.execute(SCHEMA_EVENTS)
             conn.execute(SCHEMA_INDEX_EVENTS)
+            try:
+                conn.execute("ALTER TABLE runs ADD COLUMN title TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists (legacy DB)
 
             new_events = self.events[self._persisted_count:]
             if new_events:
                 run = Run.from_events(self.run_id, self.config, self.events)
-                conn.execute("INSERT OR REPLACE INTO runs VALUES (?, ?, ?, ?, ?, ?)", run.to_row())
+                conn.execute(
+                    "INSERT OR REPLACE INTO runs (run_id, task, workdir, config_json, status, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    run.to_row(),
+                )
                 conn.executemany(
                     "INSERT INTO events VALUES (?, ?, ?, ?, ?)",
                     [ev.to_row() for ev in new_events],

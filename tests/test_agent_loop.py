@@ -1803,3 +1803,65 @@ def test_supervision_input_includes_exploration(tmp_path):
     text = agent._supervision_input(traj, 6, "periodic")
     assert "探索:" in text
     assert "重复 0 次" in text
+
+
+def test_to_messages_replays_auto_compact_summary():
+    """compression(auto_compact) event must replay in to_messages: history replaced by summary."""
+    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    traj = Trajectory(run_id="abc", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],
+    })
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "blocks": [{"type": "text", "text": "first reply"}],
+    })
+    traj.emit(EventType.compression, turn=0, payload={
+        "layer": "auto_compact", "before_tokens": 1000, "after_tokens": 50,
+        "affected": 2, "detail": {"summary_text": "compressed everything"},
+    })
+    traj.emit(EventType.llm_response, turn=1, payload={
+        "blocks": [{"type": "text", "text": "after compact"}],
+    })
+    msgs = traj.to_messages()
+    texts = [b.text for m in msgs for b in m.content if isinstance(b, TextBlock)]
+    assert any("compressed everything" in t for t in texts)
+    assert not any("first reply" in t for t in texts)
+    assert any("after compact" in t for t in texts)
+    assert msgs[0].role == "system"
+
+
+def test_to_messages_skips_noop_auto_compact():
+    """affected=0 auto_compact (fail/skip) must not wipe history."""
+    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    traj = Trajectory(run_id="abc", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],
+    })
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "blocks": [{"type": "text", "text": "keep me"}],
+    })
+    traj.emit(EventType.compression, turn=0, payload={
+        "layer": "auto_compact", "before_tokens": 1000, "after_tokens": 1000,
+        "affected": 0, "detail": {"skipped": "too_few_messages"},
+    })
+    msgs = traj.to_messages()
+    texts = [b.text for m in msgs for b in m.content if isinstance(b, TextBlock)]
+    assert "keep me" in texts
+
+
+def test_to_messages_stale_snip_ignored():
+    """stale_snip layer must not trigger summary replay (runtime-only optimization)."""
+    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    traj = Trajectory(run_id="abc", config=config)
+    traj.emit(EventType.run_start, payload={
+        "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],
+    })
+    traj.emit(EventType.llm_response, turn=0, payload={
+        "blocks": [{"type": "text", "text": "original"}],
+    })
+    traj.emit(EventType.compression, turn=0, payload={
+        "layer": "stale_snip", "before_tokens": 1000, "after_tokens": 900, "affected": 1,
+    })
+    msgs = traj.to_messages()
+    texts = [b.text for m in msgs for b in m.content if isinstance(b, TextBlock)]
+    assert "original" in texts

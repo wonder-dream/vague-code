@@ -8,12 +8,12 @@ from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.events import Key
 from textual.screen import Screen
 from textual.timer import Timer
+from textual.worker import Worker, get_current_worker
 from textual.widgets import Static, TextArea
-from textual.worker import get_current_worker
 
 from src.agent.ir import (
     ArgsDelta,
@@ -37,26 +37,29 @@ from src.tui.commands import (
     SessionCommandHandler,
     picker_command,
 )
-from src.tui.mixin import XClawViewMixin
+from src.tui.mixin import XClawViewMixin, _TURN_START_ACTIVITY
 from src.tui.picker import TuiPickerItem, TuiPickerState, render_picker
 from src.tui.runner import XClawAgentRunner
+from src.tui.session import SessionManager, SessionState
 from src.tui.state import TuiEntryKind, TuiTranscript
 from src.tui.views.activity import compact_tool_content
 from src.tui.views.topbar import topbar_markup
 from src.tui.views.welcome import welcome_renderable
 from src.tui.widgets import ComposerTextArea, XClawScreen, _plain_static
 from src.tui.widgets.conversation import ConversationView
+from src.tui.widgets.sidebar import SessionSidebar
 from src.tui.widgets.status import ActivityLine
 
 PICKER_VISIBLE_LIMIT = 8
 
 
 class XClawApp(XClawViewMixin, App):
-    CSS_PATH = "theme.tcss"
+    CSS_PATH = Path(__file__).parent / "theme.tcss"
     ALLOW_SELECT = True
 
     BINDINGS = [
         Binding("ctrl+c", "copy_or_interrupt", "Copy / interrupt", priority=True),
+        Binding("ctrl+b", "toggle_sidebar", "Toggle sidebar"),
         Binding("t", "toggle_thinking", "Toggle thinking"),
         Binding("f1", "show_help", "Help", show=False),
     ]
@@ -96,7 +99,12 @@ class XClawApp(XClawViewMixin, App):
         self._tool_args_buffer = {}
         self._running_tool_call_ids = set()
         self._reset_stream_state()
-        self.transcript = TuiTranscript()
+        self._sessions = SessionManager()
+        self._idle_transcript = TuiTranscript()
+        self._turn_token_counter = 0
+        self._session_workers: dict[str, Worker] = {}
+        self._permission_queue: list = []
+        self._permission_lock = threading.Lock()
         self._welcome_widget: Static | None = None
         self._welcome_particle_timer: Timer | None = None
         self._welcome_particle_frame = 0
@@ -116,24 +124,214 @@ class XClawApp(XClawViewMixin, App):
         self._guidance_lock = threading.Lock()
         self._reasoning_full: dict[int, str] = {}
 
+    @property
+    def transcript(self) -> TuiTranscript:
+        state = self._sessions.current
+        return state.transcript if state is not None else self._idle_transcript
+
+    def _refresh_sidebar(self) -> None:
+        sidebar = self._query_mounted("#sidebar")
+        if sidebar is None or not hasattr(sidebar, "update_sessions"):
+            return
+        items = [
+            (run_id, state.title, state.busy)
+            for run_id, state in self._sessions.sessions.items()
+        ]
+        try:
+            from src.tui.session_lib import list_recent_runs
+            for run in list_recent_runs(self._config.db_path, limit=20, mode="chat"):
+                if run.run_id not in self._sessions.sessions:
+                    items.append((run.run_id, run.title or run.task[:18], False))
+        except Exception:
+            pass
+        sidebar.update_sessions(items, self._sessions.current_run_id)
+
+    def action_toggle_sidebar(self) -> None:
+        sidebar = self._query_mounted("#sidebar")
+        if sidebar is None:
+            return
+        if "hidden" in sidebar.classes:
+            sidebar.remove_class("hidden")
+            self._refresh_sidebar()
+            sidebar.focus()
+        else:
+            sidebar.add_class("hidden")
+            self.query_one("#input").focus()
+
+    def _sidebar_visible(self) -> bool:
+        sidebar = self._query_mounted("#sidebar")
+        return sidebar is not None and "hidden" not in sidebar.classes
+
+    def on_session_sidebar_session_selected(self, event: SessionSidebar.SessionSelected) -> None:
+        event.stop()
+        self._switch_session(event.run_id)
+
+    def on_session_sidebar_session_delete_requested(self, event: SessionSidebar.SessionDeleteRequested) -> None:
+        event.stop()
+        self._prompt_delete_session(event.run_id)
+
+    def _switch_session(self, run_id: str) -> None:
+        output = self.query_one("#output", ConversationView)
+        state = self._sessions.switch(run_id)
+        if state is None:
+            try:
+                from src.agent.trajectory import Trajectory
+                traj = Trajectory.from_db(run_id, self._config.db_path)
+            except Exception as e:
+                self._write_line(f"加载会话失败: {e}", kind=TuiEntryKind.ERROR)
+                return
+            state = self._sessions.create(run_id, run_id)
+            state.transcript = TuiTranscript()
+            output.transcript = state.transcript
+            self._dismiss_welcome()
+            self._replay_trajectory(traj)
+        else:
+            output.transcript = state.transcript
+            output.render_transcript()
+        self._reset_stream_state()
+        self._set_activity("idle · ready")
+        self._refresh_topbar()
+        self._refresh_sidebar()
+        self.query_one("#input").focus()
+
+    def _prompt_delete_session(self, run_id: str | None = None) -> None:
+        sidebar = self._query_mounted("#sidebar")
+        if sidebar is None or not hasattr(sidebar, "select_current"):
+            return
+        if run_id is None:
+            run_id = sidebar.select_current()
+        if not run_id:
+            return
+        state = self._sessions.get(run_id)
+        if state is not None and state.busy:
+            self._write_line(
+                f"会话 {run_id[:8]} 运行中，请先 Esc 中断再删除。",
+                kind=TuiEntryKind.SYSTEM,
+            )
+            return
+        title = state.title if state is not None else run_id
+        self.run_worker(
+            self._confirm_and_delete(run_id, title),
+            name="confirm-delete",
+            exit_on_error=False,
+        )
+
+    async def _confirm_and_delete(self, run_id: str, title: str) -> None:
+        from src.tui.screens.confirm import ConfirmDialog
+
+        message = f"删除会话「{title}」？轨迹数据将从数据库永久删除，不可恢复。"
+        try:
+            confirmed = await self.push_screen_wait(ConfirmDialog("删除会话", message))
+        finally:
+            sidebar = self._query_mounted("#sidebar")
+            if sidebar is not None and self._sidebar_visible():
+                sidebar.focus()
+        if confirmed:
+            self._delete_session(run_id)
+
+    def _delete_session(self, run_id: str) -> None:
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._config.db_path, timeout=5)
+            try:
+                tables = {
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    ).fetchall()
+                }
+                if "events" in tables:
+                    conn.execute("DELETE FROM events WHERE run_id=?", (run_id,))
+                if "runs" in tables:
+                    conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            self._write_line(f"删除会话失败: {e}", kind=TuiEntryKind.ERROR)
+            return
+        self._delete_session_artifacts(run_id)
+        was_current = self._sessions.remove(run_id)
+        self._refresh_sidebar()
+        if was_current:
+            self._after_current_session_deleted()
+        else:
+            self._write_line(f"已删除会话 {run_id[:8]}。", kind=TuiEntryKind.SYSTEM)
+        sidebar = self._query_mounted("#sidebar")
+        if sidebar is not None and self._sidebar_visible():
+            sidebar.focus()
+
+    def _delete_session_artifacts(self, run_id: str) -> None:
+        """清理会话的磁盘产物：轨迹 jsonl 导出 + memory.db 中的会话记忆。"""
+        from pathlib import Path
+
+        for path in (
+            Path(self._config.db_path).parent / f"{run_id}.jsonl",
+            Path(self._config.db_path).parent / f"{run_id}.recovery.jsonl",
+        ):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            memory_db = Path(self._config.memory.memory_db_path)
+            if memory_db.exists():
+                import sqlite3 as _sq
+                mconn = _sq.connect(str(memory_db), timeout=5)
+                try:
+                    tables = {
+                        r[0]
+                        for r in mconn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    if "memories" in tables:
+                        mconn.execute(
+                            "DELETE FROM memories WHERE source_session=?", (run_id,)
+                        )
+                        mconn.commit()
+                finally:
+                    mconn.close()
+        except Exception:
+            pass
+
+    def _after_current_session_deleted(self) -> None:
+        next_state = self._sessions.current
+        output = self.query_one("#output", ConversationView)
+        if next_state is not None:
+            output.transcript = next_state.transcript
+            output.render_transcript()
+            self._write_line("已删除当前会话，已切换到其他会话。", kind=TuiEntryKind.SYSTEM)
+        else:
+            self._dismiss_welcome()
+            output.clear()
+            self._show_welcome()
+            self._write_line("已删除最后一个会话。", kind=TuiEntryKind.SYSTEM)
+        self._reset_stream_state()
+        self._set_activity("idle · ready")
+        self._refresh_topbar()
+
     def compose(self) -> ComposeResult:
         yield Static(self._topbar_text(), id="topbar", classes="topbar")
-        with Vertical(id="main"):
-            yield ConversationView(id="output")
-            yield ActivityLine("idle · ready", id="activity", classes="activity-line")
-            with Vertical(id="composer", classes="composer"):
-                yield ComposerTextArea(
-                    placeholder="输入消息，Enter 发送，Shift+Enter 换行，Ctrl+C 退出",
-                    id="input",
-                    show_line_numbers=False,
-                    soft_wrap=True,
-                    compact=True,
-                )
+        with Horizontal(id="app-body"):
+            yield SessionSidebar(id="sidebar", classes="sidebar hidden")
+            with Vertical(id="main"):
+                yield ConversationView(id="output")
+                yield ActivityLine("idle · ready", id="activity", classes="activity-line")
+                with Vertical(id="composer", classes="composer"):
+                    yield ComposerTextArea(
+                        placeholder="输入消息，Enter 发送，Shift+Enter 换行，Ctrl+C 退出",
+                        id="input",
+                        show_line_numbers=False,
+                        soft_wrap=True,
+                        compact=True,
+                    )
 
     def on_mount(self) -> None:
         self._loop = asyncio.get_running_loop()
         self.title = f"XClaw — {self._workdir}"
         self._show_welcome()
+        self.query_one("#input").focus()
         if self._agent_task:
             self._submit_task(self._agent_task)
             self._agent_task = ""
@@ -162,7 +360,10 @@ class XClawApp(XClawViewMixin, App):
         mode = self._config.permission_mode
         cwd = Path(self._workdir).resolve().name or "."
         width = max(0, self.size.width - 4)
-        return topbar_markup(self._activity_text, provider, model, mode, cwd, width)
+        return topbar_markup(
+            self._activity_text, provider, model, mode, cwd, width,
+            running_count=self._sessions.active_count(),
+        )
 
     def _refresh_topbar(self) -> None:
         topbar = self._query_mounted("#topbar")
@@ -175,10 +376,14 @@ class XClawApp(XClawViewMixin, App):
     def _show_welcome(self) -> None:
         if self._welcome_widget is not None:
             return
+        output = self.query_one("#output")
+        existing = output.query("Static#welcome")
+        if existing:
+            self._welcome_widget = existing[0]
+            return
         widget = _plain_static("", id="welcome", classes="welcome")
         widget.update(welcome_renderable(compact=self._welcome_compact(), particle_frame=0))
         self._welcome_widget = widget
-        output = self.query_one("#output")
         output.mount(widget)
         output.add_class("welcome-active")
         self._welcome_particle_frame = 0
@@ -227,6 +432,16 @@ class XClawApp(XClawViewMixin, App):
 
     async def on_composer_text_area_submitted(self, event: ComposerTextArea.Submitted) -> None:
         event.stop()
+        if self._picker is not None:
+            input_widget = self.query_one("#input", ComposerTextArea)
+            text = input_widget.text.strip()
+            if text.isdigit():
+                if self._picker_select_number(int(text)):
+                    input_widget.clear()
+                    return
+            self._picker_select_index(self._picker.selected_index)
+            input_widget.clear()
+            return
         await self._submit_composer()
 
     async def _submit_composer(self) -> None:
@@ -252,21 +467,73 @@ class XClawApp(XClawViewMixin, App):
             self._handle_slash(text)
             return
 
-        self._agent_task = text
-        user_entry = self.transcript.add(TuiEntryKind.USER, text)
+        self._submit_chat(text)
+
+    def _submit_chat(self, text: str) -> None:
+        state = self._sessions.current
+        if state is None:
+            state = self._begin_new_session(text)
+        if state.agent is None:
+            state.agent = self._new_session_agent(state)
+        self._dismiss_welcome()
+        user_entry = state.transcript.add(TuiEntryKind.USER, text)
         output = self.query_one("#output", ConversationView)
         output.add_entry(user_entry)
-        if self._chat_busy:
-            self._add_guidance(text)
+        if state.busy:
+            self._add_guidance(state, text)
             self._write_line("已加入运行队列，将在下一轮生效。", kind=TuiEntryKind.SYSTEM)
             return
-        token = self._begin_chat_turn(text)
+        token = self._begin_session_turn(state)
         self.run_worker(
-            lambda: self._run_agent_worker(text, token),
+            lambda: self._run_agent_worker(state, text, token),
             thread=True,
-            exclusive=True,
-            name="agent",
+            exclusive=False,
+            name=f"agent-{state.run_id}",
+            group="agent",
         )
+
+    def _begin_new_session(self, first_text: str = "") -> SessionState:
+        from uuid import uuid4
+
+        placeholder = f"new_{uuid4().hex[:8]}"
+        state = self._sessions.create(placeholder, "新会话")
+        state.agent = self._new_session_agent(state)
+        output = self.query_one("#output", ConversationView)
+        output.transcript = state.transcript
+        self._dismiss_welcome()
+        output.clear()
+        self._show_welcome()
+        self._refresh_sidebar()
+        return state
+
+    def _new_session_agent(self, state: SessionState):
+        from src.agent.loop import Agent
+
+        agent = Agent(self._config, self._backend)
+        agent._on_permission = lambda op, decision, _s=state: self._thread_permission(op, decision, _s)
+        agent.on_tool_result = lambda tid, name, content, err, _s=state: self.call_from_thread(
+            self._on_tool_result, tid, name, content, err, _s, _s.active_token
+        )
+        agent.on_state_change = lambda kind, payload, _s=state: self.call_from_thread(
+            self._on_state_change, kind, payload, _s, _s.active_token
+        )
+        agent.guidance_provider = lambda _s=state: self._drain_guidance(_s)
+        for rule in self._load_permission_rules():
+            agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
+        return agent
+
+    def _begin_session_turn(self, state: SessionState) -> int:
+        self._turn_token_counter += 1
+        token = self._turn_token_counter
+        state.active_token = token
+        state.busy = True
+        self._reset_stream_state()
+        self._start_turn_metrics()
+        self._tool_entries = {}
+        self._tool_names = {}
+        self._tool_args_buffer = {}
+        self._set_activity(_TURN_START_ACTIVITY)
+        return token
 
     # ── Slash commands ───────────────────────────────────────────────────────
 
@@ -297,10 +564,9 @@ class XClawApp(XClawViewMixin, App):
             return True
         if action_type == "new_session":
             self._picker = None
-            self._clear_output()
+            state = self._begin_new_session()
             if output:
-                self._write_line(output, kind=TuiEntryKind.COMMAND)
-            self._show_welcome()
+                state.transcript.add(TuiEntryKind.COMMAND, output)
             return True
         if action_type == "clear_output":
             self._picker = None
@@ -311,6 +577,9 @@ class XClawApp(XClawViewMixin, App):
             if run_id:
                 self._start_resume(run_id)
             return True
+        if action_type == "compact_session":
+            self._start_compact()
+            return True
         if action_type == "model_changed":
             model = str(action.get("model") or "")
             if model:
@@ -320,9 +589,12 @@ class XClawApp(XClawViewMixin, App):
         return False
 
     def _clear_output(self) -> None:
+        state = self._sessions.current
         output = self.query_one("#output", ConversationView)
+        if state is not None:
+            state.transcript = TuiTranscript()
+            output.transcript = state.transcript
         output.clear()
-        self.transcript = output.transcript
 
     # ── Picker ───────────────────────────────────────────────────────────────
 
@@ -420,6 +692,36 @@ class XClawApp(XClawViewMixin, App):
         return None
 
     def on_key(self, event: Key) -> None:
+        if self._sidebar_visible() and self.focused is not None and self.focused.id == "sidebar":
+            if event.key == "escape":
+                event.stop()
+                event.prevent_default()
+                self.action_toggle_sidebar()
+                return
+            if event.key == "n":
+                event.stop()
+                event.prevent_default()
+                self._handle_slash("/new")
+                return
+            if event.key in ("up", "down"):
+                event.stop()
+                event.prevent_default()
+                sidebar = self.query_one("#sidebar", SessionSidebar)
+                sidebar.move_selection(1 if event.key == "down" else -1)
+                return
+            if event.key == "d":
+                event.stop()
+                event.prevent_default()
+                self._prompt_delete_session()
+                return
+            if event.key == "enter":
+                event.stop()
+                event.prevent_default()
+                sidebar = self.query_one("#sidebar", SessionSidebar)
+                run_id = sidebar.select_current()
+                if run_id is not None:
+                    self._switch_session(run_id)
+                return
         if self._picker is not None and self._handle_picker_key(event):
             event.stop()
             event.prevent_default()
@@ -444,7 +746,8 @@ class XClawApp(XClawViewMixin, App):
         input_widget.cursor_location = input_widget.document.end
 
     def _handle_escape_interrupt(self) -> bool:
-        if not self._chat_busy:
+        state = self._sessions.current
+        if state is None or not state.busy:
             self._last_escape_at = 0.0
             input_widget = self._query_mounted("#input")
             if input_widget is not None and hasattr(input_widget, "focus"):
@@ -459,10 +762,21 @@ class XClawApp(XClawViewMixin, App):
         self._interrupt_chat_turn()
         return True
 
+    def _interrupt_chat_turn(self) -> None:
+        state = self._sessions.current
+        if state is not None:
+            state.busy = False
+            state.active_token = None
+        worker = self._session_workers.get(state.run_id) if state else None
+        if worker is not None and getattr(worker.state, "name", "") == "RUNNING":
+            worker.cancel()
+        self._reset_stream_state()
+        self._finish_turn_metrics()
+        self._set_activity("interrupted")
+        self._write_line("已中断当前回合。", kind=TuiEntryKind.SYSTEM)
+        self._refresh_sidebar()
+
     def _start_resume(self, run_id: str) -> None:
-        if self._chat_busy:
-            self._write_line("Agent 正在运行，请先等待或中断。", kind=TuiEntryKind.SYSTEM)
-            return
         try:
             from src.agent.trajectory import Trajectory
             traj = Trajectory.from_db(run_id, self._config.db_path)
@@ -470,6 +784,18 @@ class XClawApp(XClawViewMixin, App):
             self._write_line(f"Resume failed: {e}", kind=TuiEntryKind.ERROR)
             return
         self._picker = None
+        from src.agent.trajectory import EventType as TrajEventType
+        is_chat = any(
+            e.type == TrajEventType.run_start
+            and e.payload.get("mode") == "chat"
+            for e in traj.events
+        )
+        if is_chat:
+            self._resume_chat_session(run_id, traj)
+            return
+        if self._sessions.current is not None and self._sessions.current.busy:
+            self._write_line("Agent 正在运行，请先等待或中断。", kind=TuiEntryKind.SYSTEM)
+            return
         self._clear_output()
         self._replay_trajectory(traj)
         token = self._begin_chat_turn(f"resume {run_id}")
@@ -477,9 +803,96 @@ class XClawApp(XClawViewMixin, App):
         self.run_worker(
             lambda: self._run_resume_worker(run_id, traj, token),
             thread=True,
-            exclusive=True,
-            name="agent",
+            exclusive=False,
+            name="agent-task-resume",
+            group="agent",
         )
+
+    def _resume_chat_session(self, run_id: str, traj) -> None:
+        """Load a chat session from DB into the session manager (parallel-friendly).
+
+        The session is recreated with a fresh Agent wired to per-session callbacks;
+        the transcript is replayed and the manager switches to it.
+        """
+        from src.agent.loop import Agent
+
+        agent = Agent(self._config, self._backend)
+        state = self._sessions.create(run_id, run_id)
+        state.agent = agent
+        state.transcript = TuiTranscript()
+        agent._on_permission = lambda op, decision, _s=state: self._thread_permission(op, decision, _s)
+        agent.on_tool_result = lambda tid, name, content, err, _s=state: self.call_from_thread(
+            self._on_tool_result, tid, name, content, err, _s, _s.active_token
+        )
+        agent.on_state_change = lambda kind, payload, _s=state: self.call_from_thread(
+            self._on_state_change, kind, payload, _s, _s.active_token
+        )
+        agent.guidance_provider = lambda _s=state: self._drain_guidance(_s)
+        for rule in self._load_permission_rules():
+            agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
+        output = self.query_one("#output", ConversationView)
+        output.transcript = state.transcript
+        self._dismiss_welcome()
+        self._replay_trajectory(traj)
+        self._write_line(f"正在恢复会话 {run_id}…", kind=TuiEntryKind.COMMAND)
+        token = self._begin_session_turn(state)
+        self.run_worker(
+            lambda: self._run_resume_worker(run_id, traj, token),
+            thread=True,
+            exclusive=False,
+            name=f"agent-{run_id}",
+            group="agent",
+        )
+
+    def _start_compact(self) -> None:
+        """手动压缩当前会话上下文（/compact）：stale_snip + LLM 摘要，绕过阈值。"""
+        state = self._sessions.current
+        if state is None or state.agent is None:
+            self._write_line("当前没有活动会话。", kind=TuiEntryKind.SYSTEM)
+            return
+        if state.busy:
+            self._write_line(
+                "会话运行中，请先等待或 Esc 中断后再压缩。",
+                kind=TuiEntryKind.SYSTEM,
+            )
+            return
+        self._write_line("正在压缩上下文…", kind=TuiEntryKind.SYSTEM)
+        self.run_worker(
+            lambda: self._run_compact_worker(state),
+            thread=True,
+            exclusive=False,
+            name=f"compact-{state.run_id}",
+            group="agent",
+        )
+
+    def _run_compact_worker(self, state: SessionState) -> None:
+        try:
+            agent = state.agent
+            if agent is None:
+                self.call_from_thread(
+                    self._write_line, "会话 agent 未初始化。", kind=TuiEntryKind.ERROR
+                )
+                return
+            result = agent.compact_chat()
+            saved = result.get("before", 0) - result.get("after", 0)
+            if saved > 0:
+                self.call_from_thread(
+                    self._write_line,
+                    f"已压缩：回收 {saved / 1024:.1f}k tokens。",
+                    kind=TuiEntryKind.SYSTEM,
+                )
+            else:
+                self.call_from_thread(
+                    self._write_line,
+                    "上下文已是最新，无需压缩。",
+                    kind=TuiEntryKind.SYSTEM,
+                )
+        except Exception as exc:
+            self.call_from_thread(
+                self._write_line,
+                f"压缩失败: {type(exc).__name__}: {exc}",
+                kind=TuiEntryKind.ERROR,
+            )
 
     def _replay_trajectory(self, traj) -> None:
         from src.agent.trajectory import EventType
@@ -526,81 +939,101 @@ class XClawApp(XClawViewMixin, App):
                     output = self.query_one("#output", ConversationView)
                     output.update_entry(tool_entry)
 
-    def _run_agent_worker(self, text: str, token: int) -> None:
+    def _run_agent_worker(self, state: SessionState, text: str, token: int) -> None:
         worker = get_current_worker()
-        runner = XClawAgentRunner(
-            config=self._config,
-            backend=self._backend,
-            permission_rules=self._load_permission_rules(),
-            on_stream_event=lambda ev: self.call_from_thread(
-                self._on_stream_event, ev, token
-            ),
-            on_tool_result=lambda tid, name, content, err: self.call_from_thread(
-                self._on_tool_result, tid, name, content, err, token
-            ),
-            on_state_change=lambda kind, payload: self.call_from_thread(
-                self._on_state_change, kind, payload, token
-            ),
-            on_permission=self._thread_permission,
-            on_run_complete=lambda traj: self.call_from_thread(
-                self._on_run_complete, traj, token
-            ),
-            on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, token),
-            is_cancelled=lambda: worker.is_cancelled,
-            guidance_provider=self._drain_guidance,
-        )
-        runner.run_task(text, self._workdir)
+        self._session_workers[state.run_id] = worker
+        try:
+            agent = state.agent
+            if agent is None:
+                self.call_from_thread(self._on_agent_error, "会话 agent 未初始化", state, token)
+                return
+            handle = agent.chat(text, self._workdir)
+            for ev in handle:
+                if worker.is_cancelled:
+                    handle.close()
+                    return
+                self.call_from_thread(self._on_stream_event, ev, state, token)
+            self.call_from_thread(self._on_run_complete, handle.trajectory, state, token)
+        except Exception as exc:
+            self.call_from_thread(self._on_agent_error, f"{type(exc).__name__}: {exc}", state, token)
+        finally:
+            self._session_workers.pop(state.run_id, None)
 
     def _run_resume_worker(self, run_id: str, traj, token: int) -> None:
         worker = get_current_worker()
         if worker.is_cancelled:
             return
         try:
-            runner = XClawAgentRunner(
-                config=self._config,
-                backend=self._backend,
-                permission_rules=self._load_permission_rules(),
-                on_stream_event=lambda ev: self.call_from_thread(
-                    self._on_stream_event, ev, token
-                ),
-                on_tool_result=lambda tid, name, content, err: self.call_from_thread(
-                    self._on_tool_result, tid, name, content, err, token
-                ),
-                on_state_change=lambda kind, payload: self.call_from_thread(
-                    self._on_state_change, kind, payload, token
-                ),
-                on_permission=self._thread_permission,
-                on_run_complete=lambda result: self.call_from_thread(
-                    self._on_run_complete, result, token
-                ),
-                on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, token),
-                is_cancelled=lambda: worker.is_cancelled,
-                guidance_provider=self._drain_guidance,
+            from src.agent.trajectory import EventType as TrajEventType
+            is_chat = any(
+                e.type == TrajEventType.run_start
+                and e.payload.get("mode") == "chat"
+                for e in traj.events
             )
-            runner.resume(traj)
+            if is_chat:
+                state = self._sessions.current
+                if state is None or state.agent is None:
+                    self._write_line("没有活动会话可恢复。", kind=TuiEntryKind.ERROR)
+                    return
+                self._session_workers[state.run_id] = worker
+                try:
+                    handle = state.agent.chat_resume(run_id)
+                    for ev in handle:
+                        if worker.is_cancelled:
+                            handle.close()
+                            return
+                        self.call_from_thread(self._on_stream_event, ev, state, token)
+                    self.call_from_thread(self._on_run_complete, handle.trajectory, state, token)
+                finally:
+                    self._session_workers.pop(state.run_id, None)
+            else:
+                runner = XClawAgentRunner(
+                    config=self._config,
+                    backend=self._backend,
+                    permission_rules=self._load_permission_rules(),
+                    on_stream_event=lambda ev: self.call_from_thread(
+                        self._on_stream_event, ev, None, token
+                    ),
+                    on_tool_result=lambda tid, name, content, err: self.call_from_thread(
+                        self._on_tool_result, tid, name, content, err, None, token
+                    ),
+                    on_state_change=lambda kind, payload: self.call_from_thread(
+                        self._on_state_change, kind, payload, None, token
+                    ),
+                    on_permission=self._thread_permission,
+                    on_run_complete=lambda result: self.call_from_thread(
+                        self._on_run_complete, result, None, token
+                    ),
+                    on_error=lambda msg: self.call_from_thread(self._on_agent_error, msg, None, token),
+                    is_cancelled=lambda: worker.is_cancelled,
+                    guidance_provider=lambda: [],
+                )
+                runner.resume(traj)
         except Exception as e:
-            self.call_from_thread(self._on_agent_error, f"Resume failed: {e}", token)
+            self.call_from_thread(self._on_agent_error, f"Resume failed: {e}", None, token)
 
     # ── Guidance queue ────────────────────────────────────────────────────────
 
-    def _add_guidance(self, text: str) -> None:
+    def _add_guidance(self, state: SessionState, text: str) -> None:
         with self._guidance_lock:
-            self._pending_guidance.append(text)
+            state.pending_guidance.append(text)
 
-    def _drain_guidance(self) -> list[str]:
+    def _drain_guidance(self, state: SessionState) -> list[str]:
         with self._guidance_lock:
-            guidance = list(self._pending_guidance)
-            self._pending_guidance.clear()
+            guidance = list(state.pending_guidance)
+            state.pending_guidance.clear()
         return guidance
-
-    def _has_pending_guidance(self) -> bool:
-        with self._guidance_lock:
-            return bool(self._pending_guidance)
 
     # ── Event dispatch (UI thread) ───────────────────────────────────────────
 
-    def _on_stream_event(self, ev: StreamEvent, token: int) -> None:
-        if not self._is_current_chat_turn(token):
+    def _on_stream_event(self, ev: StreamEvent, state: SessionState | None, token: int) -> None:
+        if state is None:
+            if not self._is_current_chat_turn(token):
+                return
+        elif state.active_token != token:
+            return
+        if state is not None and self._sessions.current is not state:
+            self._apply_offline_event(state, ev)
             return
         if isinstance(ev, MessageStart):
             self._show_activity_animation("running", "llm responding")
@@ -642,6 +1075,42 @@ class XClawApp(XClawViewMixin, App):
             self._finalize_stream_widget()
             self._set_activity("running")
 
+    def _apply_offline_event(self, state: SessionState, ev: StreamEvent) -> None:
+        """Route an event of a non-current session: update its transcript only."""
+        if isinstance(ev, TextDelta):
+            entries = state.transcript.entries
+            if entries and entries[-1].kind == TuiEntryKind.ASSISTANT:
+                entries[-1].body += ev.delta
+            else:
+                state.transcript.add(TuiEntryKind.ASSISTANT, ev.delta)
+        elif isinstance(ev, ThinkingDelta):
+            entries = state.transcript.entries
+            if entries and entries[-1].kind == TuiEntryKind.REASONING:
+                entries[-1].body += ev.delta
+            else:
+                state.transcript.add(TuiEntryKind.REASONING, ev.delta, status="running")
+        elif isinstance(ev, ThinkingEnd):
+            entries = state.transcript.entries
+            if entries and entries[-1].kind == TuiEntryKind.REASONING:
+                entries[-1].status = None
+        elif isinstance(ev, ToolUseStart):
+            entry = state.transcript.add(
+                TuiEntryKind.TOOL,
+                f"正在调用工具：{ev.name}",
+                label=f"tool {ev.name} running",
+                status="running",
+            )
+            state.offline_tools[ev.id] = entry
+        elif isinstance(ev, ArgsDelta):
+            offline_entry = state.offline_tools.get(ev.id)
+            if offline_entry is not None:
+                offline_entry.body = f"正在调用工具：{offline_entry.label.split()[1]} {ev.delta[:80]}"
+        elif isinstance(ev, RetryNotice):
+            state.transcript.add(
+                TuiEntryKind.SYSTEM,
+                f"retry {ev.attempt}: {ev.reason}（{ev.delay_s:.1f}s 后重试）",
+            )
+
     def _append_reasoning(self, delta: str) -> None:
         if not self.transcript.entries or self.transcript.entries[-1].kind != TuiEntryKind.REASONING:
             self._write_line("", kind=TuiEntryKind.REASONING, status="running")
@@ -667,6 +1136,8 @@ class XClawApp(XClawViewMixin, App):
             self._reasoning_full[entry.id] = body
             entry.body = self._reasoning_summary(entry)
             entry.status = "folded"
+        else:
+            entry.status = None
         output = self.query_one("#output", ConversationView)
         output.update_entry(entry)
 
@@ -703,17 +1174,33 @@ class XClawApp(XClawViewMixin, App):
         output.update_entry(entry)
 
     def _on_tool_result(
-        self, tool_id: str, tool_name: str, content: str, is_error: bool, token: int
+        self, tool_id: str, tool_name: str, content: str, is_error: bool,
+        state: SessionState | None, token: int,
     ) -> None:
-        if not self._is_current_chat_turn(token):
+        if state is None:
+            if not self._is_current_chat_turn(token):
+                return
+        elif state.active_token != token:
             return
-        self._running_tool_call_ids.discard(tool_id)
-        self._turn_tool_count = len(self._running_tool_call_ids) or self._turn_tool_count
-        entry = self._tool_entries.pop(tool_id, None)
         status = "error" if is_error else "success"
         summary = compact_tool_content(content)
         suffix = f"：{summary}" if summary else ""
         text = f"工具{'失败' if is_error else '完成'}：{tool_name}{suffix}"
+        if state is not None and self._sessions.current is not state:
+            entry = state.offline_tools.pop(tool_id, None)
+            if entry is not None:
+                entry.body = text
+                entry.status = status
+                entry.label = f"tool {tool_name} {status}"
+            else:
+                state.transcript.add(
+                    TuiEntryKind.TOOL, text,
+                    label=f"tool {tool_name} {status}", status=status,
+                )
+            return
+        self._running_tool_call_ids.discard(tool_id)
+        self._turn_tool_count = len(self._running_tool_call_ids) or self._turn_tool_count
+        entry = self._tool_entries.pop(tool_id, None)
         if entry is not None:
             entry.body = text
             entry.status = status
@@ -729,8 +1216,15 @@ class XClawApp(XClawViewMixin, App):
             )
         self._record_tool_activity(tool_name, status, summary)
 
-    def _on_state_change(self, kind: str, payload: dict, token: int) -> None:
-        if not self._is_current_chat_turn(token):
+    def _on_state_change(
+        self, kind: str, payload: dict, state: SessionState | None, token: int,
+    ) -> None:
+        if state is None:
+            if not self._is_current_chat_turn(token):
+                return
+        elif state.active_token != token:
+            return
+        if state is not None and self._sessions.current is not state:
             return
         if kind == "turn_start":
             self._set_activity(f"running · turn {payload.get('turn', '?')}")
@@ -741,68 +1235,181 @@ class XClawApp(XClawViewMixin, App):
             if saved > 0:
                 self._total_reclaimed += saved
 
-    def _on_run_complete(self, traj, token: int) -> None:
-        if not self._is_current_chat_turn(token):
+    def _on_run_complete(self, traj, state: SessionState | None, token: int) -> None:
+        if state is None:
+            if not self._is_current_chat_turn(token):
+                return
+            self._trajectory = traj
+            self._chat_busy = False
+            self._finalize_stream_widget()
+            self._stop_activity_animation()
+            self._stop_working_animation()
+            self._finish_turn_metrics()
+            run_end = [e for e in traj.events if e.type == "run_end"]
+            reason = run_end[0].payload.get("reason", "?") if run_end else "?"
+            self._set_activity(f"done · {reason}")
             return
+        if state.active_token != token:
+            return
+        if state.run_id != traj.run_id:
+            self._sessions.rename(state.run_id, traj.run_id)
+            self._refresh_sidebar()
+        state.busy = False
+        state.active_token = None
         self._trajectory = traj
-        self._chat_busy = False
-        self._finalize_stream_widget()
-        self._stop_activity_animation()
-        self._stop_working_animation()
-        self._finish_turn_metrics()
-        run_end = [e for e in traj.events if e.type == "run_end"]
-        reason = run_end[0].payload.get("reason", "?") if run_end else "?"
-        self._set_activity(f"done · {reason}")
-        pending = self._drain_guidance()
-        if pending:
-            text = "\n".join(pending)
-            user_entry = self.transcript.add(TuiEntryKind.USER, text)
-            output = self.query_one("#output", ConversationView)
-            output.add_entry(user_entry)
-            token = self._begin_chat_turn(text)
-            self.run_worker(
-                lambda: self._run_agent_worker(text, token),
-                thread=True,
-                exclusive=True,
-                name="agent",
-            )
+        if not state.title or state.title == "新会话":
+            self._schedule_title_summary(state, traj)
+        if self._sessions.current is state:
+            self._finalize_stream_widget()
+            self._stop_activity_animation()
+            self._stop_working_animation()
+            self._finish_turn_metrics()
+            run_end = [e for e in traj.events if e.type == "run_end"]
+            if run_end:
+                reason = run_end[0].payload.get("reason", "?")
+            else:
+                last_turn = max((e.turn or 0 for e in traj.events), default=0)
+                reason = f"chat turn {last_turn + 1}"
+            self._set_activity(f"done · {reason}")
+            if self._total_reclaimed:
+                self._write_line(
+                    f"上下文压缩已回收 {self._total_reclaimed / 1024:.1f}k tokens。",
+                    kind=TuiEntryKind.SYSTEM,
+                )
+                self._total_reclaimed = 0
+            pending = self._drain_guidance(state)
+            if pending:
+                text = "\n".join(pending)
+                user_entry = state.transcript.add(TuiEntryKind.USER, text)
+                output = self.query_one("#output", ConversationView)
+                output.add_entry(user_entry)
+                token = self._begin_session_turn(state)
+                self.run_worker(
+                    lambda: self._run_agent_worker(state, text, token),
+                    thread=True,
+                    exclusive=False,
+                    name=f"agent-{state.run_id}",
+                    group="agent",
+                )
+        self._refresh_sidebar()
 
-    def _on_agent_error(self, message: str, token: int) -> None:
-        if not self._is_current_chat_turn(token):
+    def _on_agent_error(self, message: str, state: SessionState | None, token: int) -> None:
+        if state is None:
+            if not self._is_current_chat_turn(token):
+                return
+            self._chat_busy = False
+            self._stop_activity_animation()
+            self._stop_working_animation()
+            self._finish_turn_metrics()
+            self._set_activity("error")
+            self._write_line(message, kind=TuiEntryKind.ERROR)
             return
-        self._chat_busy = False
-        self._stop_activity_animation()
-        self._stop_working_animation()
-        self._finish_turn_metrics()
-        self._set_activity("error")
-        self._write_line(message, kind=TuiEntryKind.ERROR)
+        if state.active_token != token:
+            return
+        state.busy = False
+        state.active_token = None
+        self._refresh_sidebar()
+        if self._sessions.current is state:
+            self._stop_activity_animation()
+            self._stop_working_animation()
+            self._finish_turn_metrics()
+            self._set_activity("error")
+            self._write_line(message, kind=TuiEntryKind.ERROR)
 
-    # ── Permission bridge ────────────────────────────────────────────────────
+    # ── Title summary (ADR-0026) ─────────────────────────────────────────────
 
-    def _thread_permission(self, op: Operation, decision: Decision) -> Decision:
+    def _schedule_title_summary(self, state: SessionState, traj) -> None:
+        task = ""
+        reply = ""
+        for ev in traj.events:
+            if ev.type == "run_start":
+                task = str(ev.payload.get("task") or "")
+            elif ev.type == "llm_response" and not reply:
+                for b in ev.payload.get("blocks", []):
+                    if isinstance(b, dict) and b.get("type") == "text":
+                        reply += str(b.get("text") or "")
+        if not task:
+            return
+        self.run_worker(
+            lambda: self._summarize_worker(state, task, reply),
+            thread=True,
+            exclusive=False,
+            name="title-summary",
+            group="title-summary",
+        )
+
+    def _summarize_worker(self, state: SessionState, task: str, reply: str) -> None:
+        agent = state.agent
+        if agent is None:
+            return
+        title = agent.summarize(task, reply)
+        self.call_from_thread(self._apply_title, state, title, task)
+
+    def _apply_title(self, state: SessionState, title: str, task: str) -> None:
+        state.title = title or (task or "会话")[:15]
+        self._save_session_title(state.run_id, state.title)
+        self._refresh_sidebar()
+        self._refresh_topbar()
+
+    def _save_session_title(self, run_id: str, title: str) -> None:
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self._config.db_path, timeout=5)
+            try:
+                conn.execute("UPDATE runs SET title=? WHERE run_id=?", (title, run_id))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+    # ── Permission bridge (serialized queue across sessions, ADR-0026) ───────
+
+    def _thread_permission(
+        self, op: Operation, decision: Decision, state: SessionState | None = None,
+    ) -> Decision:
         if self._loop is None:
             return Decision.DENY
+        with self._permission_lock:
+            self._permission_queue.append(op)
         try:
+            deadline = time.time() + 120.0
+            while True:
+                with self._permission_lock:
+                    is_front = bool(self._permission_queue) and self._permission_queue[0] is op
+                if is_front:
+                    break
+                if time.time() > deadline:
+                    with self._permission_lock:
+                        if op in self._permission_queue:
+                            self._permission_queue.remove(op)
+                    return Decision.DENY
+                time.sleep(0.1)
             future = asyncio.run_coroutine_threadsafe(
-                self._show_permission_async(op),
+                self._show_permission_async(op, state),
                 self._loop,
             )
             return future.result(timeout=120.0)
         except Exception:
             return Decision.DENY
+        finally:
+            with self._permission_lock:
+                if op in self._permission_queue:
+                    self._permission_queue.remove(op)
 
-    async def _show_permission_async(self, op: Operation) -> Decision:
+    async def _show_permission_async(self, op: Operation, state: SessionState | None = None) -> Decision:
         from src.tui.screens.permission import PermissionDialog
 
+        session_label = state.run_id[:8] if state is not None else "task"
         worker = self.run_worker(
-            self._show_permission_worker(op, PermissionDialog),
+            self._show_permission_worker(op, PermissionDialog, session_label),
             name="permission-dialog",
             exit_on_error=False,
         )
         return await worker.wait()
 
-    async def _show_permission_worker(self, op: Operation, dialog_cls) -> Decision:
-        dialog = dialog_cls(op)
+    async def _show_permission_worker(self, op: Operation, dialog_cls, session_label: str) -> Decision:
+        dialog = dialog_cls(op, session_label=session_label)
         decision = await self.push_screen_wait(dialog)
         if decision == Decision.ALLOW and dialog.always_allow:
             pattern = f"{op.tool_name} {op.input}"

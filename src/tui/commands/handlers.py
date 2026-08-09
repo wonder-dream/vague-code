@@ -12,6 +12,7 @@ _HELP_TEXT = """\
   /new             清空对话并开始新会话
   /clear           清空对话视图
   /resume          选择历史会话继续（picker）
+  /compact         手动压缩当前会话上下文（LLM 摘要）
   /save [path]     导出轨迹为 JSONL
   /model [name]    切换模型（picker 或直接指定）
   /mode <mode>     切换权限模式（safe/normal/autoedit/auto）
@@ -52,6 +53,8 @@ class SessionCommandHandler(CommandHandler):
             )
         if self._match(text, "/clear"):
             return CommandResult(handled=True, action={"type": "clear_output"})
+        if self._match(text, "/compact"):
+            return CommandResult(handled=True, action={"type": "compact_session"})
         if self._match(text, "/save"):
             return self._save(text)
         return CommandResult()
@@ -71,7 +74,7 @@ class SessionCommandHandler(CommandHandler):
             TuiPickerItem(
                 id=run.run_id,
                 label=(run.task or "?")[:40],
-                detail=f"{run.status} · {run.run_id}",
+                detail=f"{'会话' if run.mode == 'chat' else '任务'} · {run.status} · {run.run_id}",
             )
             for run in runs
         ]
