@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import Any
 
 from eval.matrix import EvalCell, TaskResult
 
@@ -101,8 +102,39 @@ def _cpp_verifier(task: dict) -> list[str]:
             f"&& cmake --build build >/dev/null 2>&1 && ./build/{exe}"]
 
 
+# 各语言测试文件定位（从数据集源目录恢复，防 agent 改测试作弊，对齐 SWE 版 P0-3）
+_TEST_PATTERNS: dict[str, tuple[str, ...]] = {
+    "python": ("*_test.py",),
+    "go": ("*_test.go",),
+    "javascript": ("*.spec.js",),
+    "java": ("src/test",),
+    "rust": ("tests",),
+    "cpp": ("*_test.cpp", "test"),
+}
+
+
+def _restore_tests(task: dict, workdir: Path) -> None:
+    """verify 前把源目录的测试文件覆盖回任务副本（agent 改测试 = 无效）。"""
+    source = Path(task["source_dir"])
+    patterns = _TEST_PATTERNS.get(task["language"], ())
+    for pat in patterns:
+        matches = list(source.glob(pat)) if "*" in pat else [source / pat]
+        for src in matches:
+            if not src.is_file() and not src.is_dir():
+                continue
+            dest = workdir / src.name if src.parent == source else workdir / src.relative_to(source)
+            if src.is_dir():
+                if dest.exists():
+                    shutil.rmtree(dest)
+                shutil.copytree(src, dest)
+            else:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+
+
 def verify_in_container(task: dict, workdir: Path) -> tuple[bool, str, str]:
     """容器内跑 verifier：返回 (verified, verdict_reason, 输出尾部)。"""
+    _restore_tests(task, workdir)
     if task["language"] == "cpp":
         cmd = _cpp_verifier(task)
     else:
@@ -198,10 +230,14 @@ def run_polyglot_eval(
             traj = handle.trajectory
 
             verified, reason, tail = verify_in_container(task, workdir)
+            usage = _usage_stats(traj)
             stats = {
-                "run_end_reason": _run_end_reason(traj),
-                "total_turns": sum(1 for e in traj.events if e.type == "tool_call"),
-                "cost_usd": 0.0,
+                **usage,
+                "cost_usd": round(
+                    usage["total_input_tokens"] / 1e6 * 0.28
+                    + usage["total_output_tokens"] / 1e6 * 1.10,
+                    6,
+                ),
                 "verifier_tail": tail,
             }
             results.append(TaskResult(
@@ -218,6 +254,34 @@ def _run_end_reason(traj) -> str:
         if e.type == "run_end":
             return str(e.payload.get("reason", "?"))
     return "?"
+
+
+def _usage_stats(traj) -> dict:
+    """从轨迹 llm_response 事件汇总 token 统计（对齐 harness stats 字段）。"""
+    turns = 0
+    inp = 0
+    outp = 0
+    cache = 0
+    reason = ""
+    for e in traj.events:
+        if e.type == "run_end":
+            reason = str(e.payload.get("reason", "?"))
+        elif e.type == "llm_response":
+            raw_usage = e.payload.get("usage")
+            if isinstance(raw_usage, dict):
+                usage: dict[str, Any] = raw_usage
+                inp += int(usage.get("input_tokens") or 0)
+                outp += int(usage.get("output_tokens") or 0)
+                cache += int(usage.get("cache_read_tokens") or 0)
+        elif e.type == "turn_start":
+            turns += 1
+    return {
+        "total_turns": turns,
+        "total_input_tokens": inp,
+        "total_output_tokens": outp,
+        "cache_read_tokens": cache,
+        "run_end_reason": reason,
+    }
 
 
 def main() -> None:
@@ -238,7 +302,10 @@ def main() -> None:
     tasks = load_polyglot_tasks(args.dataset)
     if args.instances:
         wanted = {s.strip() for s in args.instances.split(",") if s.strip()}
-        tasks = [t for t in tasks if t["instance_id"] in wanted]
+        tasks = [t for t in tasks if any(
+            t["instance_id"] == w or t["instance_id"].startswith(w)
+            for w in wanted
+        )]
     print(f"Loaded {len(tasks)} polyglot tasks")
     if args.fake:
         tasks = tasks[:1]

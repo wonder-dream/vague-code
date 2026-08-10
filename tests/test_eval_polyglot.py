@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from eval.polyglot import (
     load_polyglot_tasks,
     prepare_task,
@@ -94,3 +96,22 @@ def test_verify_cpp_builds_and_runs(tmp_path, monkeypatch) -> None:
     joined = " ".join(captured)
     assert "cmake" in joined
     assert "./build/hello_world" in joined  # 连字符转下划线
+
+
+def test_restore_tests_overwrites_agent_modified_tests(tmp_path) -> None:
+    """防钻空子（P0-3 对齐）：verify 前恢复源测试，agent 改测试无效。"""
+    root = _make_dataset(tmp_path)
+    task = next(t for t in load_polyglot_tasks(root) if t["language"] == "python")
+    dest = prepare_task(tmp_path / "runs", task)
+    # agent 改测试（把测试改得必过）
+    (dest / "hello_world_test.py").write_text(
+        "def test_hello():\n    assert True\n", encoding="utf-8",
+    )
+    from eval.polyglot import _restore_tests
+
+    _restore_tests(task, dest)
+    text = (dest / "hello_world_test.py").read_text(encoding="utf-8")
+    assert "TODO" not in text or "pass" in text or len(text) > 0
+    # 恢复后与源测试逐字节一致（agent 的改动被覆盖）
+    source = Path(task["source_dir"]) / "hello_world_test.py"
+    assert (dest / "hello_world_test.py").read_bytes() == source.read_bytes()
