@@ -342,7 +342,7 @@ def _bash_factory(workdir: str) -> Callable[[dict], str]:
         rewritten = _rewrite_multiline_python(command)
         if rewritten is not None:
             temp_script, command = rewritten
-        if not command.strip().lower().startswith("chcp"):
+        if os.name == "nt" and not command.strip().lower().startswith("chcp"):
             command = f"chcp 65001 >nul & {command}"
         env = dict(os.environ)
         env["PYTHONUTF8"] = "1"

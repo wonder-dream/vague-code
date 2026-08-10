@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -764,6 +765,7 @@ def test_grep_excludes_noise_dirs(tmp_path) -> None:
     assert "a.py" in out
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="cmd.exe 交互删除确认是 Windows 专属行为")
 def test_bash_interactive_confirm_gets_guidance(tmp_path) -> None:
     from vague_code.agent.tools import _bash_factory
 
