@@ -102,6 +102,7 @@ def write_init_template(path: str | Path) -> Path:
         },
     }
     out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(
         json.dumps(template, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
