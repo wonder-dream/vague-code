@@ -166,6 +166,19 @@ vague-code init
 }
 ```
 
+> **协议选择**：默认 `openai`（Chat Completions）。若中转站只支持 Responses API
+> （如部分 Codex 中转，Codex CLI 配置里 `wire_api = "responses"`），加一行
+> `"protocol": "responses"` 即可，其余配置不变：
+>
+> ```json
+> "my-relay": {
+>   "baseUrl": "https://你的codex中转/v1",
+>   "apiKeyEnv": "RELAY_KEY",
+>   "protocol": "responses",
+>   "models": ["gpt-5.6-sol"]
+> }
+> ```
+
 **第 3 步**：`.env` 里存 key（变量名与 `apiKeyEnv` 一致）。
 
 ```ini
@@ -196,18 +209,26 @@ vague-code tui --base-url https://code.newcli.com/codex/v1 --api-key-env RELAY_K
 
 ### 发布前先验证中转站协议
 
-vague-code 使用 OpenAI **Chat Completions** 协议（`POST /v1/chat/completions`）。Codex CLI 用的 Responses API 有些中转站不支持 Chat Completions——先测一下：
+vague-code 默认使用 OpenAI **Chat Completions** 协议（`POST /v1/chat/completions`），
+也支持 **Responses API**（`POST /v1/responses`，Codex CLI 用的协议，配置里加
+`"protocol": "responses"`）。先确认中转站支持哪个：
 
 ```bash
-# Windows（%RELAY_KEY% 换成你的 key）
+# 测试 Chat Completions（Windows，%RELAY_KEY% 换成你的 key）
 curl.exe https://中转站URL/v1/chat/completions ^
   -H "Content-Type: application/json" ^
   -H "Authorization: Bearer %RELAY_KEY%" ^
   -d '{"model":"模型名","messages":[{"role":"user","content":"hi"}]}'
+
+# 测试 Responses API
+curl.exe https://中转站URL/v1/responses ^
+  -H "Content-Type: application/json" ^
+  -H "Authorization: Bearer %RELAY_KEY%" ^
+  -d '{"model":"模型名","input":"hi"}'
 ```
 
-- 返回 JSON（含 `choices`）→ 兼容，直接用
-- 返回 `404` / `/responses only` → 该中转站只支持 Responses API，需要换支持 Chat Completions 的中转站
+- 哪个返回 JSON（含 `choices` 或 `output`）→ 用哪个协议（`protocol` 缺省即 Chat Completions）
+- 两个都 404 → 该中转站不兼容，换一家
 
 **常见坑**：① `base_url` 有的带 `/v1` 后缀有的不带，以服务商文档为准；② 模型名必须用服务商文档列的名字；③ 若被 Cloudflare 拦截（403 code 1010），检查是否有代理/防火墙限制，vague-code 本身不会被拦（实测正常）。
 

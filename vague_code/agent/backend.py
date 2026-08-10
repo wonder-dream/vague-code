@@ -16,6 +16,11 @@ from vague_code.agent.codecs.deepseek import (
     decode_response,
     encode_request,
 )
+from vague_code.agent.codecs.responses import (
+    ResponsesStreamDecoder,
+    decode_response as responses_decode,
+    encode_request as responses_encode,
+)
 from vague_code.agent.ir import (
     Message,
     MessageStart,
@@ -97,6 +102,56 @@ def create_deepseek_backend(
     timeout_s: float = 120.0,
 ) -> DeepSeekBackend:
     return DeepSeekBackend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
+
+
+class ResponsesBackend:
+    """OpenAI Responses API 后端（ADR-0034）：Codex 中转站 / OpenAI 官方主推协议。"""
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        timeout_s: float = 120.0,
+    ):
+        kwargs: dict = {"api_key": api_key, "timeout": timeout_s}
+        if base_url:
+            kwargs["base_url"] = base_url
+        self._client = OpenAI(**kwargs)
+
+    def complete(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec] | None = None,
+        config: dict | None = None,
+    ) -> ModelResponse:
+        body = responses_encode(messages, tools, config)
+        if "model" not in body:
+            body["model"] = "gpt-5.6"
+        raw = self._client.responses.create(**body)
+        return responses_decode(raw.model_dump(mode="json"))
+
+    def stream(
+        self,
+        messages: list[Message],
+        tools: list[ToolSpec] | None = None,
+        config: dict | None = None,
+    ) -> Iterator[StreamEvent]:
+        body = responses_encode(messages, tools, config)
+        if "model" not in body:
+            body["model"] = "gpt-5.6"
+        decoder = ResponsesStreamDecoder()
+        with self._client.responses.stream(**body) as msg_stream:
+            for event in msg_stream:
+                yield from decoder.decode_event(event.model_dump(mode="json"))
+        yield from decoder.flush()
+
+
+def create_responses_backend(
+    api_key: str,
+    base_url: str | None = None,
+    timeout_s: float = 120.0,
+) -> ResponsesBackend:
+    return ResponsesBackend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
 
 
 class AnthropicBackend:

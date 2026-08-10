@@ -598,3 +598,29 @@ class TestCliResume:
         result = capsys.readouterr()
         assert "Created" in result.out
         assert json.loads(Path(out).read_text(encoding="utf-8"))["defaultProvider"] == "deepseek"
+
+    def test_responses_protocol_dispatches_responses_backend(self, monkeypatch, capsys, tmp_path):
+        """protocol: responses 的 provider → ResponsesBackend（Codex 中转站）。"""
+        (tmp_path / "vague-code.json").write_text(
+            json.dumps({
+                "defaultProvider": "fox",
+                "providers": {
+                    "fox": {
+                        "baseUrl": "https://code.newcli.com/codex/v1",
+                        "apiKeyEnv": "RELAY_KEY",
+                        "protocol": "responses",
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        called: list = []
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr(
+            "vague_code.cli.create_responses_backend",
+            lambda api_key, base_url, timeout_s: (called.append((api_key, base_url)), _FakeBackend([_text_response("hello")]))[1],
+        )
+
+        from vague_code.cli import main
+        main(["hi", str(tmp_path), "--no-repo-map"])
+        assert called and called[0][1] == "https://code.newcli.com/codex/v1"

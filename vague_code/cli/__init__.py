@@ -7,7 +7,12 @@ from pathlib import Path
 from dotenv import dotenv_values
 from rich.console import Console
 
-from vague_code.agent.backend import ModelBackend, create_anthropic_backend, create_deepseek_backend
+from vague_code.agent.backend import (
+    ModelBackend,
+    create_anthropic_backend,
+    create_deepseek_backend,
+    create_responses_backend,
+)
 from vague_code.agent.config import AgentConfig, TransportConfig
 from vague_code.agent.ir import dispatch_event
 from vague_code.agent.loop import Agent
@@ -55,6 +60,12 @@ def _resolve_config(model: str | None, provider: str | None, workdir: str) -> tu
 def _build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float) -> ModelBackend:
     if protocol == "anthropic":
         return create_anthropic_backend(  # type: ignore[return-value]
+            api_key=api_key,
+            base_url=base_url,
+            timeout_s=timeout_s,
+        )
+    if protocol == "responses":
+        return create_responses_backend(  # type: ignore[return-value]
             api_key=api_key,
             base_url=base_url,
             timeout_s=timeout_s,
