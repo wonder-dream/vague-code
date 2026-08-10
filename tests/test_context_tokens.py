@@ -50,7 +50,7 @@ def test_tools_included() -> None:
 
 def test_compute_budget_known_model() -> None:
     assert compute_budget("deepseek-v4-flash") == 900_000
-    assert compute_budget("deepseek-v4-pro") == 57_600
+    assert compute_budget("deepseek-v4-pro") == 900_000  # 官方 1M（2026-08 修正）
 
 
 def test_compute_budget_unknown_model() -> None:

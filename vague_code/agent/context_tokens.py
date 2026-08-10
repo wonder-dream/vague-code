@@ -13,14 +13,17 @@ from vague_code.agent.ir import (
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-flash": 1_000_000,
-    "deepseek-v4-pro": 64_000,
-    "claude-opus-4-8": 200_000,
-    "claude-sonnet-4-5": 200_000,
+    "deepseek-v4-pro": 1_000_000,
     # OpenAI 现行文本模型（2026-08）：GPT-5.6 系列，1.05M 上下文
     "gpt-5.6": 1_050_000,
     "gpt-5.6-sol": 1_050_000,
     "gpt-5.6-terra": 1_050_000,
     "gpt-5.6-luna": 1_050_000,
+    # Anthropic 现行模型（2026-08）：Fable 5 / Opus 5 / Sonnet 5 1M，Haiku 4.5 200K
+    "claude-fable-5": 1_000_000,
+    "claude-opus-5": 1_000_000,
+    "claude-sonnet-5": 1_000_000,
+    "claude-haiku-4-5": 200_000,
 }
 
 _SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-", "deepseek-")
@@ -33,7 +36,8 @@ _GPT_CL100K_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-3.5", "gpt-35", "gpt2")
 
 
 def _window_for(model: str) -> int:
-    """上下文窗口：精确匹配 → 系列前缀回退（gpt-5.6* → 1.05M，gpt-5* → 400K）→ 通用回退。"""
+    """上下文窗口：精确匹配 → 系列前缀回退（gpt-5.6* → 1.05M，gpt-5* → 400K，
+    claude-* → 1M，deepseek-* → 1M）→ 通用回退。"""
     if model in CONTEXT_WINDOWS:
         return CONTEXT_WINDOWS[model]
     if model.startswith("gpt-5.6"):
@@ -42,6 +46,10 @@ def _window_for(model: str) -> int:
         return 400_000
     if model.startswith("gpt-"):
         return 128_000
+    if model.startswith("claude-"):
+        return 1_000_000
+    if model.startswith("deepseek-"):
+        return 1_000_000
     return 64_000
 
 # Wire-level structural token overhead, measured against the real DeepSeek API

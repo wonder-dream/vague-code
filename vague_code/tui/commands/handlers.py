@@ -108,8 +108,6 @@ class ModelCommandHandler(CommandHandler):
         "deepseek": (
             "deepseek-v4-flash",
             "deepseek-v4-pro",
-            "deepseek-chat",
-            "deepseek-reasoner",
         ),
         "openai": (
             "gpt-5.6-sol",
@@ -117,8 +115,10 @@ class ModelCommandHandler(CommandHandler):
             "gpt-5.6-luna",
         ),
         "anthropic": (
-            "claude-sonnet-4-5",
-            "claude-opus-4-8",
+            "claude-fable-5",
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
         ),
     }
 

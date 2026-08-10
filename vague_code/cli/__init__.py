@@ -22,7 +22,7 @@ from vague_code.config import load_config, write_init_template
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
     "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
-    "anthropic": ("https://api.deepseek.com/anthropic", "ANTHROPIC_API_KEY"),
+    "anthropic": ("https://api.anthropic.com", "ANTHROPIC_API_KEY"),
 }
 
 _DEFAULT_MODEL = "deepseek-v4-flash"

@@ -73,9 +73,10 @@ def test_resolve_provider_and_models(tmp_path) -> None:
     assert provider_models(cfg, "fox") == ["gpt-5.6-sol", "gpt-5.6-terra"]
     # 未配置 models 的自定义 provider → 空列表
     assert provider_models({"providers": {"x": {"baseUrl": "u"}}}, "x") == []
-    # 内置 provider 有默认模型列表
-    assert provider_models(cfg, "deepseek") == ["deepseek-v4-flash", "deepseek-v4-pro",
-                                                "deepseek-chat", "deepseek-reasoner"]
+    # 内置 provider 有默认模型列表（现行模型目录，2026-08）
+    assert provider_models(cfg, "deepseek") == ["deepseek-v4-flash", "deepseek-v4-pro"]
+    assert provider_models(cfg, "anthropic") == ["claude-fable-5", "claude-opus-5",
+                                                 "claude-sonnet-5", "claude-haiku-4-5"]
 
 
 def test_init_template_writes_file(tmp_path) -> None:

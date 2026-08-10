@@ -51,7 +51,7 @@ def main():
     p.add_argument("--supervisor-model", default=None,
                    help="Supervisor model (default: same as --model)")
     p.add_argument("--price-input", type=float, default=0.28,
-                   help="USD per 1M input tokens (default: deepseek-chat approx)")
+                        help="USD per 1M input tokens (default: deepseek-v4-flash approx)")
     p.add_argument("--price-output", type=float, default=1.10,
                    help="USD per 1M output tokens")
     p.add_argument("--regen", metavar="RESULTS_JSON",

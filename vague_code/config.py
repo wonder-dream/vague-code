@@ -17,16 +17,17 @@ BUILTIN_PROVIDERS: dict[str, dict] = {
     "deepseek": {"baseUrl": "https://api.deepseek.com", "apiKeyEnv": "DEEPSEEK_API_KEY"},
     "openai": {"baseUrl": "https://api.openai.com/v1", "apiKeyEnv": "OPENAI_API_KEY"},
     "anthropic": {
-        "baseUrl": "https://api.deepseek.com/anthropic",
+        "baseUrl": "https://api.anthropic.com",
         "apiKeyEnv": "ANTHROPIC_API_KEY",
         "protocol": "anthropic",
     },
 }
 
+# 现行模型目录（2026-08 官方核实；不再提供的老模型不列）
 _BUILTIN_MODELS: dict[str, list[str]] = {
-    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+    "deepseek": ["deepseek-v4-flash", "deepseek-v4-pro"],
     "openai": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
-    "anthropic": ["claude-sonnet-4-5", "claude-opus-4-8"],
+    "anthropic": ["claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
 }
 
 
@@ -90,7 +91,7 @@ def write_init_template(path: str | Path) -> Path:
             "deepseek": {"baseUrl": "https://api.deepseek.com", "apiKeyEnv": "DEEPSEEK_API_KEY"},
             "openai": {"baseUrl": "https://api.openai.com/v1", "apiKeyEnv": "OPENAI_API_KEY"},
             "anthropic": {
-                "baseUrl": "https://api.deepseek.com/anthropic",
+                "baseUrl": "https://api.anthropic.com",
                 "apiKeyEnv": "ANTHROPIC_API_KEY",
                 "protocol": "anthropic",
             },
