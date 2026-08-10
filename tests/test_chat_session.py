@@ -281,6 +281,8 @@ def test_compact_chat_summarizes_older_turns(tmp_path) -> None:
     assert backend.summary_count == summary_calls_before + 1
     assert result["affected"] > 0
     assert result["before"] > result["after"]
+    # ADR-0036：compact 返回摘要文本（供 TUI 展示）
+    assert result["summary"] == "[Prior turns summarized.]"
     # system + 摘要 + 最近保留轮
     roles = [m.role for m in agent._chat_messages]
     assert roles[0] == "system"

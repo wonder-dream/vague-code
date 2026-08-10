@@ -2,6 +2,12 @@
 
 ## [Unreleased] — 2026-08-10
 
+### Added
+
+- **`/compact` 展示摘要**（ADR-0036，对齐 opencode）：`compact_chat()` 返回摘要文本，TUI 压缩完成后把 `[会话摘要]`（Pi 风格结构化摘要）作为对话消息展示在对话流中，不再只是一行 token 数字
+
+## [Unreleased] — 2026-08-10
+
 ### Changed
 
 - **缓存友好压缩链**（ADR-0035，对齐 Claude Code/Codex/opencode/Pi 业界做法）：改写闸门 `rewrite_threshold`(0.7) 替代 microcompact/structured 独立阈值——利用率 ≤70% 时完全不动历史（缓存前缀稳定、高命中），超阈值一次性执行全部改写型层（stale→micro→structured）后缓存重新积累；`auto_compact` 摘要升级为 Pi 风格结构化模板（Goal/Progress/Key Decisions/Next Steps/Critical Context + `<read-files>`/`<modified-files>` 文件追踪跨轮累积）

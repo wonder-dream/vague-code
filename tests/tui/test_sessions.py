@@ -601,3 +601,39 @@ async def test_delete_session_cleans_artifacts(tmp_path) -> None:
     finally:
         mconn.close()
 
+
+
+async def test_compact_summary_displayed_in_transcript() -> None:
+    """ADR-0036: /compact 后摘要作为对话消息展示在 transcript。"""
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session()
+        summary = "## Goal\nfix the bug\n\n## Next Steps\n1. run tests"
+        app._show_compact_summary(state, summary)
+        await pilot.pause(0.1)
+        assistants = [e for e in state.transcript.entries if e.kind == TuiEntryKind.ASSISTANT]
+        assert assistants, "summary must render as an assistant-style entry"
+        assert "[会话摘要]" in assistants[-1].body
+        assert "## Goal" in assistants[-1].body
+
+
+async def test_compact_worker_displays_summary(monkeypatch) -> None:
+    """ADR-0036: _run_compact_worker 压缩成功后把摘要展示到对话流。"""
+    monkeypatch.setattr(
+        Agent, "compact_chat",
+        lambda self: {"before": 10000, "after": 3000, "affected": 8,
+                      "summary": "## Progress\n### Done\n- fixed bug"},
+    )
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session()
+        app.run_worker(
+            lambda: app._run_compact_worker(state),
+            thread=True, exclusive=False, group="test-compact",
+        )
+        await pilot.pause(0.5)
+        bodies = [e.body for e in state.transcript.entries]
+        assert any("[会话摘要]" in b for b in bodies)
+        assert any("fixed bug" in b for b in bodies)

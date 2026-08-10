@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vague-code"
-version = "0.1.7"
+version = "0.1.8"
 description = "Lightweight local Coding Agent CLI with agent runtime, tool system, context compression, and eval harness"
 readme = "README.md"
 requires-python = ">=3.12"

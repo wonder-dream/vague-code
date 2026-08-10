@@ -927,12 +927,24 @@ class VagueCodeApp(VagueCodeViewMixin, App):
                     "上下文已是最新，无需压缩。",
                     kind=TuiEntryKind.SYSTEM,
                 )
+            # 对齐 opencode：压缩完成后把摘要展示在对话流中（ADR-0036）
+            summary = str(result.get("summary") or "").strip()
+            if summary:
+                self.call_from_thread(
+                    self._show_compact_summary, state, summary,
+                )
         except Exception as exc:
             self.call_from_thread(
                 self._write_line,
                 f"压缩失败: {type(exc).__name__}: {exc}",
                 kind=TuiEntryKind.ERROR,
             )
+
+    def _show_compact_summary(self, state: SessionState, summary: str) -> None:
+        """把压缩摘要展示在对话流中（对齐 opencode 的摘要消息，ADR-0036）。"""
+        if self._sessions.current is not state:
+            return
+        self._write_markdown_message(f"[会话摘要]\n{summary}")
 
     def _replay_trajectory(self, traj) -> None:
         from vague_code.agent.trajectory import EventType

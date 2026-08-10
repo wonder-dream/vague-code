@@ -357,6 +357,7 @@ class Agent:
             "before": compact_report.before_tokens,
             "after": compact_report.after_tokens,
             "affected": compact_report.affected,
+            "summary": str(compact_report.detail.get("summary_text") or ""),
         }
 
     @property
