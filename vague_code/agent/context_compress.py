@@ -444,12 +444,61 @@ def structured_snip(
 
 # ── Layer 3: auto_compact ──────────────────────────────────────────────────
 
-_SUMMARIZE_PROMPT = (
-    "你是一个摘要引擎。简洁地总结以下编码会话。\n"
-    "包含：用户的原始任务、目前已完成的工作、"
-    "关键文件路径和修改内容、待完成的工作、以及任何错误或阻塞。\n"
-    "该摘要将用于继续会话。"
-)
+_SUMMARIZE_PROMPT = """你是一个摘要引擎。将以下编码会话压缩为结构化摘要，该摘要将用于继续会话。
+
+严格按以下 Markdown 格式输出（只输出摘要本身，不要其他文字）：
+
+## Goal
+用户的原始任务
+
+## Progress
+### Done
+- 已完成的工作
+### In Progress
+- 进行中的工作
+### Blocked
+- 阻塞项或错误
+
+## Key Decisions
+- **关键决策**：理由
+
+## Next Steps
+1. 下一步要做什么
+
+## Critical Context
+关键文件路径、修改内容、错误信息等继续会话所需的数据
+
+<read-files>
+本次摘要涉及读取过的文件路径，每行一个
+</read-files>
+
+<modified-files>
+本次摘要涉及修改过的文件路径，每行一个
+</modified-files>
+
+规则：文件清单必须与下方提供的"已读取文件/已修改文件"一致并**累积**（若存在上一次摘要的文件清单，合并进去）；遗漏关键决策会降低后续任务成功率。"""
+
+
+def _collect_files(to_summarize: list[Message]) -> tuple[list[str], list[str]]:
+    """从被压缩消息中提取读取/修改过的文件路径（Pi 风格文件追踪）。"""
+    read_files: list[str] = []
+    modified_files: list[str] = []
+    seen_read: set[str] = set()
+    seen_modified: set[str] = set()
+    for msg in to_summarize:
+        for block in msg.content:
+            if not isinstance(block, ToolUseBlock):
+                continue
+            path = str(block.input.get("path") or "") if isinstance(block.input, dict) else ""
+            if not path:
+                continue
+            if block.name in ("read_file", "read") and path not in seen_read:
+                seen_read.add(path)
+                read_files.append(path)
+            elif block.name in ("write_file", "patch") and path not in seen_modified:
+                seen_modified.add(path)
+                modified_files.append(path)
+    return read_files, modified_files
 
 
 def auto_compact(
@@ -525,6 +574,17 @@ def auto_compact(
         )
 
     request_text = _SUMMARIZE_PROMPT + "\n---\n" + "\n".join(lines)
+
+    # Pi 风格文件追踪：预提取文件清单注入摘要请求（跨轮压缩累积）
+    read_files, modified_files = _collect_files(to_summarize)
+    file_sections: list[str] = []
+    if read_files:
+        file_sections.append("已读取文件:\n" + "\n".join(read_files))
+    if modified_files:
+        file_sections.append("已修改文件:\n" + "\n".join(modified_files))
+    if file_sections:
+        request_text += "\n\n" + "\n".join(file_sections)
+
     summary_msg = Message(role="user", content=[TextBlock(text=request_text)])
 
     try:
@@ -735,25 +795,27 @@ def compress_chain(
         return messages, []
 
     reports: list[LayerReport] = []
-
-    # Layer 1: stale_snip (always)
-    messages, report = stale_snip(messages, cfg.stale_snip_keep_recent, tools, skip_thinking)
-    reports.append(report)
-
-    # Layer 2: microcompact (util > microcompact_threshold)
     new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
-    if new_total > budget * cfg.microcompact_threshold:
-        messages, report = microcompact(messages, cfg.microcompact_max_chars, cfg.microcompact_keep_recent, tools, skip_thinking)
+
+    # 改写闸门（ADR-0035）：利用率 ≤ rewrite_threshold 时完全不动历史（只追加），
+    # 保持缓存前缀稳定；超过后一次性执行全部改写型层（stale → micro → structured），
+    # 形成一次断裂后缓存重新积累（对齐 Claude Code / Pi 的阈值压缩共识）。
+    if new_total > budget * cfg.rewrite_threshold:
+        messages, report = stale_snip(messages, cfg.stale_snip_keep_recent, tools, skip_thinking)
         reports.append(report)
         new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
-    # Layer 3: structured_snip (util > structured_snip_threshold AND events available)
-    if events is not None and new_total > budget * cfg.structured_snip_threshold:
-        messages, report = structured_snip(
-            messages, events, cfg.structured_snip_keep_recent, tools, skip_thinking,
-        )
-        reports.append(report)
-        new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
+        if new_total > budget * cfg.rewrite_threshold:
+            messages, report = microcompact(messages, cfg.microcompact_max_chars, cfg.microcompact_keep_recent, tools, skip_thinking)
+            reports.append(report)
+            new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
+
+        if events is not None and new_total > budget * cfg.rewrite_threshold:
+            messages, report = structured_snip(
+                messages, events, cfg.structured_snip_keep_recent, tools, skip_thinking,
+            )
+            reports.append(report)
+            new_total = count_tokens(messages, tools, skip_thinking=skip_thinking)
 
     # Layer 4: auto_compact (util > auto_compact_threshold AND backend available)
     if backend is not None and new_total > budget * cfg.auto_compact_threshold:

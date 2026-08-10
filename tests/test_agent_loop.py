@@ -200,7 +200,8 @@ def test_token_budget_recorded():
 
     compressions = [e for e in traj.events if e.type == EventType.compression]
     assert len(compressions) >= 1
-    assert compressions[0].payload["layer"] == "stale_snip"
+    # ADR-0035：短任务低利用率无改写层 → budget 事件；预算字段必须存在
+    assert compressions[0].payload["layer"] in ("budget", "stale_snip")
     assert compressions[0].payload["budget"] > 0
     assert compressions[0].payload["before_tokens"] >= 0
     assert compressions[0].payload["after_tokens"] >= 0
@@ -1503,7 +1504,7 @@ def test_compression_pipeline_30_turns(monkeypatch, tmp_path):
         model="test-model",
         max_turns=35,
         compression=CompressionConfig(
-            microcompact_threshold=1.0,
+            rewrite_threshold=0.1,
             auto_compact_threshold=0.1,
             stale_snip_keep_recent=3,
             microcompact_max_chars=400,

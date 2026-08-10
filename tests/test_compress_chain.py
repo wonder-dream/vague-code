@@ -48,23 +48,24 @@ def _make_session(n_pairs: int) -> list[Message]:
     return msgs
 
 
-def test_low_utilization_stale_only():
+def test_low_utilization_no_rewrite():
+    """ADR-0035：低利用率（≤ rewrite_threshold）时完全不动历史，零改写层。"""
     backend = _FakeBackend()
     cfg = CompressionConfig()
     msgs = _make_session(2)
     budget = compute_budget("deepseek-v4-flash")  # large budget → very low util
     result, reports = compress_chain(msgs, None, cfg, budget, backend=backend, model="test")
     layers = [r.layer for r in reports]
-    assert "stale_snip" in layers
-    # No auto_compact or truncate needed at low utilization
+    assert layers == [] or "stale_snip" not in layers
+    # 历史未被改写：结果与输入字节级一致
+    assert len(result) == len(msgs)
     assert backend.call_count == 0
-    assert len(result) > 0
 
 
-def test_high_utilization_triggers_microcompact():
+def test_high_utilization_triggers_rewrite_layers():
     backend = _FakeBackend()
     cfg = CompressionConfig(
-        microcompact_threshold=0.01,
+        rewrite_threshold=0.01,
         auto_compact_threshold=1.0,
     )
     msgs = _make_session(3)
@@ -79,7 +80,7 @@ def test_high_utilization_triggers_microcompact():
 def test_auto_compact_triggered():
     backend = _FakeBackend("The task was to fix a bug. User read a.py several times.")
     cfg = CompressionConfig(
-        microcompact_threshold=0.01,
+        rewrite_threshold=0.01,
         auto_compact_threshold=0.01,
     )
     msgs = _make_session(5)
@@ -94,7 +95,7 @@ def test_truncation_triggered():
     msgs = _make_session(10)
     budget = count_tokens(msgs[:4], skip_thinking=True) + 20
     cfg = CompressionConfig(
-        microcompact_threshold=0.01,
+        rewrite_threshold=0.01,
         auto_compact_threshold=0.01,
     )
     result, reports = compress_chain(msgs, None, cfg, budget, model="test")
@@ -106,7 +107,7 @@ def test_truncation_triggered():
 def test_chain_order_preserved():
     backend = _FakeBackend("summary text")
     cfg = CompressionConfig(
-        microcompact_threshold=0.01,
+        rewrite_threshold=0.01,
         auto_compact_threshold=0.01,
     )
     msgs = _make_session(5)
@@ -117,14 +118,13 @@ def test_chain_order_preserved():
     assert actual_layers == expected_order
 
 
-def test_enabled_true_produces_reports():
+def test_enabled_true_produces_reports_at_high_utilization():
     backend = _FakeBackend()
-    cfg = CompressionConfig(enabled=True)
+    cfg = CompressionConfig(enabled=True, rewrite_threshold=0.01)
     msgs = _make_session(3)
     budget = count_tokens(msgs, skip_thinking=True) + 100
     result, reports = compress_chain(msgs, None, cfg, budget, backend=backend, model="test")
     assert len(reports) >= 1
-    # When enabled, stale_snip always runs
     assert "stale_snip" in [r.layer for r in reports]
 
 

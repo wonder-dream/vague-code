@@ -28,20 +28,19 @@ class TransportConfig:
 @dataclass
 class CompressionConfig:
     enabled: bool = True
-    microcompact_threshold: float = 0.5
+    # 改写闸门（ADR-0035）：利用率 ≤ rewrite_threshold 时完全不动历史（只追加），
+    # 保持缓存前缀稳定；超过后一次性执行全部改写型层（stale→micro→structured）。
+    rewrite_threshold: float = 0.7
     microcompact_max_chars: int = 4000
     microcompact_keep_recent: int = 3
-    structured_snip_threshold: float = 0.65
     structured_snip_keep_recent: int = 3
     auto_compact_threshold: float = 0.85
     auto_compact_keep_turns: int = 4
     stale_snip_keep_recent: int = 3
 
     def __post_init__(self) -> None:
-        if not 0.0 <= self.microcompact_threshold <= 1.0:
-            raise ValueError(f"microcompact_threshold must be in [0,1], got {self.microcompact_threshold}")
-        if not 0.0 <= self.structured_snip_threshold <= 1.0:
-            raise ValueError(f"structured_snip_threshold must be in [0,1], got {self.structured_snip_threshold}")
+        if not 0.0 <= self.rewrite_threshold <= 1.0:
+            raise ValueError(f"rewrite_threshold must be in [0,1], got {self.rewrite_threshold}")
         if not 0.0 <= self.auto_compact_threshold <= 1.0:
             raise ValueError(f"auto_compact_threshold must be in [0,1], got {self.auto_compact_threshold}")
         if self.microcompact_max_chars < 1:

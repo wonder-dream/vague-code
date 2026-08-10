@@ -2,6 +2,12 @@
 
 ## [Unreleased] — 2026-08-10
 
+### Changed
+
+- **缓存友好压缩链**（ADR-0035，对齐 Claude Code/Codex/opencode/Pi 业界做法）：改写闸门 `rewrite_threshold`(0.7) 替代 microcompact/structured 独立阈值——利用率 ≤70% 时完全不动历史（缓存前缀稳定、高命中），超阈值一次性执行全部改写型层（stale→micro→structured）后缓存重新积累；`auto_compact` 摘要升级为 Pi 风格结构化模板（Goal/Progress/Key Decisions/Next Steps/Critical Context + `<read-files>`/`<modified-files>` 文件追踪跨轮累积）
+
+## [Unreleased] — 2026-08-10
+
 ### Added
 
 - **GPT 系列 API 支持**（ADR-0032）：`--provider openai`（CLI/chat/TUI 三入口）+ `--base-url`/`--api-key-env` 覆盖任意 OpenAI 兼容端点（OpenRouter 等）；TUI `/model` 按 provider 分组；tokenizer 按模型切换（GPT 系列 → cl100k）；CONTEXT_WINDOWS 补 gpt-4o 128K / gpt-4.1 1M / o3-mini 200K；模型名校验放行 `provider/model` 斜杠格式；topbar 修复 provider 显示
