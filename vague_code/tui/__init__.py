@@ -9,7 +9,8 @@ def main(
     config,
     backend,
     provider: str = "deepseek",
+    file_config: dict | None = None,
 ) -> None:
     app = VagueCodeApp(config=config, backend=backend, task=task, workdir=workdir,
-                       provider=provider)
+                       provider=provider, file_config=file_config)
     app.run()

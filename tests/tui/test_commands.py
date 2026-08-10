@@ -97,6 +97,23 @@ def test_model_list_grouped_by_provider() -> None:
     assert "gpt-5.6-sol" not in labels2
 
 
+def test_model_list_for_custom_provider_from_config() -> None:
+    app = _make_app()
+    app._provider = "fox"
+    app._file_config = {
+        "providers": {
+            "fox": {
+                "baseUrl": "https://relay.example.com/v1",
+                "apiKeyEnv": "RELAY_KEY",
+                "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
+            }
+        }
+    }
+    result = app._command_handler.handle("/model")
+    labels = [i["label"] for i in result.action["items"]]
+    assert labels == ["gpt-5.6-sol", "gpt-5.6-terra"]
+
+
 def test_mode_command() -> None:
     app = _make_app()
     result = app._command_handler.handle("/mode auto")

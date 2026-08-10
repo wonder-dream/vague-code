@@ -80,11 +80,13 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         task: str = "",
         workdir: str = ".",
         provider: str = "deepseek",
+        file_config: dict | None = None,
     ) -> None:
         super().__init__()
         self._config = config
         self._backend = backend
         self._provider = provider
+        self._file_config = file_config or {}
         self._agent_task = task
         self._workdir = workdir
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"

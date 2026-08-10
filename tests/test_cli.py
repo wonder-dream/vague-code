@@ -533,3 +533,68 @@ class TestCliResume:
         from vague_code.cli import main
         main(["hi", "."])
         assert captured.get("base_url") == "https://api.deepseek.com"
+
+    def test_config_file_provider_resolved(self, monkeypatch, capsys, tmp_path):
+        """vague-code.json 里的自定义 provider：--provider fox 生效（baseUrl/apiKeyEnv）。"""
+        (tmp_path / "vague-code.json").write_text(
+            json.dumps({
+                "defaultProvider": "fox",
+                "defaultModel": "gpt-5.6-sol",
+                "providers": {
+                    "fox": {
+                        "baseUrl": "https://code.newcli.com/codex/v1",
+                        "apiKeyEnv": "RELAY_KEY",
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        captured: dict = {}
+
+        def _capture_backend(api_key, base_url, timeout_s):
+            captured["base_url"] = base_url
+            captured["api_key"] = api_key
+            return _FakeBackend([_text_response("hello")])
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+
+        from vague_code.cli import main
+        main(["hi", str(tmp_path), "--provider", "fox", "--no-repo-map"])
+        assert captured.get("base_url") == "https://code.newcli.com/codex/v1"
+        assert captured.get("api_key") == "sk-RELAY_KEY"
+
+    def test_config_default_provider_and_model(self, monkeypatch, capsys, tmp_path):
+        """配置文件 defaultProvider/defaultModel：零参数（无 --provider/--model）生效。"""
+        (tmp_path / "vague-code.json").write_text(
+            json.dumps({
+                "defaultProvider": "fox",
+                "defaultModel": "gpt-5.6-luna",
+                "providers": {
+                    "fox": {"baseUrl": "https://relay.example.com/v1", "apiKeyEnv": "RELAY_KEY"}
+                },
+            }),
+            encoding="utf-8",
+        )
+        captured: dict = {}
+
+        def _capture_backend(api_key, base_url, timeout_s):
+            captured["base_url"] = base_url
+            return _FakeBackend([_text_response("hello")])
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.cli.AgentConfig", AgentConfig)
+
+        from vague_code.cli import main
+        main(["hi", str(tmp_path), "--no-repo-map"])
+        assert captured.get("base_url") == "https://relay.example.com/v1"
+
+    def test_init_command_generates_template(self, monkeypatch, capsys, tmp_path):
+        """`vague-code init` 生成配置模板。"""
+        from vague_code.cli import main
+        out = str(tmp_path / "vague-code.json")
+        main(["init", "--path", out])
+        result = capsys.readouterr()
+        assert "Created" in result.out
+        assert json.loads(Path(out).read_text(encoding="utf-8"))["defaultProvider"] == "deepseek"

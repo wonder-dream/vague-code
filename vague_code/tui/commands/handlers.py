@@ -127,6 +127,11 @@ class ModelCommandHandler(CommandHandler):
 
     def _models(self) -> tuple[str, ...]:
         provider = getattr(self._app, "_provider", "deepseek")
+        from vague_code.config import provider_models
+        file_config = getattr(self._app, "_file_config", None) or {}
+        models = provider_models(file_config, provider)
+        if models:
+            return tuple(models)
         return self.MODELS.get(provider, self.MODELS["deepseek"])
 
     def handle(self, text: str) -> CommandResult:

@@ -140,15 +140,51 @@ vague-code --provider anthropic --base-url https://api.anthropic.com "..."  # �
 
 适合：中转站 Key、OpenRouter、Moonshot、任何提供 OpenAI 兼容接口的服务。
 
-**第 1 步**：获取服务商的 `base_url` 和 `模型名`（看服务商文档）。
+### 推荐做法：配置文件声明一次，日常零参数
 
-**第 2 步**：配置 Key（变量名随意，用什么就用什么）。
+**第 1 步**：生成配置模板。
 
 ```bash
-echo "RELAY_KEY=sk-xxxxxxxx" > .env
+vague-code init
 ```
 
-**第 3 步**：运行。
+**第 2 步**：编辑生成的 `vague-code.json`，把中转站信息填进 `providers`（名字随意，这里叫 `my-relay`），并设为默认：
+
+```json
+{
+  "defaultProvider": "my-relay",
+  "defaultModel": "gpt-5.6-sol",
+  "providers": {
+    "deepseek": { "baseUrl": "https://api.deepseek.com", "apiKeyEnv": "DEEPSEEK_API_KEY" },
+    "openai":   { "baseUrl": "https://api.openai.com/v1", "apiKeyEnv": "OPENAI_API_KEY" },
+    "my-relay": {
+      "baseUrl": "https://code.newcli.com/codex/v1",
+      "apiKeyEnv": "RELAY_KEY",
+      "models": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+    }
+  }
+}
+```
+
+**第 3 步**：`.env` 里存 key（变量名与 `apiKeyEnv` 一致）。
+
+```ini
+RELAY_KEY=sk-xxxxxxxx
+```
+
+**第 4 步**：日常使用——零参数直接跑，`--provider`/`--model` 按需覆盖。
+
+```bash
+vague-code tui                     # 自动用 my-relay + gpt-5.6-sol
+vague-code "修复这个bug"           # CLI 单次
+vague-code tui --model gpt-5.6-terra   # 只换模型
+vague-code tui --provider openai       # 切到内置 OpenAI
+```
+
+> 配置也可放全局 `~/.config/vague-code/config.json`（不跟项目走）；两级合并、项目优先。
+> 取值优先级：命令行参数 > 项目 `vague-code.json` > 全局配置文件 > 内置默认。
+
+### 不用配置文件（每次敲参数）也行
 
 ```bash
 # OpenRouter 示例（模型名带斜杠也支持）
@@ -158,7 +194,9 @@ vague-code tui --base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_
 vague-code tui --base-url https://code.newcli.com/codex/v1 --api-key-env RELAY_KEY --model gpt-5.6-sol
 ```
 
-**第 4 步（发布前先验证中转站协议）**：vague-code 使用 OpenAI **Chat Completions** 协议（`POST /v1/chat/completions`）。Codex CLI 用的 Responses API 有些中转站不支持 Chat Completions——先测一下：
+### 发布前先验证中转站协议
+
+vague-code 使用 OpenAI **Chat Completions** 协议（`POST /v1/chat/completions`）。Codex CLI 用的 Responses API 有些中转站不支持 Chat Completions——先测一下：
 
 ```bash
 # Windows（%RELAY_KEY% 换成你的 key）

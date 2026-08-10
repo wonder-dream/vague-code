@@ -12,6 +12,7 @@ from vague_code.agent.config import AgentConfig, TransportConfig
 from vague_code.agent.ir import dispatch_event
 from vague_code.agent.loop import Agent
 from vague_code.cli.renderer import RichStreamVisitor
+from vague_code.config import load_config, write_init_template
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
@@ -19,10 +20,50 @@ _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "anthropic": ("https://api.deepseek.com/anthropic", "ANTHROPIC_API_KEY"),
 }
 
+_DEFAULT_MODEL = "deepseek-v4-flash"
 
-def _provider_settings(provider: str, base_url: str | None, api_key_env: str | None) -> tuple[str, str]:
+
+def _provider_settings(
+    provider: str,
+    base_url: str | None,
+    api_key_env: str | None,
+    config: dict | None = None,
+) -> tuple[str, str, str]:
+    """返回 (base_url, key_env, protocol)。自定义 provider 查配置文件，内置走默认表。"""
+    spec = None
+    if config:
+        spec = config.get("providers", {}).get(provider)
+    if spec:
+        return (
+            base_url or str(spec.get("baseUrl") or ""),
+            api_key_env or str(spec.get("apiKeyEnv") or ""),
+            str(spec.get("protocol") or "openai"),
+        )
     default_url, default_env = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["deepseek"])
-    return base_url or default_url, api_key_env or default_env
+    protocol = "anthropic" if provider == "anthropic" else "openai"
+    return base_url or default_url, api_key_env or default_env, protocol
+
+
+def _resolve_config(model: str | None, provider: str | None, workdir: str) -> tuple[str, str, dict]:
+    """从配置文件补缺省：返回 (model, provider, config)。"""
+    cfg = load_config(workdir)
+    provider = provider or str(cfg.get("defaultProvider") or "deepseek")
+    model = model or str(cfg.get("defaultModel") or "") or _DEFAULT_MODEL
+    return model, provider, cfg
+
+
+def _build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float) -> ModelBackend:
+    if protocol == "anthropic":
+        return create_anthropic_backend(  # type: ignore[return-value]
+            api_key=api_key,
+            base_url=base_url,
+            timeout_s=timeout_s,
+        )
+    return create_deepseek_backend(  # type: ignore[return-value]
+        api_key=api_key,
+        base_url=base_url,
+        timeout_s=timeout_s,
+    )
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -33,6 +74,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if argv and argv[0] == "tui":
         _tui_main(argv[1:])
+        return
+    if argv and argv[0] == "init":
+        _init_main(argv[1:])
         return
 
     try:
@@ -66,8 +110,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="Maximum delay between retries (seconds)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
                         help="Per-turn LLM call timeout (seconds)")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
-                        help="Model provider (default: deepseek)")
+    parser.add_argument("--provider", default=None,
+                        help="Model provider (builtin: deepseek/openai/anthropic, or any name from vague-code.json)")
     parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
     parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map symbol index")
@@ -83,14 +127,15 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("task is required unless --resume is used")
 
     try:
-        base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+        model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
+        base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
         api_key = _resolve_api_key(key_env)
         if not api_key:
             print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
             sys.exit(1)
 
         config = AgentConfig(
-            model=args.model,
+            model=model,
             max_turns=args.max_turns if args.max_turns is not None else AgentConfig.max_turns,
             db_path=args.db_path,
             transport=TransportConfig(
@@ -106,19 +151,9 @@ def main(argv: list[str] | None = None) -> None:
         config.repo_map.max_map_tokens = args.repo_map_tokens
         config.permission_mode = args.mode
 
-        backend: ModelBackend
-        if args.provider == "anthropic":
-            backend = create_anthropic_backend(  # type: ignore[assignment]
-                api_key=api_key,
-                base_url=base_url,
-                timeout_s=config.transport.timeout_s,
-            )
-        else:
-            backend = create_deepseek_backend(  # type: ignore[assignment]
-                api_key=api_key,
-                base_url=base_url,
-                timeout_s=config.transport.timeout_s,
-            )
+        backend: ModelBackend = _build_backend(
+            provider, api_key, base_url, protocol, config.transport.timeout_s,
+        )
 
         agent = Agent(config, backend)
         for rule in _load_permission_rules(args.workdir):
@@ -163,8 +198,8 @@ def _tui_main(argv: list[str]) -> None:
     parser.add_argument("--max-turns", type=int, default=None,
                         help=f"Maximum turns (default: {AgentConfig.max_turns})")
     parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
-                        help="Model provider (default: deepseek)")
+    parser.add_argument("--provider", default=None,
+                        help="Model provider (builtin: deepseek/openai/anthropic, or any name from vague-code.json)")
     parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
     parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
@@ -180,14 +215,15 @@ def _tui_main(argv: list[str]) -> None:
 
     args = parser.parse_args(argv)
 
-    base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+    model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
+    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
     if not api_key:
         print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
         sys.exit(1)
 
     config = AgentConfig(
-        model=args.model,
+        model=model,
         max_turns=args.max_turns if args.max_turns is not None else AgentConfig.max_turns,
         db_path=args.db_path,
     )
@@ -197,22 +233,13 @@ def _tui_main(argv: list[str]) -> None:
     config.transport.retry_max_delay_s = args.retry_max_delay_s
     config.permission_mode = args.mode
 
-    if args.provider == "anthropic":
-        backend = create_anthropic_backend(
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=config.transport.timeout_s,
-        )
-    else:
-        backend = create_deepseek_backend(  # type: ignore[assignment,arg-type]
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=config.transport.timeout_s,
-        )
+    backend: ModelBackend = _build_backend(
+        provider, api_key, base_url, protocol, config.transport.timeout_s,
+    )
 
     from vague_code.tui import main as tui_main
     tui_main(task=args.task, workdir=args.workdir, config=config, backend=backend,
-             provider=args.provider)
+             provider=provider, file_config=file_cfg)
 
 
 def _chat_main(argv: list[str]) -> None:
@@ -228,8 +255,8 @@ def _chat_main(argv: list[str]) -> None:
     parser.add_argument("--max-turns", type=int, default=None,
                         help=f"Maximum turns (default: {AgentConfig.max_turns})")
     parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
-                        help="Model provider (default: deepseek)")
+    parser.add_argument("--provider", default=None,
+                        help="Model provider (builtin: deepseek/openai/anthropic, or any name from vague-code.json)")
     parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
     parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
@@ -245,14 +272,15 @@ def _chat_main(argv: list[str]) -> None:
 
     args = parser.parse_args(argv)
 
-    base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+    model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
+    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
     if not api_key:
         print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
         sys.exit(1)
 
     config = AgentConfig(
-        model=args.model,
+        model=model,
         max_turns=args.max_turns if args.max_turns is not None else AgentConfig.max_turns,
         db_path=args.db_path,
     )
@@ -262,18 +290,9 @@ def _chat_main(argv: list[str]) -> None:
     config.transport.retry_max_delay_s = args.retry_max_delay_s
     config.permission_mode = args.mode
 
-    if args.provider == "anthropic":
-        backend = create_anthropic_backend(  # type: ignore[assignment]
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=config.transport.timeout_s,
-        )
-    else:
-        backend = create_deepseek_backend(  # type: ignore[assignment,arg-type]
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=config.transport.timeout_s,
-        )
+    backend: ModelBackend = _build_backend(
+        provider, api_key, base_url, protocol, config.transport.timeout_s,
+    )
 
     agent = Agent(config, backend)
     for rule in _load_permission_rules(args.workdir):
@@ -343,6 +362,21 @@ def _resolve_api_key(key_env: str) -> str | None:
         return key
     import os
     return os.environ.get(key_env)
+
+
+def _init_main(argv: list[str]) -> None:
+    """`vague-code init`：生成 vague-code.json 配置模板（ADR-0033）。"""
+    parser = argparse.ArgumentParser(
+        prog="vague-code init",
+        description="Generate a vague-code.json provider config template",
+    )
+    parser.add_argument("--path", default=None, help="Output path (default: ./vague-code.json)")
+    args = parser.parse_args(argv)
+
+    out = write_init_template(args.path or "vague-code.json")
+    print(f"Created {out}")
+    print("Edit it to fill in your providers (e.g. a relay base URL + key env name),")
+    print("then just run: vague-code tui")
 
 
 def _load_permission_rules(workdir: str) -> list[dict]:
