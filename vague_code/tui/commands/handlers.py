@@ -112,11 +112,9 @@ class ModelCommandHandler(CommandHandler):
             "deepseek-reasoner",
         ),
         "openai": (
-            "gpt-4o",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "o3-mini",
-            "o4-mini",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.6-luna",
         ),
         "anthropic": (
             "claude-sonnet-4-5",

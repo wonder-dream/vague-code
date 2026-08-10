@@ -86,15 +86,15 @@ def test_model_list_grouped_by_provider() -> None:
     app._provider = "openai"
     result = app._command_handler.handle("/model")
     labels = [i["label"] for i in result.action["items"]]
-    assert "gpt-4o" in labels
+    assert "gpt-5.6-sol" in labels
     assert "deepseek-v4-flash" not in labels
-    direct = app._command_handler.handle("/model gpt-4o")
-    assert direct.action == {"type": "model_changed", "provider": "openai", "model": "gpt-4o"}
+    direct = app._command_handler.handle("/model gpt-5.6-sol")
+    assert direct.action == {"type": "model_changed", "provider": "openai", "model": "gpt-5.6-sol"}
     app._provider = "deepseek"
     result2 = app._command_handler.handle("/model")
     labels2 = [i["label"] for i in result2.action["items"]]
     assert "deepseek-v4-flash" in labels2
-    assert "gpt-4o" not in labels2
+    assert "gpt-5.6-sol" not in labels2
 
 
 def test_mode_command() -> None:

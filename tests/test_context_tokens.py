@@ -197,7 +197,7 @@ def test_set_tokenizer_for_model_gpt_uses_o200k() -> None:
     import vague_code.agent.context_tokens as ct
 
     try:
-        for model in ("gpt-4o", "gpt-4.1", "gpt-5", "gpt-5.6", "o3-mini"):
+        for model in ("gpt-5.6-sol", "gpt-5.6", "gpt-4o", "gpt-4.1", "o3-mini"):
             ct.set_tokenizer_for_model(model)
             enc = ct._get_enc()
             assert enc is not None, model
@@ -221,13 +221,12 @@ def test_set_tokenizer_for_model_legacy_gpt_uses_cl100k() -> None:
 
 
 def test_gpt_compute_budget() -> None:
-    """GPT 模型窗口预算：精确 → 系列前缀回退（gpt-5* → 400K）→ 通用回退。"""
-    assert compute_budget("gpt-4o") == 128_000 * 0.9
-    assert compute_budget("gpt-4.1") == 1_000_000 * 0.9
-    assert compute_budget("o3-mini") == 200_000 * 0.9
-    assert compute_budget("gpt-5") == 400_000 * 0.9
-    assert compute_budget("gpt-5.6") == 400_000 * 0.9
-    assert compute_budget("gpt-5.6-pro") == 400_000 * 0.9
+    """GPT 模型窗口预算：精确 → 系列前缀回退（gpt-5.6* → 1.05M，gpt-5* → 400K）→ 通用回退。"""
+    assert compute_budget("gpt-5.6-sol") == 1_050_000 * 0.9
+    assert compute_budget("gpt-5.6-terra") == 1_050_000 * 0.9
+    assert compute_budget("gpt-5.6") == 1_050_000 * 0.9
+    assert compute_budget("gpt-5.6-pro") == 1_050_000 * 0.9
+    assert compute_budget("gpt-5.1") == 400_000 * 0.9
     assert compute_budget("gpt-9-future") == 128_000 * 0.9
     assert compute_budget("some-future-model") == 64_000 * 0.9
 

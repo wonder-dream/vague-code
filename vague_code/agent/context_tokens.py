@@ -16,27 +16,28 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-pro": 64_000,
     "claude-opus-4-8": 200_000,
     "claude-sonnet-4-5": 200_000,
-    "gpt-4o": 128_000,
-    "gpt-4.1": 1_000_000,
-    "gpt-4.1-mini": 1_000_000,
-    "o3-mini": 200_000,
-    "o4-mini": 200_000,
-    "gpt-5": 400_000,
+    # OpenAI 现行文本模型（2026-08）：GPT-5.6 系列，1.05M 上下文
+    "gpt-5.6": 1_050_000,
+    "gpt-5.6-sol": 1_050_000,
+    "gpt-5.6-terra": 1_050_000,
+    "gpt-5.6-luna": 1_050_000,
 }
 
 _SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-", "deepseek-")
 
 # GPT 系列词表（对齐 tiktoken MODEL_TO_ENCODING）：
-#   o200k_base：gpt-4o / gpt-4.1 / gpt-5.x / o1 / o3 / o4 及后续新模型
+#   o200k_base：gpt-5.x / gpt-4o / gpt-4.1 / o1 / o3 / o4 及后续新模型
 #   cl100k_base：仅老 gpt-4 / gpt-3.5 / gpt2
-_GPT_O200K_PREFIXES: tuple[str, ...] = ("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4")
+_GPT_O200K_PREFIXES: tuple[str, ...] = ("gpt-5", "gpt-4o", "gpt-4.1", "o1", "o3", "o4")
 _GPT_CL100K_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-3.5", "gpt-35", "gpt2")
 
 
 def _window_for(model: str) -> int:
-    """上下文窗口：精确匹配 → 系列前缀回退（gpt-5* → 400K）→ 通用回退。"""
+    """上下文窗口：精确匹配 → 系列前缀回退（gpt-5.6* → 1.05M，gpt-5* → 400K）→ 通用回退。"""
     if model in CONTEXT_WINDOWS:
         return CONTEXT_WINDOWS[model]
+    if model.startswith("gpt-5.6"):
+        return 1_050_000
     if model.startswith("gpt-5"):
         return 400_000
     if model.startswith("gpt-"):

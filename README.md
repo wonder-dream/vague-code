@@ -102,11 +102,19 @@ echo "OPENAI_API_KEY=sk-proj-xxxxxxxx" > .env
 **第 3 步**：运行。
 
 ```bash
-vague-code --provider openai --model gpt-4o "修复这个 bug"
-vague-code tui --provider openai --model gpt-5.6 "重构项目结构"
+vague-code --provider openai --model gpt-5.6-sol "修复这个 bug"
+vague-code tui --provider openai --model gpt-5.6-terra "重构项目结构"
 ```
 
-**支持的模型**：gpt-4o / gpt-4.1 / gpt-4.1-mini / o3-mini / o4-mini / gpt-5 系列（`gpt-5*` 自动按 400K 窗口与 o200k 词表计数；任何 GPT 模型名都能直接传，未知命名自动套用现代词表与 128K 兜底窗口）。
+**支持的模型（OpenAI 现行文本模型，2026-08）**：
+
+| 模型 | 说明 | 上下文窗口 |
+|---|---|---|
+| `gpt-5.6-sol`（别名 `gpt-5.6`） | 旗舰，复杂推理与编码 | 1.05M |
+| `gpt-5.6-terra` | 智能与成本均衡 | 1.05M |
+| `gpt-5.6-luna` | 成本敏感、高吞吐 | 1.05M |
+
+> GPT-5.6 系列自动匹配 o200k 词表与 1.05M 窗口预算；历史上 gpt-4o/gpt-4.1/gpt-5 等已退场的模型名不再推荐（老 gpt-4/3.5 仍按 cl100k 词表兼容计数）。任何其他 GPT 模型名都能直接传，未知命名自动套用 o200k 词表与 128K 兜底窗口。
 
 ---
 
