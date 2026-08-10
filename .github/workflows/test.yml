@@ -31,3 +31,6 @@ jobs:
 
       - name: Test (pytest)
         run: uv run pytest tests/ -q --tb=short
+
+      - name: Eval smoke (fake, ADR-0040)
+        run: uv run python -m eval.cli --tasks eval/tasks_test.json --fake --fresh --out /tmp/eval_smoke_report.md

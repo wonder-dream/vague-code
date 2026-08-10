@@ -163,6 +163,43 @@ def test_generate_report_includes_metric_gauges(tmp_path: Path) -> None:
     assert "不能与任何官方 leaderboard 分数对比" in text
 
 
+def test_generate_report_includes_cost_percentiles(tmp_path: Path) -> None:
+    """ADR-0040：成本与 token 分位段（p50/p90/max，报告 3.2-4 缺口）。"""
+    def _cost_r(instance: str, tokens: int, cost: float):
+        r = _r(instance, _cell(repeat=0), True)
+        r.stats["total_input_tokens"] = tokens
+        r.stats["total_output_tokens"] = tokens // 10
+        r.stats["cache_read_tokens"] = tokens // 2
+        r.stats["cost_usd"] = cost
+        return r
+
+    results = [_cost_r("A", 1000, 0.01), _cost_r("B", 2000, 0.02), _cost_r("C", 3000, 0.03)]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "## 成本与 token 统计" in text
+    assert "cache-hit tokens" in text
+    assert "| 2,000" in text  # p50 input tokens
+    assert "0.0200" in text  # p50 cost
+
+
+def test_generate_report_includes_pass_at_k(tmp_path: Path) -> None:
+    """ADR-0040：pass@k（≥1 次过）与 pass^k（全过）分列。"""
+    # A 两重复均过 → pass^k ✓ pass@k ✓；B 一过一不过 → pass^k ✗ pass@k ✓
+    results = [
+        _r("A", _cell(repeat=0), True),
+        _r("A", _cell(repeat=1), True),
+        _r("B", _cell(repeat=0), False, verdict="f2p:fail"),
+        _r("B", _cell(repeat=1), True),
+    ]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "pass@k（≥1 次过，Aider 口径）" in text
+    assert "50%" in text  # pass^k = 1/2
+    assert "100%（2/2）" in text  # pass@k = 2/2
+
+
 def test_generate_report_includes_supervision_section(tmp_path: Path) -> None:
     def _sup_r(instance: str, calls: int, cost: float) -> TaskResult:
         return TaskResult(

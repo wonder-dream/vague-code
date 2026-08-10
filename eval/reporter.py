@@ -40,11 +40,12 @@ def _passk(by_cell: dict[str, list[TaskResult]]) -> tuple[list[tuple[str, int, i
 
 
 def _metric_sections(results: list[TaskResult]) -> list[str]:
-    """双指标口径 + 失败分类分账（ADR-0040，对齐审查报告 4.3）。
+    """双指标口径 + 失败分类分账 + 成本/token 分位（ADR-0040，对齐审查报告 4.3）。
 
     - pass@1：拿到明确判分的题目上的通过率（模型能力口径）
     - e2e mean：全题通过率（env_broken/infra 按 0 计入，链路成功率口径）
     - 分类分账表：互斥分类，基础设施错误与模型失败分开报
+    - 成本/token 分位：p50/p90/max（报告 3.2-4 缺口补全）
     - 声明模板：本地分数 ≠ 官方榜分数
     """
     from eval.classify import CLASS_LABELS, classify
@@ -82,6 +83,22 @@ def _metric_sections(results: list[TaskResult]) -> list[str]:
         }.get(cls, "模型能力")
         lines.append(f"| {CLASS_LABELS[cls]} | {counts[cls]} | {pct:.0f}% | {attr} |")
 
+    lines.append("\n## 成本与 token 统计（per run 分位）\n")
+    lines.append("| 指标 | p50 | p90 | max |")
+    lines.append("|------|-----|-----|-----|")
+    for label, key, fmt in (
+        ("input tokens", "total_input_tokens", "{:,.0f}"),
+        ("output tokens", "total_output_tokens", "{:,.0f}"),
+        ("cache-hit tokens", "cache_read_tokens", "{:,.0f}"),
+        ("cost (USD)", "cost_usd", "{:.4f}"),
+    ):
+        vals = sorted(r.stats.get(key, 0) for r in results)
+        if not vals:
+            continue
+        p50 = vals[len(vals) // 2]
+        p90 = vals[int(len(vals) * 0.9) - 1]
+        lines.append(f"| {label} | {fmt.format(p50)} | {fmt.format(p90)} | {fmt.format(vals[-1])} |")
+
     lines.append("\n## 声明\n")
     lines.append(
         "> 以上分数为**本地运行点估计**：任务集为本地子集、agent 为本项目实现、"
@@ -97,6 +114,17 @@ def _passk_by_inst(results: list[TaskResult]) -> dict[str, bool]:
     for r in results:
         by_inst[r.instance_id].append(r)
     return {iid: all(r.verified is True for r in rs) for iid, rs in by_inst.items()}
+
+
+def _pass_at_k_count(results: list[TaskResult]) -> int:
+    """pass@k（Aider 口径）：k 次重复中至少 1 次 verified 的任务数。
+
+    与 pass^k（全过才计）互补：pass^k 报可靠性，pass@k 报能力上限。
+    """
+    by_inst: dict[str, list[TaskResult]] = defaultdict(list)
+    for r in results:
+        by_inst[r.instance_id].append(r)
+    return sum(1 for rs in by_inst.values() if any(r.verified is True for r in rs))
 
 
 def _render_head_to_head(by_cell: dict[str, list[TaskResult]]) -> list[str]:
@@ -209,10 +237,14 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
     if has_verified:
         rows, total_num, total_den = _passk(by_cell)
         lines.append("\n## pass^k 可靠性（τ-bench：k 次全过才计过）\n")
-        lines.append("| 配置 | k | 全过任务数 | 任务总数 | pass^k |")
-        lines.append("|------|---|------------|----------|--------|")
+        lines.append("| 配置 | k | 全过任务数 | 任务总数 | pass^k | pass@k（≥1 次过，Aider 口径） |")
+        lines.append("|------|---|------------|----------|--------|-------------------------------|")
         for key, k, num, den in rows:
-            lines.append(f"| {key} | {k} | {num} | {den} | {num / den * 100:.0f}% |")
+            any_pass = _pass_at_k_count(by_cell[key])
+            lines.append(
+                f"| {key} | {k} | {num} | {den} | {num / den * 100:.0f}% "
+                f"| {any_pass / den * 100:.0f}%（{any_pass}/{den}） |"
+            )
         if total_den:
             lines.append(
                 f"\n整体 pass^k: {total_num}/{total_den} = {total_num / total_den * 100:.0f}%"
