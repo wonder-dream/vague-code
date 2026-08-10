@@ -69,7 +69,7 @@ def test_verify_python_pass_and_fail(tmp_path, monkeypatch) -> None:
     ok, reason, tail = verify_in_container(task, tmp_path)
     assert ok is True and reason == "verify:pass"
     assert "--network" in calls[0] and "host" in calls[0]
-    assert "/workspace" in calls[0]
+    assert "/hello-world" in calls[0]  # 挂载点 = exercise 名目录（cpp CMakeLists 依赖目录名）
     assert "vague-eval" in calls[0]
 
     monkeypatch.setattr(pg, "_docker",

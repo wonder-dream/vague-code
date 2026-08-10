@@ -133,20 +133,24 @@ def _restore_tests(task: dict, workdir: Path) -> None:
 
 
 def verify_in_container(task: dict, workdir: Path) -> tuple[bool, str, str]:
-    """容器内跑 verifier：返回 (verified, verdict_reason, 输出尾部)。"""
+    """容器内跑 verifier：返回 (verified, verdict_reason, 输出尾部)。
+
+    挂载点 = exercise 名目录（cpp CMakeLists 用目录名当目标名，/workspace 会失效）。
+    """
     _restore_tests(task, workdir)
     if task["language"] == "cpp":
         cmd = _cpp_verifier(task)
     else:
         cmd = _LANG_VERIFIER[task["language"]]
     wsl_workdir = _to_wsl_path(workdir)
+    mount_dir = task["exercise"]
     try:
         proc = _docker([
             "run", "--rm", "--network", "host",
             "-e", "HTTP_PROXY=http://127.0.0.1:7897",
             "-e", "HTTPS_PROXY=http://127.0.0.1:7897",
-            "-v", f"{wsl_workdir}:/workspace",
-            "-w", "/workspace",
+            "-v", f"{wsl_workdir}:/{mount_dir}",
+            "-w", f"/{mount_dir}",
             _IMAGE, *cmd,
         ])
     except subprocess.TimeoutExpired:
