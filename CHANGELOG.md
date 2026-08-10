@@ -4,6 +4,12 @@
 
 ### Added
 
+- **`/` 命令候选浮层**（ADR-0038，对齐 opencode/Claude Code）：输入框键入 `/` 弹出命令列表、前缀实时过滤、↑/↓ 高亮、Enter 无参执行/有参填入、Esc 收起；命令清单与 `/help` 共用单一事实源
+
+## [Unreleased] — 2026-08-10
+
+### Added
+
 - **TUI 首次引导**（ADR-0037）：首次 `vague-code tui` 未配置 API key 时弹出 SetupWizard——选 provider（DeepSeek/OpenAI GPT/Anthropic/自定义中转）→ 填 key（自定义中转另填 baseUrl/模型名/协议）→ 【测试连接】真实验证 → 写入全局配置（`~/.config/vague-code/.env` + `config.json`）→ 直接使用；key 读取链扩展为 项目 .env → 全局 .env → 环境变量
 - **模型目录更新至 2026-08 现行**（官方核实）：DeepSeek 仅 `deepseek-v4-flash`/`v4-pro`（1M）；Anthropic 换 `claude-fable-5`/`opus-5`/`sonnet-5`/`haiku-4-5`，默认端点改官方 `api.anthropic.com`，AnthropicBackend 默认模型 `claude-fable-5`；删除已退场的 deepseek-chat/reasoner、claude 4.x
 

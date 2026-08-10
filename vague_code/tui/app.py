@@ -46,6 +46,7 @@ from vague_code.tui.views.activity import compact_tool_content
 from vague_code.tui.views.topbar import topbar_markup
 from vague_code.tui.views.welcome import welcome_renderable
 from vague_code.tui.widgets import ComposerTextArea, VagueCodeScreen, _plain_static
+from vague_code.tui.widgets.command_suggest import CommandSuggest
 from vague_code.tui.widgets.conversation import ConversationView
 from vague_code.tui.widgets.sidebar import SessionSidebar
 from vague_code.tui.widgets.status import ActivityLine
@@ -333,6 +334,7 @@ class VagueCodeApp(VagueCodeViewMixin, App):
                 yield ConversationView(id="output")
                 yield ActivityLine("idle · ready", id="activity", classes="activity-line")
                 with Vertical(id="composer", classes="composer"):
+                    yield CommandSuggest(id="command-suggest")
                     yield ComposerTextArea(
                         placeholder="输入消息，Enter 发送，Shift+Enter 换行，Ctrl+C 退出",
                         id="input",
@@ -486,6 +488,8 @@ class VagueCodeApp(VagueCodeViewMixin, App):
 
     async def on_composer_text_area_submitted(self, event: ComposerTextArea.Submitted) -> None:
         event.stop()
+        if self._suggest_enter():
+            return
         if self._picker is not None:
             input_widget = self.query_one("#input", ComposerTextArea)
             text = input_widget.text.strip()
@@ -751,6 +755,56 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             return True
         return False
 
+    # ── Command suggest（ADR-0038）────────────────────────────────────────────
+
+    def on_text_area_changed(self, event) -> None:
+        """输入变化 → 更新 / 命令候选浮层。"""
+        if getattr(event, "text_area", None) is not self.query_one("#input", ComposerTextArea):
+            return
+        suggest = self.query_one("#command-suggest", CommandSuggest)
+        suggest.show_for(self.query_one("#input").text)
+
+    def _handle_suggest_key(self, event: Key) -> bool:
+        """浮层显示时拦截 ↑/↓/Esc（Enter 由 Submitted 处理器接管，ADR-0038）。"""
+        if getattr(self.focused, "id", None) != "input":
+            return False
+        suggest = self.query_one("#command-suggest", CommandSuggest)
+        if not suggest.is_visible():
+            return False
+        if event.key in ("up", "down"):
+            suggest.move(1 if event.key == "down" else -1)
+            return True
+        if event.key == "escape":
+            suggest.show_for("")
+            return True
+        return False
+
+    def _suggest_enter(self) -> bool:
+        """浮层可见时 Enter：无参命令直接执行，有参命令填入命令+空格。"""
+        suggest = self.query_one("#command-suggest", CommandSuggest)
+        if not suggest.is_visible():
+            return False
+        item = suggest.selected()
+        if item is None:
+            suggest.show_for("")
+            return False
+        cmd, _desc, needs_args = item
+        text = self.query_one("#input").text.strip()
+        if text == cmd:
+            if needs_args:
+                # 有参命令：填入"命令+空格"继续输参数
+                input_widget = self.query_one("#input")
+                input_widget.load_text(cmd + " ")
+                input_widget.cursor_location = input_widget.document.end
+                suggest.show_for(cmd + " ")
+            else:
+                # 无参命令：直接执行
+                self.query_one("#input").load_text("")
+                suggest.show_for("")
+                self._handle_slash(cmd)
+            return True
+        return False
+
     # ── Input history ─────────────────────────────────────────────────────────
 
     def _record_input_history(self, text: str) -> None:
@@ -809,6 +863,10 @@ class VagueCodeApp(VagueCodeViewMixin, App):
                     self._switch_session(run_id)
                 return
         if self._picker is not None and self._handle_picker_key(event):
+            event.stop()
+            event.prevent_default()
+            return
+        if self._handle_suggest_key(event):
             event.stop()
             event.prevent_default()
             return

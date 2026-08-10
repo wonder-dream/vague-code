@@ -6,17 +6,24 @@ from vague_code.tui.commands.core import CommandHandler, CommandResult
 from vague_code.tui.picker import TuiPickerItem
 from vague_code.tui.session_lib import list_recent_runs
 
-_HELP_TEXT = """\
-可用命令：
-  /help            显示本帮助
-  /new             清空对话并开始新会话
-  /clear           清空对话视图
-  /resume          选择历史会话继续（picker）
-  /compact         手动压缩当前会话上下文（LLM 摘要）
-  /save [path]     导出轨迹为 JSONL
-  /model [name]    切换模型（picker 或直接指定）
-  /mode <mode>     切换权限模式（safe/normal/autoedit/auto）
-  /permissions     列出持久化权限规则
+# 命令清单（ADR-0038）：补全浮层与 /help 共用，单一事实源
+# (命令, 描述, 是否需要参数)
+COMMAND_LIST: list[tuple[str, str, bool]] = [
+    ("/help", "显示本帮助", False),
+    ("/new", "清空对话并开始新会话", False),
+    ("/clear", "清空对话视图", False),
+    ("/resume", "选择历史会话继续（picker）", True),
+    ("/compact", "手动压缩当前会话上下文（LLM 摘要）", False),
+    ("/save", "导出轨迹为 JSONL", True),
+    ("/model", "切换模型（picker 或直接指定）", True),
+    ("/mode", "切换权限模式（safe/normal/autoedit/auto）", True),
+    ("/permissions", "列出持久化权限规则", False),
+]
+
+_HELP_TEXT = "可用命令：\n" + "\n".join(
+    f"  {cmd:<18}{desc}"
+    for cmd, desc, _ in COMMAND_LIST
+) + """
   exit             退出 TUI
 
 快捷键：
@@ -24,6 +31,20 @@ _HELP_TEXT = """\
   Esc              聚焦输入框（运行中按两次中断）
   ↑/↓              输入历史
   T                折叠/展开 thinking"""
+
+
+def filter_commands(text: str) -> list[tuple[str, str, bool]]:
+    """前缀过滤命令清单（大小写不敏感），供补全浮层使用（ADR-0038）。
+
+    命令后出现空格（正在输入参数，如 "/model gpt-5.6" 或 "/model "）→ 返回空，
+    浮层收起。
+    """
+    if not text.strip().startswith("/"):
+        return []
+    if " " in text:
+        return []
+    prefix = text.strip().lower()
+    return [item for item in COMMAND_LIST if item[0].startswith(prefix)]
 
 
 class HelpCommandHandler(CommandHandler):

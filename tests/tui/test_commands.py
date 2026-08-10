@@ -66,6 +66,25 @@ def test_help_command() -> None:
     assert "exit" in result.output
 
 
+def test_filter_commands_prefix() -> None:
+    """ADR-0038：命令候选前缀过滤。"""
+    from vague_code.tui.commands.handlers import filter_commands
+
+    assert filter_commands("") == []
+    assert filter_commands("hello") == []
+    names = [c for c, _, _ in filter_commands("/")]
+    assert set(names) == {"/help", "/new", "/clear", "/resume", "/compact",
+                          "/save", "/model", "/mode", "/permissions"}
+    names = [c for c, _, _ in filter_commands("/mo")]
+    assert names == ["/model", "/mode"]
+    names = [c for c, _, _ in filter_commands("/MOD")]
+    assert names == ["/model", "/mode"]
+    assert filter_commands("/nope") == []
+    # 已带参数（命令后空格）→ 收起候选（ADR-0038）
+    assert filter_commands("/model gpt-5.6") == []
+    assert filter_commands("/model ") == []
+
+
 def test_model_command_direct_set() -> None:
     app = _make_app()
     result = app._command_handler.handle("/model deepseek-v4-pro")
@@ -238,6 +257,57 @@ async def test_submit_while_busy_queues_guidance() -> None:
         await pilot.pause()
         assert "guidance note" in [e.body for e in app.transcript.entries]
         await pilot.pause(0.5)
+
+
+async def test_suggest_popup_on_slash() -> None:
+    """ADR-0038：键入 / 弹出命令候选浮层，/mo 过滤，Enter 无参执行、有参填入。"""
+    from vague_code.tui.widgets.command_suggest import CommandSuggest
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#input")
+        suggest = app.query_one("#command-suggest", CommandSuggest)
+        assert not suggest.is_visible()
+
+        # 键入 "/" → 浮层出现，列出全部命令
+        input_widget.load_text("/")
+        await pilot.pause(0.1)
+        assert suggest.is_visible()
+        assert len(suggest._items) == 9
+
+        # "/mo" → 过滤为 /model /mode
+        input_widget.load_text("/mo")
+        await pilot.pause(0.1)
+        names = [c for c, _, _ in suggest._items]
+        assert names == ["/model", "/mode"]
+
+        # Esc 关闭
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        assert not suggest.is_visible()
+
+        # Enter 选无参命令 /new 直接执行（新会话）
+        input_widget.load_text("/new")
+        await pilot.pause(0.1)
+        assert suggest.is_visible()
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert input_widget.text == ""
+        assert app._sessions.current is not None
+
+        # Enter 选有参命令 /model → 填入 "/model " 继续输参数
+        input_widget.load_text("/model")
+        await pilot.pause(0.1)
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert input_widget.text == "/model "
+        assert not suggest.is_visible()
+
+        # 非 "/" 输入隐藏浮层
+        input_widget.load_text("hello")
+        await pilot.pause(0.1)
+        assert not suggest.is_visible()
 
 
 # ── thinking fold ────────────────────────────────────────────────────────────
