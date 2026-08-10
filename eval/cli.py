@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
@@ -29,6 +30,37 @@ def _latest_results(out_dir: str = "runs/eval") -> list[TaskResult]:
         return [TaskResult.from_dict(d) for d in json.loads(files[-1].read_text(encoding="utf-8"))]
     except Exception:
         return []
+
+
+def _clear_manifest_by_class(classes: str) -> int:
+    """按失败分类定向恢复（报告 4.5）：清除匹配分类的 cell 的 manifest 记录。
+
+    分类判定用最近 results JSON 的 TaskResult（classify 互斥分类学）；清除后
+    正常 resume 流程会重跑这些 cell，已通过/无关分类的 cell 保留。
+    """
+    from eval.classify import classify
+    from eval.harness import load_manifest, save_manifest
+    from eval.matrix import cell_label
+
+    wanted = {c.strip() for c in classes.split(",") if c.strip()}
+    if not wanted:
+        return 0
+    results = _latest_results()
+    if not results:
+        print("[resume-fail] no previous results found (run once first)", file=sys.stderr)
+        return 0
+    manifest = load_manifest()
+    targets = {
+        f"{r.instance_id}__{cell_label(r.cell)}"
+        for r in results if classify(r) in wanted
+    }
+    removed = 0
+    for key in targets:
+        if key in manifest:
+            del manifest[key]
+            removed += 1
+    save_manifest(manifest)
+    return removed
 
 
 def main():
@@ -71,7 +103,16 @@ def main():
                    help="Repeats for ablation cells (core k stays --repeat)")
     p.add_argument("--price-cache", type=float, default=0.07,
                    help="USD per 1M cache-hit input tokens (DeepSeek auto prefix cache)")
+    p.add_argument("--resume-fail", metavar="CLASS[,CLASS...]",
+                   help="Resume only cells whose failure class matches (e.g. infra,f2p_fail); "
+                        "clears those cells from the manifest then reruns (report 4.5)")
     args = p.parse_args()
+
+    if args.resume_fail:
+        cleared = _clear_manifest_by_class(args.resume_fail)
+        print(f"[resume-fail] cleared {cleared} cells from manifest by class")
+        if cleared == 0:
+            return
 
     if args.regen:
         raw = json.loads(Path(args.regen).read_text(encoding="utf-8"))
@@ -162,7 +203,62 @@ def main():
     results_json = _save_results(results)
     print(f"Results saved to {results_json} (regen report: --regen {results_json})")
 
+    # 证据链三件套（ADR-0040）：config/lock/result + 报告 README（报告 4.5）
+    from eval.evidence import write_evidence, write_report_md
+
+    run_dir = Path("runs/eval") / f"run_{time.strftime('%Y%m%d-%H%M%S')}"
+    config_snapshot = {
+        "args": vars(args),
+        "model": args.model,
+        "max_turns": args.max_turns,
+        "design": args.design,
+        "repeat": args.repeat,
+        "fake": args.fake,
+        "supervisor": args.supervisor,
+        "prices": {"input": args.price_input, "output": args.price_output,
+                   "cache": args.price_cache},
+        "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    write_evidence(run_dir, config_snapshot, tasks, results)
+
+    report_text = "\n".join(_report_lines(args, results, results_json, run_dir))
+    write_report_md(run_dir, report_text)
+
     generate_report(results, args.out)
+
+
+def _report_lines(args, results, results_json, run_dir) -> list[str]:
+    """run 目录 README：结果口径、错误分层、恢复命令、证据索引（报告 4.5）。"""
+    from eval.classify import CLASS_LABELS, classify
+    from collections import Counter
+
+    lines: list[str] = ["# 评测运行报告", ""]
+    lines.append(f"- 生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"- 任务数: {len(set(r.instance_id for r in results))} / 运行次数: {len(results)}")
+    lines.append(f"- 模型: {args.model} | max_turns: {args.max_turns} | design: {args.design}")
+    lines.append("")
+    lines.append("## 结果口径")
+    scored = [r for r in results if r.verified is not None]
+    if scored:
+        pass1 = sum(1 for r in scored if r.verified is True) / len(scored)
+        e2e = sum(1 for r in results if r.verified is True) / len(results)
+        lines.append(f"- pass@1: {pass1 * 100:.2f}%（{len(scored)} 题有明确判分）")
+        lines.append(f"- e2e mean: {e2e * 100:.2f}%（{len(results)} 题，异常按 0）")
+    lines.append("")
+    lines.append("## 错误分层（互斥分类）")
+    counts: Counter[str] = Counter(classify(r) for r in results)
+    for cls in sorted(counts, key=lambda c: -counts[c]):
+        lines.append(f"- {CLASS_LABELS[cls]}: {counts[cls]}")
+    lines.append("")
+    lines.append("## 恢复命令")
+    lines.append("- 定向恢复: `python -m eval.cli --tasks <tasks> --resume-fail <分类>`")
+    lines.append("")
+    lines.append("## 证据索引")
+    lines.append(f"- config: `{run_dir}/config.json`")
+    lines.append(f"- lock: `{run_dir}/lock.json`")
+    lines.append(f"- result: `{run_dir}/result.json`")
+    lines.append(f"- results（regen 用）: `{results_json}`")
+    return lines
 
 
 if __name__ == "__main__":

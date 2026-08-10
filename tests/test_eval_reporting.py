@@ -143,8 +143,24 @@ def test_generate_report_includes_failure_distribution(tmp_path: Path) -> None:
     out = tmp_path / "report.md"
     reporter.generate_report(results, str(out))
     text = out.read_text(encoding="utf-8")
-    assert "## 失败模式分布" in text
-    assert "测试不过" in text or "伪完成" in text
+    assert "## 失败分类分账" in text
+    assert "改错" in text or "伪完成" in text
+
+
+def test_generate_report_includes_metric_gauges(tmp_path: Path) -> None:
+    """ADR-0040 双指标口径：pass@1 与 e2e mean 分列 + 声明模板。"""
+    results = [
+        _r("A", _cell(repeat=0), True),
+        _r("B", _cell(repeat=0), False, verdict="f2p:fail"),
+    ]
+    out = tmp_path / "report.md"
+    reporter.generate_report(results, str(out))
+    text = out.read_text(encoding="utf-8")
+    assert "## 指标口径" in text
+    assert "pass@1" in text and "e2e mean" in text
+    assert "50.00%" in text
+    assert "## 声明" in text
+    assert "不能与任何官方 leaderboard 分数对比" in text
 
 
 def test_generate_report_includes_supervision_section(tmp_path: Path) -> None:

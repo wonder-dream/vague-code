@@ -39,6 +39,58 @@ def _passk(by_cell: dict[str, list[TaskResult]]) -> tuple[list[tuple[str, int, i
     return rows, total_num, total_den
 
 
+def _metric_sections(results: list[TaskResult]) -> list[str]:
+    """双指标口径 + 失败分类分账（ADR-0040，对齐审查报告 4.3）。
+
+    - pass@1：拿到明确判分的题目上的通过率（模型能力口径）
+    - e2e mean：全题通过率（env_broken/infra 按 0 计入，链路成功率口径）
+    - 分类分账表：互斥分类，基础设施错误与模型失败分开报
+    - 声明模板：本地分数 ≠ 官方榜分数
+    """
+    from eval.classify import CLASS_LABELS, classify
+
+    lines: list[str] = []
+    if not results:
+        return lines
+    scored = [r for r in results if r.verified is not None]
+    pass1 = sum(1 for r in scored if r.verified is True) / len(scored) if scored else 0.0
+    e2e = sum(1 for r in results if r.verified is True) / len(results)
+
+    lines.append("## 指标口径（ADR-0040）\n")
+    lines.append("| 指标 | 数值 | 分母 | 含义 |")
+    lines.append("|------|------|------|------|")
+    lines.append(
+        f"| pass@1 | {pass1 * 100:.2f}% | {len(scored)} 题（有明确判分） | 模型代码能力口径 |"
+    )
+    lines.append(
+        f"| e2e mean | {e2e * 100:.2f}% | {len(results)} 题（全题） | 整条链路成功率（异常按 0） |"
+    )
+
+    counts: dict[str, int] = {}
+    for r in results:
+        counts[classify(r)] = counts.get(classify(r), 0) + 1
+    lines.append("\n## 失败分类分账（互斥分类学）\n")
+    lines.append("| 类别 | 数量 | 占比 | 归因 |")
+    lines.append("|------|------|------|------|")
+    for cls in sorted(counts, key=lambda c: -counts[c]):
+        pct = counts[cls] / len(results) * 100
+        attr = {
+            "env_broken": "环境（确定性剔除，不进能力分母）",
+            "infra": "基础设施（checkout/venv/网络/无判分，可重试）",
+            "timeout": "预算耗尽（超时）",
+            "success": "模型能力（通过）",
+        }.get(cls, "模型能力")
+        lines.append(f"| {CLASS_LABELS[cls]} | {counts[cls]} | {pct:.0f}% | {attr} |")
+
+    lines.append("\n## 声明\n")
+    lines.append(
+        "> 以上分数为**本地运行点估计**：任务集为本地子集、agent 为本项目实现、"
+        "交互协议与异常计分与官方榜单不同，不能与任何官方 leaderboard 分数对比或排名。"
+        "env_broken/infra 类与模型能力失败严格分账。"
+    )
+    return lines
+
+
 def _passk_by_inst(results: list[TaskResult]) -> dict[str, bool]:
     """(配置, 任务) 级 pass^k 布尔：k 次重复全 verified 才算过（逐题表粒度）。"""
     by_inst: dict[str, list[TaskResult]] = defaultdict(list)
@@ -133,6 +185,9 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
             f"| {code_search:,} | {stale:,} | {micro:,} | {ssnip:,} | {auto_:,} | {trun:,} | ${cost:.2f} |"
         )
 
+    # 指标口径：双指标 + 失败分类分账 + 声明（ADR-0040）
+    lines.extend(_metric_sections(results))
+
     # 每任务的细节
     lines.append("\n## 逐任务细节\n")
     lines.append("| 任务ID | 配置 | 通过 | verified | 判定 | 轮次 | input tokens | run_end_reason |")
@@ -212,20 +267,7 @@ def generate_report(results: list[TaskResult], output_path: str) -> None:
             dist_str = ", ".join(f"{a}:{c}" for a, c in sorted(dist.items())) or "-"
             lines.append(f"| {key} | {calls} | {dist_str} | ${sup_cost:.4f} | {pct:.1f}% |")
 
-    # P2 失败模式分布（仅当存在真验收结果时）
-    if has_verified:
-        from eval.classify import CLASS_LABELS, classify
-
-        counts: dict[str, int] = {}
-        for r in results:
-            cls = classify(r)
-            counts[cls] = counts.get(cls, 0) + 1
-        lines.append("\n## 失败模式分布（P2 分类）\n")
-        lines.append("| 类别 | 数量 | 占比 |")
-        lines.append("|------|------|------|")
-        for cls in sorted(counts, key=lambda c: -counts[c]):
-            pct = counts[cls] / len(results) * 100
-            lines.append(f"| {CLASS_LABELS[cls]} | {counts[cls]} | {pct:.0f}% |")
+    # P2 失败分类分账已由 _metric_sections 的"失败分类分账"段覆盖
 
     # 错误列表
     errors = [r for r in results if r.error]

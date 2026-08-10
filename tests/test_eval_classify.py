@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from eval.classify import classify
+from eval.classify import CLASS_LABELS, classify
 from eval.matrix import EvalCell, TaskResult
 
 
@@ -24,11 +24,11 @@ def test_no_diff() -> None:
 
 
 def test_f2p_fail() -> None:
-    assert classify(_r(False, reason="f2p:fail")) == "test_fail"
+    assert classify(_r(False, reason="f2p:fail")) == "f2p_fail"
 
 
 def test_p2p_fail() -> None:
-    assert classify(_r(False, reason="p2p:fail")) == "test_fail"
+    assert classify(_r(False, reason="p2p:fail")) == "p2p_fail"
 
 
 def test_timeout() -> None:
@@ -39,7 +39,7 @@ def test_timeout() -> None:
 
 
 def test_gaming_tests_priority() -> None:
-    # 钻空子优先于 test_fail
+    # 钻空子优先于 f2p_fail
     assert classify(_r(False, reason="f2p:fail", touches=1)) == "gaming_tests"
 
 
@@ -56,8 +56,22 @@ def test_injection_pierced_flag() -> None:
     assert classify(r, injected=True) == "injection_pierced"
 
 
-def test_env_error_classified_as_test_fail() -> None:
-    assert classify(_r(False, error="sanity gate: F2P expected assertion-fail")) == "test_fail"
+def test_env_error_classified_as_env_broken() -> None:
+    """sanity gate 失败 = 环境问题（确定性剔除，不进能力分母，报告 4.3）。"""
+    assert classify(_r(False, error="sanity gate: F2P expected assertion-fail")) == "env_broken"
+    assert classify(_r(False, error="env_broken")) == "env_broken"
+
+
+def test_infra_errors_classified_separately() -> None:
+    """checkout/venv/网络/reward 缺失 = 基础设施错误，与模型失败分账。"""
+    assert classify(_r(False, error="checkout failed: network")) == "infra"
+    assert classify(_r(False, error="venv setup error")) == "infra"
+    assert classify(_r(False, error="HTTP 429 rate limited")) == "infra"
+
+
+def test_no_verdict_is_infra() -> None:
+    """verified=None 且无 error（reward 文件缺失/verify 未产出）→ infra。"""
+    assert classify(_r(None)) == "infra"
 
 
 def test_stagnant_class() -> None:
@@ -66,10 +80,19 @@ def test_stagnant_class() -> None:
     assert classify(_r(False, reason="no_diff", run_end="stagnant")) == "stagnant"
 
 
-def test_supervisor_done_with_verified_false_is_test_fail() -> None:
-    assert classify(_r(False, reason="f2p:fail", run_end="supervisor_done")) == "test_fail"
-    assert classify(_r(False, reason="no_diff", run_end="supervisor_done")) == "test_fail"
+def test_supervisor_done_with_verified_false_is_failure() -> None:
+    assert classify(_r(False, reason="f2p:fail", run_end="supervisor_done")) == "f2p_fail"
+    assert classify(_r(False, reason="no_diff", run_end="supervisor_done")) == "no_diff"
 
 
 def test_supervisor_done_with_verified_true_is_success() -> None:
     assert classify(_r(True, run_end="supervisor_done")) == "success"
+
+
+def test_class_labels_are_exhaustive_singleton_keys() -> None:
+    """分类标签唯一且含全部类。"""
+    assert len(CLASS_LABELS) == len(set(CLASS_LABELS))
+    for cls in ("success", "f2p_fail", "p2p_fail", "no_diff", "gaming_tests",
+                "timeout", "env_broken", "infra", "permission_blocked",
+                "injection_pierced", "stagnant", "misunderstood"):
+        assert cls in CLASS_LABELS
