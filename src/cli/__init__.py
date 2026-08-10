@@ -60,6 +60,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map symbol index")
     parser.add_argument("--repo-map-tokens", type=int, default=1000,
                         help="Max tokens for the injected repo map (default: 1000)")
+    parser.add_argument("--mode", default="normal", choices=["safe", "normal", "autoedit", "auto"],
+                        help="Permission mode (default: normal; auto lets the agent edit unattended)")
     parser.add_argument("--verbose", action="store_true", help="Show model info")
 
     args = parser.parse_args(argv)
@@ -89,6 +91,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         config.repo_map.enabled = not args.no_repo_map
         config.repo_map.max_map_tokens = args.repo_map_tokens
+        config.permission_mode = args.mode
 
         backend: ModelBackend
         if args.provider == "anthropic":
@@ -105,6 +108,8 @@ def main(argv: list[str] | None = None) -> None:
             )
 
         agent = Agent(config, backend)
+        for rule in _load_permission_rules(args.workdir):
+            agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
         console = Console()
         visitor = RichStreamVisitor(console, verbose=args.verbose)
 
@@ -155,6 +160,8 @@ def _tui_main(argv: list[str]) -> None:
                         help="Base delay for exponential backoff (seconds)")
     parser.add_argument("--retry-max-delay-s", type=float, default=120.0,
                         help="Maximum delay between retries (seconds)")
+    parser.add_argument("--mode", default="normal", choices=["safe", "normal", "autoedit", "auto"],
+                        help="Permission mode (default: normal; auto lets the agent edit unattended)")
 
     args = parser.parse_args(argv)
 
@@ -173,6 +180,7 @@ def _tui_main(argv: list[str]) -> None:
     config.transport.retry_max_attempts = args.retry_max_attempts
     config.transport.retry_base_s = args.retry_base_s
     config.transport.retry_max_delay_s = args.retry_max_delay_s
+    config.permission_mode = args.mode
 
     if args.provider == "anthropic":
         backend = create_anthropic_backend(
@@ -214,6 +222,8 @@ def _chat_main(argv: list[str]) -> None:
                         help="Base delay for exponential backoff (seconds)")
     parser.add_argument("--retry-max-delay-s", type=float, default=120.0,
                         help="Maximum delay between retries (seconds)")
+    parser.add_argument("--mode", default="normal", choices=["safe", "normal", "autoedit", "auto"],
+                        help="Permission mode (default: normal; auto lets the agent edit unattended)")
 
     args = parser.parse_args(argv)
 
@@ -232,6 +242,7 @@ def _chat_main(argv: list[str]) -> None:
     config.transport.retry_max_attempts = args.retry_max_attempts
     config.transport.retry_base_s = args.retry_base_s
     config.transport.retry_max_delay_s = args.retry_max_delay_s
+    config.permission_mode = args.mode
 
     if args.provider == "anthropic":
         backend = create_anthropic_backend(  # type: ignore[assignment]
@@ -247,6 +258,8 @@ def _chat_main(argv: list[str]) -> None:
         )
 
     agent = Agent(config, backend)
+    for rule in _load_permission_rules(args.workdir):
+        agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
     console = Console()
     visitor = RichStreamVisitor(console, verbose=False)
 
@@ -313,3 +326,18 @@ def _resolve_api_key(provider: str) -> str | None:
         return key
     import os
     return os.environ.get(key_name)
+
+
+def _load_permission_rules(workdir: str) -> list[dict]:
+    """Load `.agent/permission-rules.json` from the workspace (same path as TUI)."""
+    import json as _json
+    try:
+        path = Path(workdir) / ".agent" / "permission-rules.json"
+        if not path.is_file():
+            return []
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []

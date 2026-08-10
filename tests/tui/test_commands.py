@@ -163,7 +163,7 @@ async def test_escape_interrupt_requires_two_presses() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         assert state.busy is True
         assert app._handle_escape_interrupt() is True  # first press: hint only
@@ -185,7 +185,7 @@ async def test_guidance_queue_drain() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("g")
+        state = app._begin_new_session()
         app._add_guidance(state, "please continue")
         app._add_guidance(state, "focus on tests")
         assert app._drain_guidance(state) == ["please continue", "focus on tests"]
@@ -213,7 +213,7 @@ async def test_thinking_folds_long_content_and_toggles() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._on_stream_event(ThinkingStart(), state, token)
         app._on_stream_event(ThinkingDelta(delta="word " * 100), state, token)
@@ -256,7 +256,7 @@ async def test_compact_busy_session_rejected(monkeypatch) -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         app._begin_session_turn(state)
         assert state.busy is True
         app._handle_slash("/compact")
@@ -275,7 +275,7 @@ async def test_compact_reclaims_tokens(monkeypatch) -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         state.agent = _CompactAgent()  # type: ignore[assignment]
         app._handle_slash("/compact")
         await pilot.pause(0.3)
@@ -293,7 +293,7 @@ async def test_compact_failure_reports_error(monkeypatch) -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         state.agent = _BoomAgent()  # type: ignore[assignment]
         app._handle_slash("/compact")
         await pilot.pause(0.3)

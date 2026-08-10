@@ -132,7 +132,6 @@ REPO_SETUP: dict[str, dict[str, Any]] = {
 class EnvSpec:
     venv_dir: Path
     python: Path
-    repo_key: str
     repo: str
     shims_dir: Path | None = None
 
@@ -215,7 +214,7 @@ def ensure_env(
     if not clear and python_bin.exists() and ready_marker.exists():
         if not lock_file.exists():
             _freeze_lock(python_bin, lock_file)
-        return EnvSpec(venv_dir=venv_dir, python=python_bin, repo_key=key, repo=repo,
+        return EnvSpec(venv_dir=venv_dir, python=python_bin, repo=repo,
                        shims_dir=_write_shims(venv_dir, setup))
 
     if venv_dir.exists():
@@ -235,7 +234,7 @@ def ensure_env(
     _freeze_lock(python_bin, lock_file)
     ready_marker.write_text("ok", encoding="utf-8")
     shims_dir = _write_shims(venv_dir, setup)
-    return EnvSpec(venv_dir=venv_dir, python=python_bin, repo_key=key, repo=repo,
+    return EnvSpec(venv_dir=venv_dir, python=python_bin, repo=repo,
                    shims_dir=shims_dir)
 
 

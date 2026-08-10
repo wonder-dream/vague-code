@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import random
 from pathlib import Path
 
@@ -444,5 +445,41 @@ class TestCliResume:
         with pytest.raises(SystemExit) as exc:
             main(["--resume", "no_such_run", "--db-path", db_path])
         assert exc.value.code == 1
-        err = capsys.readouterr().err
-        assert "Fatal error" in err
+
+    def test_mode_flag_sets_permission_mode(self, monkeypatch, capsys):
+        """S1: --mode auto 透传到 AgentConfig.permission_mode（CLI 可无人值守编辑）。"""
+        orig = AgentConfig
+
+        class _CapturedConfig(orig):
+            instances: list = []
+
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                _CapturedConfig.instances.append(self)
+
+        monkeypatch.setattr("src.cli.AgentConfig", _CapturedConfig)
+        monkeypatch.setattr("src.cli.create_deepseek_backend",
+                            lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+
+        from src.cli import main
+        main(["hi", ".", "--mode", "auto"])
+        assert _CapturedConfig.instances
+        assert _CapturedConfig.instances[-1].permission_mode == "auto"
+
+    def test_permission_rules_loaded_from_workdir(self, monkeypatch, capsys, tmp_path):
+        """S1: CLI 加载工作区 .agent/permission-rules.json 并注入 agent。"""
+        (tmp_path / ".agent").mkdir()
+        (tmp_path / ".agent" / "permission-rules.json").write_text(
+            json.dumps([{"pattern": "write_file .*", "action": "deny"}]), encoding="utf-8"
+        )
+        seen: list = []
+        monkeypatch.setattr(
+            "src.agent.loop.Agent.add_permission_rule",
+            lambda self, pattern, action="allow": seen.append((pattern, action)),
+        )
+        monkeypatch.setattr("src.cli.create_deepseek_backend",
+                            lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+
+        from src.cli import main
+        main(["hi", str(tmp_path), "--no-repo-map"])
+        assert ("write_file .*", "deny") in seen

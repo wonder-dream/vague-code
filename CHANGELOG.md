@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — 2026-08-10
+
+### Fixed
+
+- **chat 多轮用户消息落轨迹**（ADR-0030）：新增 `EventType.user_message`，`chat()` 后续轮 emit 事件、`to_messages()` 消费——`chat_resume`/轨迹重放/LLM-as-Judge 不再丢失第 2+ 轮用户消息，也不再产生连续 assistant 消息（角色交替违例）
+- **chat 悬挂 tool_use 补执行**：中断/崩溃于工具执行中后，续聊与 `chat_resume` 复用 `_execute_pending_tools` 补执行并回填结果（新文本合并进结果消息），不再把无结果的 tool_calls 发给 API
+- **max_tokens 终止同步部分回复**：chat 模式下截断的 assistant 消息进入会话上下文，可继续对话
+- **侧边栏历史会话续聊接续原 run**：`_switch_session` 对 DB chat 会话接线 agent + `resume_run_id`，后续输入走 `chat_resume` 而非开启全新 run
+- **TUI worker 竞态与键泄漏**：`_session_workers` 在 rename 时 remap 旧键；中断后旧 worker 线程未退出时提交消息入队而非开第二个 worker，worker 退出后自动开始排队轮
+
+### Added
+
+- **CLI 权限可用**（S1）：`xcode`/`xcode chat`/`xcode tui` 增加 `--mode {safe,normal,autoedit,auto}`，并自动加载工作区 `.agent/permission-rules.json`（`xcode "Fix..." --mode auto` 可无人值守编辑）
+- **危险命令模式补盲**（M5）：`git reset --hard`/`git clean`/`git checkout --`/`git restore`/`pip(p3) install`/`npm install`/`yarn add`/`taskkill`/`format X:` 判为 dangerous
+
+### Removed
+
+- 死代码清理（ADR-0030 Phase 3，对应 死代码.md A 类）：`retry_divergence`/`mode_change` 枚举、`MemoryConfig.search_top_k`、`RepoMapConfig.languages`+`RepoIndex.languages`、`_StreamAggregator._result`、`MemoryStore._db_path`/`recent()`/`ingest(confidence)`、`XClawApp._pending_guidance`、`ConversationView._pinned`、`_begin_new_session(first_text)`、`SessionSidebar.set_current`、`JudgeResult.raw_output`、`EnvSpec.repo_key`、`select_tasks(output_dir)`、`load_gold()`（+judge.py import）、`LayerReport.unit`、harness `_FakeBackend.call_count`
+
 ## [Unreleased] — 2026-08-07
 
 ### Added

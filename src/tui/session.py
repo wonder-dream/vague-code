@@ -23,6 +23,7 @@ class SessionState:
     active_token: int | None = None
     pending_guidance: list[str] = field(default_factory=list)
     offline_tools: dict[str, TuiTranscriptEntry] = field(default_factory=dict)
+    resume_run_id: str | None = None
 
 
 class SessionManager:

@@ -21,7 +21,6 @@ class LayerReport:
     before_tokens: int
     after_tokens: int
     affected: int
-    unit: str = "messages"
     skip_thinking: bool = True
     detail: dict = field(default_factory=dict)
 

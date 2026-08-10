@@ -118,7 +118,7 @@ async def test_working_animation_stops_on_run_complete() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._on_stream_event(ThinkingStart(), state, token)
         app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
@@ -137,7 +137,7 @@ async def test_working_animation_stops_on_agent_error() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
         await pilot.pause(0.1)
@@ -151,7 +151,7 @@ async def test_reset_stream_state_stops_timers() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._on_stream_event(ThinkingDelta(delta="planning"), state, token)
         await pilot.pause(0.1)
@@ -169,7 +169,7 @@ async def test_full_tool_flow_updates_activity_and_transcript() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("run")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._on_stream_event(ThinkingStart(), state, token)
         app._on_stream_event(ThinkingDelta(delta="plan"), state, token)

@@ -224,9 +224,15 @@ async def test_permission_requests_serialize_across_sessions(monkeypatch) -> Non
         assert decisions == [Decision.ALLOW, Decision.ALLOW]
 
 
-async def test_cold_session_message_lazily_builds_agent(monkeypatch) -> None:
+async def test_cold_session_message_resumes_same_run(monkeypatch) -> None:
+    """B2: 加载历史 chat 会话后输入消息 → chat_resume 接续原 run（而非开新 run）。"""
     fake = _ParallelAgent(parallel=False)
     monkeypatch.setattr(Agent, "chat", fake.chat)
+    resume_calls: list[str] = []
+    monkeypatch.setattr(
+        Agent, "chat_resume",
+        lambda self, run_id: (resume_calls.append(run_id), _FakeHandle(run_id, "旧任务"))[1],
+    )
 
     class _FakeTraj:
         events = [
@@ -246,11 +252,76 @@ async def test_cold_session_message_lazily_builds_agent(monkeypatch) -> None:
         await pilot.pause(0.2)
         state = app._sessions.current
         assert state is not None and state.run_id == "cold-run-123"
-        assert state.agent is None
+        assert state.agent is not None
+        assert state.resume_run_id == "cold-run-123"
         app._submit_task("你好吗")
         await pilot.pause(0.6)
-        assert state.agent is not None
-        assert fake.chat_calls[-1] == "你好吗"
+        assert resume_calls == ["cold-run-123"]
+        assert state.resume_run_id is None
+
+
+async def test_no_stale_worker_key_after_first_turn(monkeypatch) -> None:
+    """B6: 首轮结束后占位 run_id 键无残留（rename 后 remap + finally pop 对齐）。"""
+    fake = _ParallelAgent(parallel=False)
+    monkeypatch.setattr(Agent, "chat", fake.chat)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._submit_task("first")
+        await pilot.pause(0.8)
+        state = app._sessions.current
+        assert state is not None
+        assert app._session_workers.get(state.run_id) is None
+        assert len(app._session_workers) == 0
+
+
+class _FakeWorker:
+    """模拟 Textual worker：state 可任意指定。"""
+
+    class _State:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    def __init__(self, name: str = "RUNNING") -> None:
+        self.state = self._State(name)
+        self.is_cancelled = name == "CANCELLED"
+
+
+async def test_submit_while_worker_lingering_queues(monkeypatch) -> None:
+    """B4: 旧 worker 已 cancel 但线程仍在收尾时提交 → 入队而非开第二个 worker。"""
+    fake = _ParallelAgent(parallel=False)
+    monkeypatch.setattr(Agent, "chat", fake.chat)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._submit_task("first")
+        await pilot.pause(0.6)
+        state = app._sessions.current
+        assert fake.chat_calls == ["first"]
+        app._session_workers[state.run_id] = _FakeWorker("CANCELLED")
+        app._submit_task("queued while lingering")
+        await pilot.pause(0.3)
+        assert fake.chat_calls == ["first"]  # 未启动新 worker
+        assert state.pending_guidance == ["queued while lingering"]
+
+
+async def test_queued_turn_auto_starts_after_worker_exit(monkeypatch) -> None:
+    """B4: 旧 worker 退出（finally）后，排队消息自动开始下一轮。"""
+    fake = _ParallelAgent(parallel=False)
+    monkeypatch.setattr(Agent, "chat", fake.chat)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._submit_task("first")
+        await pilot.pause(0.6)
+        state = app._sessions.current
+        assert fake.chat_calls == ["first"]
+        app._add_guidance(state, "queued text")
+        pending = app._drain_guidance(state)
+        app._start_queued_turn(state, "\n".join(pending))
+        await pilot.pause(0.8)
+        assert fake.chat_calls == ["first", "queued text"]
+        assert state.pending_guidance == []
 
 
 async def test_sidebar_delete_requires_confirmation(monkeypatch) -> None:

@@ -41,6 +41,53 @@ def test_classify_unknown_conservative() -> None:
     assert classify_bash("some_unknown_tool --dangerous") == DangerLevel.DANGEROUS
 
 
+# ── M5 补盲：git 破坏性操作 / 包安装 / 进程杀死 ─────────────────────────────
+
+def test_classify_dangerous_git_reset_hard() -> None:
+    assert classify_bash("git reset --hard HEAD~1") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_git_clean() -> None:
+    assert classify_bash("git clean -fdx") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_git_checkout_discard() -> None:
+    assert classify_bash("git checkout -- .") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_git_restore() -> None:
+    assert classify_bash("git restore src/foo.py") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_pip_install() -> None:
+    assert classify_bash("pip install requests") == DangerLevel.DANGEROUS
+    assert classify_bash("pip3 install requests") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_npm_install() -> None:
+    assert classify_bash("npm install") == DangerLevel.DANGEROUS
+    assert classify_bash("npm i lodash") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_yarn_add() -> None:
+    assert classify_bash("yarn add react") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_taskkill() -> None:
+    assert classify_bash("taskkill /F /T /PID 1234") == DangerLevel.DANGEROUS
+
+
+def test_classify_dangerous_format_drive() -> None:
+    assert classify_bash("format C:") == DangerLevel.DANGEROUS
+
+
+def test_classify_safe_git_benign_ops() -> None:
+    """M5 不误伤白名单内 git 只读操作；白名单外命令维持保守默认（DANGEROUS）。"""
+    assert classify_bash("git diff HEAD") == DangerLevel.SAFE
+    assert classify_bash("git log --oneline") == DangerLevel.SAFE
+    assert classify_bash("git status") == DangerLevel.SAFE
+
+
 # ── evaluate ────────────────────────────────────────────────────────────────
 
 def test_evaluate_safe_mode_denies_bash() -> None:

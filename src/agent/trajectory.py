@@ -23,6 +23,7 @@ from src.agent.ir import (
 
 class EventType(str, Enum):
     run_start = "run_start"
+    user_message = "user_message"
     turn_start = "turn_start"
     llm_response = "llm_response"
     tool_call = "tool_call"
@@ -31,10 +32,8 @@ class EventType(str, Enum):
     run_end = "run_end"
     stream_event = "stream_event"
     retry = "retry"
-    retry_divergence = "retry_divergence"
     compression = "compression"
     permission_check = "permission_check"
-    mode_change = "mode_change"
     supervision = "supervision"
 
 
@@ -240,6 +239,10 @@ class Trajectory:
                 task = ev.payload.get("task", "")
                 if task and task.strip():
                     messages.append(Message(role="user", content=task.strip()))
+            elif ev.type == EventType.user_message:
+                text = ev.payload.get("text", "")
+                if text and text.strip():
+                    messages.append(Message(role="user", content=text.strip()))
             elif ev.type == EventType.llm_response:
                 flush_results()
                 blocks: list[Block] = []

@@ -60,7 +60,6 @@ class CompressionConfig:
 class MemoryConfig:
     enabled: bool = True
     memory_db_path: str = "runs/memory.db"
-    search_top_k: int = 5
     auto_compact_distill: bool = True
 
 
@@ -69,7 +68,6 @@ class RepoMapConfig:
     enabled: bool = True
     max_map_tokens: int = 1000
     max_files: int = 2000
-    languages: list[str] = field(default_factory=lambda: ["python"])
 
 
 @dataclass

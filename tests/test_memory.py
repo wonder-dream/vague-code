@@ -35,31 +35,6 @@ def test_ingest_empty_content() -> None:
     assert not store.ingest("   ")
 
 
-def test_recent_episodic() -> None:
-    store = _make_store()
-    store.ingest("Older episodic fact.", kind="episodic")
-    store.ingest("Newer episodic fact.", kind="episodic")
-    store.ingest("Not episodic.", kind="pinned")
-    recent = store.recent(kind="episodic", limit=5)
-    assert len(recent) == 2
-    assert "Newer" in recent[0]["content"]  # newest first
-    assert "Not episodic" not in " ".join(r["content"] for r in recent)
-
-
-def test_recent_limits() -> None:
-    store = _make_store()
-    for i in range(5):
-        store.ingest(f"fact {i}", kind="episodic")
-    recent = store.recent(kind="episodic", limit=2)
-    assert len(recent) == 2
-    assert recent[0]["content"] == "fact 4"
-
-
-def test_recent_empty_db() -> None:
-    store = _make_store()
-    assert store.recent(kind="episodic", limit=5) == []
-
-
 def test_search_no_results() -> None:
     store = _make_store()
     store.ingest("Python is great for data science.")
@@ -91,9 +66,9 @@ def test_persist_reload() -> None:
         store1.close()
 
         store2 = MemoryStore(db_path)
-        recent = store2.recent(kind="episodic", limit=5)
-        assert len(recent) == 1
-        assert "persistence" in recent[0]["content"]
+        results = store2.search("persistence", k=5)
+        assert len(results) == 1
+        assert "persistence" in results[0]["content"]
         store2.close()
 
 

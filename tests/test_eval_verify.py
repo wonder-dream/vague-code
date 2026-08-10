@@ -56,7 +56,7 @@ def _init_repo(d: Path) -> None:
 
 def _env(d: Path) -> EnvSpec:
     return EnvSpec(venv_dir=d / "venv", python=d / "python",
-                   repo_key="r", repo="r")
+                   repo="r")
 
 
 # ── parse_test_paths ─────────────────────────────────────────────────────

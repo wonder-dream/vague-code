@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 class MemoryStore:
     def __init__(self, db_path: str):
-        self._db_path = db_path
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self._init_db()
@@ -36,7 +35,6 @@ class MemoryStore:
         content: str,
         kind: str = "episodic",
         source_session: str | None = None,
-        confidence: float = 1.0,
     ) -> bool:
         content = content.strip()
         if not content:
@@ -77,21 +75,6 @@ class MemoryStore:
                 f"FROM memories WHERE {like_clauses} "
                 f"ORDER BY (use_count * 100.0 / MAX(1, ROUND((julianday('now') - julianday(last_used_at)) * 1440 + 1))) DESC, last_used_at DESC LIMIT ?",
                 (*params, k),
-            ).fetchall()
-        except sqlite3.OperationalError:
-            return []
-        return [
-            {"content": r[0], "kind": r[1], "confidence": r[2], "created_at": r[3]}
-            for r in rows
-        ]
-
-    def recent(self, kind: str = "episodic", limit: int = 5) -> list[dict]:
-        """Return the most recently stored memories of a given kind."""
-        try:
-            rows = self.conn.execute(
-                "SELECT content, kind, confidence, created_at "
-                "FROM memories WHERE kind=? ORDER BY id DESC LIMIT ?",
-                (kind, limit),
             ).fetchall()
         except sqlite3.OperationalError:
             return []

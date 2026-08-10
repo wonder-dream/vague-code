@@ -37,7 +37,6 @@ class Symbol:
 class RepoIndex:
     workdir: str
     max_files: int = 2000
-    languages: list[str] = field(default_factory=lambda: ["python"])
     _symbols: list[Symbol] = field(default_factory=list, init=False)
     _mtimes: dict[str, float] = field(default_factory=dict, init=False)
     _name_counts: dict[str, int] = field(default_factory=dict, init=False)

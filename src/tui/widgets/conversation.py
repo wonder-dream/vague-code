@@ -20,7 +20,6 @@ class ConversationView(VerticalScroll):
     def __init__(self, transcript: TuiTranscript | None = None, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.transcript = transcript or TuiTranscript()
-        self._pinned = True
 
     def add_entry(self, entry: TuiTranscriptEntry) -> None:
         entry.widget = self._widget_for(entry)

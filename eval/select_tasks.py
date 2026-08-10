@@ -8,7 +8,6 @@ from pathlib import Path
 def select_tasks(
     output_path: str = "eval/tasks.json",
     max_tasks: int = 30,
-    output_dir: str = "eval/tasks",
 ) -> None:
     try:
         from datasets import load_dataset

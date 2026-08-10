@@ -430,10 +430,7 @@ def run_eval(
                 from src.agent.ir import Message, MessageEnd, MessageStart
 
                 class _FakeBackend:
-                    def __init__(self):
-                        self.call_count = 0
                     def complete(self, messages, tools=None, config=None) -> ModelResponse:
-                        self.call_count += 1
                         return ModelResponse(
                             message=Message(role="assistant", content=[TextBlock(text="ok")]),
                             stop_reason=StopReason.end_turn,
@@ -442,7 +439,6 @@ def run_eval(
                     def stream(self, messages, tools=None, config=None):
                         # 正常 end_turn 流（空流会让 agent 走 stream_disconnect 死路，
                         # 监督钩子永远不触发，fake 冒烟就测不到监督链路）
-                        self.call_count += 1
                         return iter([
                             MessageStart(model=config.get("model", "fake")),
                             MessageEnd(

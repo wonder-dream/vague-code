@@ -120,7 +120,6 @@ class XClawApp(XClawViewMixin, App):
         self._input_history: list[str] = []
         self._input_history_index: int | None = None
         self._last_escape_at = 0.0
-        self._pending_guidance: list[str] = []
         self._guidance_lock = threading.Lock()
         self._reasoning_full: dict[int, str] = {}
 
@@ -181,6 +180,15 @@ class XClawApp(XClawViewMixin, App):
                 self._write_line(f"加载会话失败: {e}", kind=TuiEntryKind.ERROR)
                 return
             state = self._sessions.create(run_id, run_id)
+            from src.agent.trajectory import EventType
+            is_chat = any(
+                e.type == EventType.run_start and e.payload.get("mode") == "chat"
+                for e in traj.events
+            )
+            if is_chat:
+                # 历史 chat 会话：接线 agent，后续输入走 chat_resume 接续原 run
+                state.agent = self._new_session_agent(state)
+                state.resume_run_id = run_id
             state.transcript = TuiTranscript()
             output.transcript = state.transcript
             self._dismiss_welcome()
@@ -472,14 +480,14 @@ class XClawApp(XClawViewMixin, App):
     def _submit_chat(self, text: str) -> None:
         state = self._sessions.current
         if state is None:
-            state = self._begin_new_session(text)
+            state = self._begin_new_session()
         if state.agent is None:
             state.agent = self._new_session_agent(state)
         self._dismiss_welcome()
         user_entry = state.transcript.add(TuiEntryKind.USER, text)
         output = self.query_one("#output", ConversationView)
         output.add_entry(user_entry)
-        if state.busy:
+        if state.busy or self._session_worker_running(state):
             self._add_guidance(state, text)
             self._write_line("已加入运行队列，将在下一轮生效。", kind=TuiEntryKind.SYSTEM)
             return
@@ -492,7 +500,39 @@ class XClawApp(XClawViewMixin, App):
             group="agent",
         )
 
-    def _begin_new_session(self, first_text: str = "") -> SessionState:
+    def _session_worker_running(self, state: SessionState) -> bool:
+        """True when a worker thread for this session may still be alive.
+
+        中断（cancel）后 worker.state 立即变为 CANCELLED，但线程可能仍在
+        工具执行中（finally 未执行、map 条目未 pop）——此时也视为忙碌，
+        避免同会话启动第二个 worker 与旧生成器并发改 _chat_messages。
+        """
+        worker = self._session_workers.get(state.run_id)
+        if worker is None:
+            return False
+        name = getattr(worker.state, "name", "")
+        if name == "CANCELLED":
+            return True
+        return name == "RUNNING"
+
+    def _start_queued_turn(self, state: SessionState, text: str) -> None:
+        """（UI 线程）旧 worker 退出后自动开始排队的下一轮。"""
+        if state.busy or self._session_worker_running(state):
+            self._add_guidance(state, text)
+            return
+        if self._sessions.current is not state:
+            self._add_guidance(state, text)
+            return
+        token = self._begin_session_turn(state)
+        self.run_worker(
+            lambda: self._run_agent_worker(state, text, token),
+            thread=True,
+            exclusive=False,
+            name=f"agent-{state.run_id}",
+            group="agent",
+        )
+
+    def _begin_new_session(self) -> SessionState:
         from uuid import uuid4
 
         placeholder = f"new_{uuid4().hex[:8]}"
@@ -947,7 +987,11 @@ class XClawApp(XClawViewMixin, App):
             if agent is None:
                 self.call_from_thread(self._on_agent_error, "会话 agent 未初始化", state, token)
                 return
-            handle = agent.chat(text, self._workdir)
+            if state.resume_run_id and not agent.in_chat:
+                handle = agent.chat_resume(state.resume_run_id)
+                state.resume_run_id = None
+            else:
+                handle = agent.chat(text, self._workdir)
             for ev in handle:
                 if worker.is_cancelled:
                     handle.close()
@@ -958,6 +1002,9 @@ class XClawApp(XClawViewMixin, App):
             self.call_from_thread(self._on_agent_error, f"{type(exc).__name__}: {exc}", state, token)
         finally:
             self._session_workers.pop(state.run_id, None)
+            pending = self._drain_guidance(state)
+            if pending and not self._session_worker_running(state):
+                self.call_from_thread(self._start_queued_turn, state, "\n".join(pending))
 
     def _run_resume_worker(self, run_id: str, traj, token: int) -> None:
         worker = get_current_worker()
@@ -1252,7 +1299,11 @@ class XClawApp(XClawViewMixin, App):
         if state.active_token != token:
             return
         if state.run_id != traj.run_id:
-            self._sessions.rename(state.run_id, traj.run_id)
+            old_id = state.run_id
+            self._sessions.rename(old_id, traj.run_id)
+            worker = self._session_workers.pop(old_id, None)
+            if worker is not None:
+                self._session_workers[traj.run_id] = worker
             self._refresh_sidebar()
         state.busy = False
         state.active_token = None

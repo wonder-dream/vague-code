@@ -60,7 +60,6 @@ class _StreamAggregator:
         self._tool_buffers: dict[str, StringIO] = {}
         self._tool_names: dict[str, str] = {}
         self._tool_order: list[str] = []
-        self._result: ModelResponse | None = None
 
     def feed(self, ev: StreamEvent) -> None:
         if isinstance(ev, TextDelta):
@@ -249,7 +248,13 @@ class Agent:
             self._chat_messages = messages
             self._chat_bound_tools = bound_tools
         else:
-            self._chat_messages.append(Message(role="user", content=text))
+            completed = self._complete_pending_tools(self._chat_turn, text)
+            if not completed:
+                self._chat_messages.append(Message(role="user", content=text))
+            assert self._chat_traj is not None
+            self._chat_traj.emit(
+                EventType.user_message, turn=self._chat_turn, payload={"text": text},
+            )
         assert self._chat_traj is not None and self._chat_messages is not None
         assert self._chat_bound_tools is not None
         gen = self._run_gen(
@@ -279,6 +284,7 @@ class Agent:
         self._chat_messages = messages
         self._chat_bound_tools = bound_tools
         self._chat_turn = (last_llm.turn or 0) + 1 if last_llm else 0
+        self._complete_pending_tools((last_llm.turn or 0) if last_llm else 0)
         gen = self._run_gen(
             traj, messages, [self._chat_turn], bound_tools, chat_mode=True,
         )
@@ -642,6 +648,10 @@ class Agent:
                     return
 
                 if resp.stop_reason in (StopReason.max_tokens, StopReason.content_filter, StopReason.unknown):
+                    if chat_mode:
+                        assert self._chat_messages is not None
+                        self._chat_messages.append(resp.message)
+                        self._chat_turn = turn_box[0] + 1
                     traj.emit(EventType.run_end, payload={"reason": resp.stop_reason.value})
                     return
 
@@ -1105,6 +1115,28 @@ class Agent:
                     import warnings
                     warnings.warn("Resuming run without 'tools' field in run_start — skipping consistency check")
                 return
+
+    def _complete_pending_tools(self, turn: int, extra_text: str = "") -> bool:
+        """补执行 chat 会话中断时悬挂的 tool_use（B3）。
+
+        中断发生在工具执行中时，assistant 消息的 tool_calls 没有对应结果；
+        直接续聊会让 codec 发出无结果的 tool_calls 导致 API 400。此方法在
+        进入下一轮生成前复用 `_execute_pending_tools` 补执行并回填结果。
+        `extra_text`（用户续聊文本）合并进结果消息，避免连续 user 消息。
+        返回 True 表示发生了补执行（结果已回填到消息尾部）。
+        """
+        assert self._chat_traj is not None
+        assert self._chat_messages is not None
+        assert self._chat_bound_tools is not None
+        if not self._execute_pending_tools(
+            self._chat_traj, self._chat_messages, turn, self._chat_bound_tools
+        ):
+            return False
+        if extra_text and extra_text.strip():
+            last = self._chat_messages[-1]
+            if last.role == "user":
+                last.content.append(TextBlock(text=extra_text))
+        return True
 
     def _execute_pending_tools(
         self,

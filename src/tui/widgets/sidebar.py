@@ -111,7 +111,3 @@ class SessionSidebar(VerticalScroll):
             return None
         index = max(0, min(self.selected_index, len(self._items) - 1))
         return self._items[index][0]
-
-    def set_current(self, run_id: str | None) -> None:
-        self._current_run_id = run_id
-        self._restyle_rows()

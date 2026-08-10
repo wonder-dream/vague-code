@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import subprocess
 from collections import Counter
@@ -178,16 +177,3 @@ def diff_touches_test_files(workdir: str | Path, test_patch: str) -> list[str]:
     touched = changed & patch_files
     touched |= {p for p in changed if p.rsplit("/", 1)[-1] in TEST_CONFIG_FILES}
     return sorted(touched)
-
-
-GOLD_PATH = Path("eval") / "gold_trajectories.json"
-
-
-def load_gold(path: str | Path = GOLD_PATH) -> dict[str, list[str]]:
-    p = Path(path)
-    if not p.exists():
-        return {}
-    data = json.loads(p.read_text(encoding="utf-8"))
-    if not isinstance(data, list):
-        return {}
-    return {d["instance_id"]: d["tools"] for d in data if "tools" in d}

@@ -93,7 +93,6 @@ def test_judge_run_unparsable_after_retries(tmp_path: Path) -> None:
                        task="Fix the bug", workdir=str(tmp_path))
     result = judge_run(_FakeJudgeBackend("nope not json"), record, get_rubric("fix_bug"))
     assert result.error == "unparsable_judge_output"
-    assert result.raw_output == "nope not json"
 
 
 # ── build_messages（P0-7 独立 db 喂 judge） ─────────────────────────────

@@ -122,7 +122,7 @@ async def test_stale_events_dropped_after_interrupt() -> None:
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
-        state = app._begin_new_session("t")
+        state = app._begin_new_session()
         token = app._begin_session_turn(state)
         app._interrupt_chat_turn()
         app._on_stream_event(TextDelta(delta="stale"), state, token)

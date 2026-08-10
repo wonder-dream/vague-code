@@ -11,7 +11,6 @@ from typing import Any
 
 from dotenv import dotenv_values
 
-from eval.metrics import load_gold  # noqa: F401  (保持 gold 维度可扩展)
 from eval.rubric import JUDGE_SYSTEM_PREFIX, Rubric, get_rubric
 
 
@@ -35,7 +34,6 @@ class JudgeResult:
     scores: dict[str, int]
     verdict: str
     justification: str
-    raw_output: str
     error: str | None = None
 
     def to_dict(self) -> dict:
@@ -243,12 +241,12 @@ def judge_run(
             return JudgeResult(
                 instance_id=record.instance_id, run_id=record.run_id,
                 scores=parsed["scores"], verdict=parsed["verdict"],
-                justification=parsed["justification"], raw_output=last_raw,
+                justification=parsed["justification"],
             )
     return JudgeResult(
         instance_id=record.instance_id, run_id=record.run_id,
         scores={}, verdict="fail", justification="",
-        raw_output=last_raw, error="unparsable_judge_output",
+        error="unparsable_judge_output",
     )
 
 
@@ -384,7 +382,7 @@ def _load_judge_results(path: str | Path) -> list[JudgeResult]:
         out.append(JudgeResult(
             instance_id=d["instance_id"], run_id=d["run_id"], scores=d["scores"],
             verdict=d["verdict"], justification=d["justification"],
-            raw_output="", error=d.get("error"),
+            error=d.get("error"),
         ))
     return out
 

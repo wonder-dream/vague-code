@@ -86,6 +86,16 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"^\s*exec\b",
     r"eval\b",
     r">\s*/dev/(null|zero|random|urandom)",
+    # ── 2026-08-10 补盲（M5）：git 破坏性操作 / 包安装 / 进程杀死 ──
+    r"git\s+reset\s+--hard\b",
+    r"git\s+clean\b",
+    r"git\s+checkout\s+--\b",
+    r"git\s+restore\b",
+    r"pip3?\s+install\b",
+    r"npm\s+(install|i)\b",
+    r"yarn\s+add\b",
+    r"taskkill\b",
+    r"format\s+[a-zA-Z]:",
 )
 
 _SAFE_PATTERNS = [re.compile(p) for p in _SAFE_COMMANDS]
