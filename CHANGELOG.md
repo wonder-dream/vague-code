@@ -2,6 +2,10 @@
 
 ## [Unreleased] — 2026-08-10
 
+### Added
+
+- **GPT 系列 API 支持**（ADR-0032）：`--provider openai`（CLI/chat/TUI 三入口）+ `--base-url`/`--api-key-env` 覆盖任意 OpenAI 兼容端点（OpenRouter 等）；TUI `/model` 按 provider 分组；tokenizer 按模型切换（GPT 系列 → cl100k）；CONTEXT_WINDOWS 补 gpt-4o 128K / gpt-4.1 1M / o3-mini 200K；模型名校验放行 `provider/model` 斜杠格式；topbar 修复 provider 显示
+
 ### Changed
 
 - **项目重命名为 vague-code**（ADR-0031）：PyPI 包名 `xcode` → `vague-code`、import 根 `src/` → `vague_code/`、console 脚本 `xcode` → `vague-code`、产品名 XClaw → vague-code（类标识符 XClaw* → VagueCode*）；PyPI 发布就绪——补全元数据（description/readme/license/authors/classifiers/keywords）、`package-data` 打包 `theme.tcss`、`vague_code/cli/__main__.py`、新增 publish workflow（tag 触发 + trusted publishing）
