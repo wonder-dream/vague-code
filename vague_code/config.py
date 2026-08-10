@@ -91,6 +91,38 @@ def provider_models(config: dict, provider: str) -> list[str]:
     return _BUILTIN_MODELS.get(provider, [])
 
 
+def all_provider_models(config: dict) -> list[tuple[str, str]]:
+    """全部 (provider, model) 列表（内置目录 + 配置文件 providers.models）。
+
+    provider 按名排序，模型按各自 provider 列表顺序；跨 provider 重名模型
+    只保留先出现的（会话级 /model picker 用，ADR-0039）。
+    """
+    providers = config.get("providers", {})
+    names = set(providers) | set(_BUILTIN_MODELS)
+    items: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for provider in sorted(names):
+        for model in provider_models(config, provider):
+            if model in seen:
+                continue
+            seen.add(model)
+            items.append((provider, model))
+    return items
+
+
+def resolve_model_provider(config: dict, model: str) -> str | None:
+    """反查模型所属 provider：配置 providers.models 优先，其次内置目录。"""
+    for provider, spec in config.get("providers", {}).items():
+        if not isinstance(spec, dict):
+            continue
+        if model in {str(m) for m in spec.get("models", [])}:
+            return provider
+    for provider, models in _BUILTIN_MODELS.items():
+        if model in models:
+            return provider
+    return None
+
+
 def write_init_template(path: str | Path) -> Path:
     """生成 vague-code.json 配置模板（含所有内置 provider 与自定义示例）。"""
     template = {

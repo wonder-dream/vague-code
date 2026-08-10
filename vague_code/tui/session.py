@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from vague_code.agent.backend import ModelBackend
 from vague_code.agent.loop import Agent
 from vague_code.tui.state import TuiTranscript, TuiTranscriptEntry
 
@@ -24,6 +25,10 @@ class SessionState:
     pending_guidance: list[str] = field(default_factory=list)
     offline_tools: dict[str, TuiTranscriptEntry] = field(default_factory=dict)
     resume_run_id: str | None = None
+    # 会话级模型状态（ADR-0039）：各会话独立 provider/model/backend
+    provider: str = ""
+    model: str = ""
+    backend: ModelBackend | None = None
 
 
 class SessionManager:

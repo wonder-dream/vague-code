@@ -1,8 +1,9 @@
-"""首次使用引导（Setup Wizard，ADR-0037）。
+"""首次使用引导 + 会话内切换引导（Setup Wizard，ADR-0037 / ADR-0039）。
 
 首次 `vague-code tui` 且未配置 API key 时弹出：选择 provider → 填写参数 →
 测试连接 → 写入全局配置（~/.config/vague-code/.env + config.json）→ 直接使用。
-无跳过入口（未配置无法使用 TUI）。
+默认无跳过入口（未配置无法使用 TUI）；`/model` 跨 provider 切换无 key 时以
+cancellable=True 打开（预选目标 provider/模型，取消则回退原模型，ADR-0039）。
 """
 
 from __future__ import annotations
@@ -25,10 +26,19 @@ class SetupWizard(ModalScreen):
         ("custom", "自定义中转站（任意 OpenAI/Responses 兼容端点）"),
     )
 
-    def __init__(self, app) -> None:
+    def __init__(
+        self,
+        app,
+        preselect: str | None = None,
+        preselect_model: str = "",
+        cancellable: bool = False,
+    ) -> None:
         super().__init__()
         self._app = app
-        self._provider = "deepseek"
+        known = {name for name, _ in self.PROVIDER_LABELS}
+        self._provider = preselect if preselect in known else "deepseek"
+        self._preselect_model = preselect_model
+        self._cancellable = cancellable
         self._testing = False
 
     # ── compose ──────────────────────────────────────────────────────────────
@@ -70,11 +80,21 @@ class SetupWizard(ModalScreen):
             with Horizontal(id="setup-buttons"):
                 yield Button("测试连接", id="setup-test", variant="primary")
                 yield Button("完成并开始使用", id="setup-done", variant="success", disabled=True)
+                if self._cancellable:
+                    yield Button("取消并保留原模型", id="setup-cancel", variant="error")
 
     # ── mount ────────────────────────────────────────────────────────────────
 
     def on_mount(self) -> None:
-        self.query_one("#setup-provider", RadioSet).focus()
+        if self._preselect_model:
+            self.query_one("#setup-model", Input).value = self._preselect_model
+        radio = self.query_one("#setup-provider", RadioSet)
+        if self._provider != "deepseek":
+            for button in radio.query(RadioButton):
+                if button.id == f"provider-{self._provider}":
+                    button.value = True
+                    break
+        radio.focus()
         self._sync_fields()
 
     # ── provider 选择 ────────────────────────────────────────────────────────
@@ -132,7 +152,7 @@ class SetupWizard(ModalScreen):
             "base_url": str(builtin.get("baseUrl") or ""),
             "key_env": str(builtin.get("apiKeyEnv") or ""),
             "protocol": str(builtin.get("protocol") or "openai"),
-            "model": DEFAULT_MODELS.get(self._provider, ""),
+            "model": self._preselect_model or DEFAULT_MODELS.get(self._provider, ""),
             "key": self.query_one("#setup-key", Input).value.strip(),
         }
 
@@ -143,6 +163,8 @@ class SetupWizard(ModalScreen):
             self._start_test()
         elif event.button.id == "setup-done":
             self._finish()
+        elif event.button.id == "setup-cancel":
+            self.dismiss(False)
 
     def _start_test(self) -> None:
         if self._testing:
@@ -207,8 +229,12 @@ class SetupWizard(ModalScreen):
         self._app._apply_setup(**data)
         self.dismiss(True)
 
-    # ── 键盘（无跳过入口）───────────────────────────────────────────────────
+    # ── 键盘 ────────────────────────────────────────────────────────────────
 
     def on_key(self, event) -> None:
         if event.key == "escape":
-            event.stop()  # 引导必须完成，Esc 不关闭
+            if self._cancellable:
+                # 会话内切换引导：取消 = 回退原模型（ADR-0039）
+                self.dismiss(False)
+                return
+            event.stop()  # 首次引导必须完成，Esc 不关闭

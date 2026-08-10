@@ -87,6 +87,38 @@ def test_init_template_writes_file(tmp_path) -> None:
     assert "my-relay" in data["providers"]
 
 
+def test_all_provider_models_merges_builtin_and_config(tmp_path) -> None:
+    from vague_code.config import all_provider_models
+
+    cfg = load_config(tmp_path)
+    cfg["providers"]["fox"] = {
+        "baseUrl": "https://relay.example.com/v1",
+        "apiKeyEnv": "RELAY_KEY",
+        "models": ["gpt-5.6-sol", "gpt-5.6-terra"],
+    }
+    items = all_provider_models(cfg)
+    pairs = {m: p for p, m in items}
+    assert pairs["deepseek-v4-flash"] == "deepseek"
+    assert pairs["gpt-5.6-sol"] == "fox"  # 配置 models 覆盖内置 → 首次出现属于 fox
+    assert pairs["claude-fable-5"] == "anthropic"
+    assert len(items) == len(pairs)  # 无重复模型名
+
+
+def test_resolve_model_provider(tmp_path) -> None:
+    from vague_code.config import resolve_model_provider
+
+    cfg = load_config(tmp_path)
+    assert resolve_model_provider(cfg, "deepseek-v4-pro") == "deepseek"
+    assert resolve_model_provider(cfg, "claude-opus-5") == "anthropic"
+    assert resolve_model_provider(cfg, "gpt-5.6-terra") == "openai"
+    assert resolve_model_provider(cfg, "nonexistent-model") is None
+    # 自定义 provider 的 models 优先于内置目录
+    cfg["providers"]["fox"] = {
+        "baseUrl": "u", "apiKeyEnv": "RELAY_KEY", "models": ["gpt-5.6-luna"],
+    }
+    assert resolve_model_provider(cfg, "gpt-5.6-luna") == "fox"
+
+
 def _write(dir: Path, name: str, data: dict) -> Path:
     p = dir / name
     p.write_text(json.dumps(data), encoding="utf-8")

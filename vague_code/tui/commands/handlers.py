@@ -125,35 +125,14 @@ class SessionCommandHandler(CommandHandler):
 class ModelCommandHandler(CommandHandler):
     name = "model"
 
-    MODELS: dict[str, tuple[str, ...]] = {
-        "deepseek": (
-            "deepseek-v4-flash",
-            "deepseek-v4-pro",
-        ),
-        "openai": (
-            "gpt-5.6-sol",
-            "gpt-5.6-terra",
-            "gpt-5.6-luna",
-        ),
-        "anthropic": (
-            "claude-fable-5",
-            "claude-opus-5",
-            "claude-sonnet-5",
-            "claude-haiku-4-5",
-        ),
-    }
-
     def __init__(self, app) -> None:
         self._app = app
 
-    def _models(self) -> tuple[str, ...]:
-        provider = getattr(self._app, "_provider", "deepseek")
-        from vague_code.config import provider_models
+    def _models(self) -> tuple[tuple[str, str], ...]:
+        """全部 (provider, model) 对（ADR-0039 会话级跨 provider 切换）。"""
+        from vague_code.config import all_provider_models
         file_config = getattr(self._app, "_file_config", None) or {}
-        models = provider_models(file_config, provider)
-        if models:
-            return tuple(models)
-        return self.MODELS.get(provider, self.MODELS["deepseek"])
+        return tuple(all_provider_models(file_config))
 
     def handle(self, text: str) -> CommandResult:
         if not self._match(text, "/model"):
@@ -161,13 +140,18 @@ class ModelCommandHandler(CommandHandler):
         parts = text.strip().split(maxsplit=1)
         model = parts[1].strip() if len(parts) > 1 else ""
         if model:
+            from vague_code.config import resolve_model_provider
+            file_config = getattr(self._app, "_file_config", None) or {}
+            provider = resolve_model_provider(file_config, model) or getattr(
+                self._app, "_provider", "deepseek"
+            )
             return CommandResult(
                 handled=True,
-                action={"type": "model_changed", "provider": getattr(self._app, "_provider", "deepseek"), "model": model},
+                action={"type": "model_changed", "provider": provider, "model": model},
             )
         items = [
-            TuiPickerItem(id=m, label=m, detail=getattr(self._app, "_provider", "deepseek"))
-            for m in self._models()
+            TuiPickerItem(id=m, label=m, detail=p)
+            for p, m in self._models()
         ]
         return CommandResult(
             handled=True,

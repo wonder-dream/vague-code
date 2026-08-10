@@ -637,3 +637,172 @@ async def test_compact_worker_displays_summary(monkeypatch) -> None:
         bodies = [e.body for e in state.transcript.entries]
         assert any("[会话摘要]" in b for b in bodies)
         assert any("fixed bug" in b for b in bodies)
+
+
+# ── 会话级模型状态（ADR-0039）──────────────────────────────────────────────
+
+def test_session_state_model_fields_default_empty() -> None:
+    """新会话默认 provider/model/backend 为空字符串/None，互不影响。"""
+    from vague_code.tui.session import SessionManager
+
+    manager = SessionManager()
+    a = manager.create("run-a", "A")
+    b = manager.create("run-b", "B")
+    assert a.provider == "" and a.model == "" and a.backend is None
+    a.provider = "openai"
+    a.model = "gpt-5.6-sol"
+    a.backend = object()
+    assert b.provider == "" and b.model == "" and b.backend is None
+    assert a.provider == "openai"
+
+
+async def test_model_switch_affects_only_current_session() -> None:
+    """ADR-0039：/model 同 provider 直切只作用于当前会话，其他会话不受影响。"""
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        a = app._begin_new_session()
+        a.model = "deepseek-v4-flash"
+        a.agent.config.model = "deepseek-v4-flash"
+        app._handle_slash("/new")
+        b = app._begin_new_session()
+        b.model = "deepseek-v4-flash"
+        b.agent.config.model = "deepseek-v4-flash"
+        # 当前会话 B 切换模型
+        app._handle_slash("/model deepseek-v4-pro")
+        await pilot.pause()
+        assert b.model == "deepseek-v4-pro"
+        assert b.agent.config.model == "deepseek-v4-pro"
+        assert a.model == "deepseek-v4-flash"
+        assert a.agent.config.model == "deepseek-v4-flash"
+        assert a.agent.config is not b.agent.config, "各会话 agent 配置必须独立"
+        # topbar 跟随当前会话显示
+        assert "deepseek-v4-pro" in app._topbar_text()
+        app._switch_session(a.run_id)
+        await pilot.pause()
+        assert "deepseek-v4-flash" in app._topbar_text()
+
+
+async def test_cross_provider_switch_with_key_direct(monkeypatch) -> None:
+    """ADR-0039：跨 provider 且目标有 key → 会话级换 backend 直切。"""
+    import vague_code.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: "sk-" + env)
+    created: list[str] = []
+
+    def fake_build(provider, api_key, base_url, protocol, timeout_s):
+        created.append(provider)
+        return type("NewBackend", (), {"name": "new"})()
+
+    monkeypatch.setattr("vague_code.config.build_backend", fake_build)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session()
+        state.model = "deepseek-v4-flash"
+        state.agent.config.model = "deepseek-v4-flash"
+        old_backend = state.agent.backend
+        app._handle_slash("/model gpt-5.6-sol")
+        await pilot.pause()
+        assert state.provider == "openai"
+        assert state.model == "gpt-5.6-sol"
+        assert state.agent.config.model == "gpt-5.6-sol"
+        assert state.agent.backend is not old_backend
+        assert state.backend.name == "new"
+        assert created == ["openai"]
+
+
+async def test_cross_provider_no_key_opens_wizard_and_escape_rolls_back(monkeypatch) -> None:
+    """ADR-0039：跨 provider 无 key → 弹引导（预选目标），Esc 取消 → 会话零改动。"""
+    import vague_code.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: None)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session()
+        state.model = "deepseek-v4-flash"
+        state.agent.config.model = "deepseek-v4-flash"
+        app._handle_slash("/model gpt-5.6-sol")
+        await pilot.pause(0.2)
+        from vague_code.tui.screens.setup import SetupWizard
+        assert isinstance(app.screen, SetupWizard)
+        wizard = app.screen
+        assert wizard._provider == "openai"
+        assert wizard._preselect_model == "gpt-5.6-sol"
+        assert wizard._cancellable is True
+        await pilot.press("escape")
+        await pilot.pause(0.2)
+        assert state.model == "deepseek-v4-flash"
+        assert state.agent.config.model == "deepseek-v4-flash"
+        assert state.backend is not None
+        assert state.provider in ("", "deepseek")
+
+
+async def test_cross_provider_wizard_finish_applies_session(monkeypatch, tmp_path) -> None:
+    """ADR-0039：wizard 完成 → 写全局配置 + 会话级切换（agent backend 替换）。"""
+    import json
+    import vague_code.config as cfg_mod
+    import vague_code.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: None)
+    fake_dir = tmp_path / "cfg"
+    monkeypatch.setattr(cfg_mod, "global_config_dir", lambda: fake_dir)
+
+    class _RealBackend:
+        name = "built"
+
+    monkeypatch.setattr(cfg_mod, "build_backend", lambda *a, **k: _RealBackend())
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        state = app._begin_new_session()
+        state.model = "deepseek-v4-flash"
+        old_backend = state.agent.backend
+        app._handle_slash("/model gpt-5.6-sol")
+        await pilot.pause(0.2)
+        wizard = app.screen
+        wizard.query_one("#setup-key").value = "sk-openai"
+        wizard._finish()
+        await pilot.pause(0.3)
+        assert state.provider == "openai"
+        assert state.model == "gpt-5.6-sol"
+        assert state.agent.config.model == "gpt-5.6-sol"
+        assert state.agent.backend is not old_backend
+        assert state.backend.name == "built"
+        env_text = (fake_dir / ".env").read_text(encoding="utf-8")
+        assert "OPENAI_API_KEY=sk-openai" in env_text
+        cfg = json.loads((fake_dir / "vague-code.json").read_text(encoding="utf-8"))
+        assert cfg["defaultProvider"] == "openai"
+        assert cfg["defaultModel"] == "gpt-5.6-sol"
+
+
+async def test_two_sessions_keep_independent_model_backends(monkeypatch) -> None:
+    """ADR-0039：会话 A deepseek / 会话 B openai 并行，互不干扰。"""
+    import vague_code.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: "sk-" + env)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        a = app._begin_new_session()
+        a.provider = "deepseek"
+        a.model = "deepseek-v4-pro"
+        a.agent.config.model = "deepseek-v4-pro"
+        a.agent.backend = type("B", (), {"name": "ds"})()
+        app._handle_slash("/new")
+        b = app._begin_new_session()
+        b.provider = "openai"
+        b.model = "gpt-5.6-sol"
+        b.agent.config.model = "gpt-5.6-sol"
+        b.agent.backend = type("B", (), {"name": "oa"})()
+        assert a.agent.config.model == "deepseek-v4-pro"
+        assert b.agent.config.model == "gpt-5.6-sol"
+        assert a.agent.backend is not b.agent.backend
+        # 切到会话 A → topbar 显示 deepseek；切回 B → openai
+        app._switch_session(a.run_id)
+        await pilot.pause()
+        assert "deepseek-v4-pro" in app._topbar_text()
+        app._switch_session(b.run_id)
+        await pilot.pause()
+        assert "gpt-5.6-sol" in app._topbar_text()

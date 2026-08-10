@@ -100,20 +100,22 @@ def test_model_command_opens_picker_without_arg() -> None:
     assert len(result.action["items"]) >= 2
 
 
-def test_model_list_grouped_by_provider() -> None:
+def test_model_list_shows_all_providers() -> None:
+    """ADR-0039：/model picker 列出全部 provider 的模型（detail 标注服务商）。"""
     app = _make_app()
     app._provider = "openai"
     result = app._command_handler.handle("/model")
     labels = [i["label"] for i in result.action["items"]]
+    details = [i["detail"] for i in result.action["items"]]
     assert "gpt-5.6-sol" in labels
-    assert "deepseek-v4-flash" not in labels
+    assert "deepseek-v4-flash" in labels
+    assert "claude-fable-5" in labels
+    assert details.count("openai") == 3
+    assert details.count("deepseek") == 2
     direct = app._command_handler.handle("/model gpt-5.6-sol")
     assert direct.action == {"type": "model_changed", "provider": "openai", "model": "gpt-5.6-sol"}
-    app._provider = "deepseek"
-    result2 = app._command_handler.handle("/model")
-    labels2 = [i["label"] for i in result2.action["items"]]
-    assert "deepseek-v4-flash" in labels2
-    assert "gpt-5.6-sol" not in labels2
+    direct2 = app._command_handler.handle("/model claude-opus-5")
+    assert direct2.action == {"type": "model_changed", "provider": "anthropic", "model": "claude-opus-5"}
 
 
 def test_model_list_for_custom_provider_from_config() -> None:
@@ -130,7 +132,12 @@ def test_model_list_for_custom_provider_from_config() -> None:
     }
     result = app._command_handler.handle("/model")
     labels = [i["label"] for i in result.action["items"]]
-    assert labels == ["gpt-5.6-sol", "gpt-5.6-terra"]
+    assert "gpt-5.6-sol" in labels
+    assert "gpt-5.6-terra" in labels
+    assert "deepseek-v4-flash" in labels  # 内置目录模型也列出
+    # 配置 models 优先：gpt-5.6-sol 归属 fox 而非 openai
+    direct = app._command_handler.handle("/model gpt-5.6-sol")
+    assert direct.action["provider"] == "fox"
 
 
 def test_mode_command() -> None:
@@ -195,7 +202,8 @@ async def test_picker_open_and_number_select() -> None:
         assert app._picker is not None
         app._submit_task("1")
         await pilot.pause()
-        assert app._config.model in ("deepseek-v4-flash",)
+        # 无会话 → 作用于 app 默认；首项 = 排序第一的 anthropic 模型
+        assert app._config.model == "claude-fable-5"
         assert app._picker is None
 
 

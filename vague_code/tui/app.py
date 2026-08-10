@@ -28,6 +28,7 @@ from vague_code.agent.ir import (
     ToolUseEnd,
     ToolUseStart,
 )
+from vague_code.agent.backend import ModelBackend
 from vague_code.agent.permission import Decision, Operation
 from vague_code.tui.commands import (
     CompositeCommandHandler,
@@ -354,9 +355,16 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         if self._needs_setup:
             self.call_after_refresh(self._open_setup_wizard)
 
-    def _open_setup_wizard(self) -> None:
+    def _open_setup_wizard(
+        self,
+        preselect: str | None = None,
+        preselect_model: str = "",
+        cancellable: bool = False,
+    ) -> None:
         from vague_code.tui.screens.setup import SetupWizard
-        self.push_screen(SetupWizard(self))
+        self.push_screen(SetupWizard(
+            self, preselect=preselect, preselect_model=preselect_model, cancellable=cancellable,
+        ))
 
     def _apply_setup(
         self,
@@ -393,6 +401,15 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         self._provider = provider
         self._file_config = load_config(self._workdir)
         self._needs_setup = False
+        # 会话级（ADR-0039）：配置完成后当前会话同步切换
+        state = self._sessions.current
+        if state is not None:
+            state.provider = provider
+            state.model = self._config.model
+            state.backend = self._backend
+            if state.agent is not None:
+                state.agent.backend = self._backend
+                state.agent.config.model = self._config.model
         self._refresh_topbar()
         self._write_line("配置完成，开始使用吧！", kind=TuiEntryKind.SYSTEM)
 
@@ -411,8 +428,9 @@ class VagueCodeApp(VagueCodeViewMixin, App):
     # ── Topbar / welcome ─────────────────────────────────────────────────────
 
     def _topbar_text(self) -> str:
-        provider = self._provider
-        model = self._config.model
+        state = self._sessions.current
+        provider = state.provider if state is not None and state.provider else self._provider
+        model = state.model if state is not None and state.model else self._config.model
         mode = self._config.permission_mode
         cwd = Path(self._workdir).resolve().name or "."
         width = max(0, self.size.width - 4)
@@ -599,7 +617,20 @@ class VagueCodeApp(VagueCodeViewMixin, App):
     def _new_session_agent(self, state: SessionState):
         from vague_code.agent.loop import Agent
 
-        agent = Agent(self._config, self._backend)
+        import copy
+        provider = state.provider or self._provider
+        model = state.model or self._config.model
+        backend = state.backend
+        if backend is None:
+            backend = self._session_backend(provider)
+            if backend is None:
+                raise RuntimeError(f"Provider '{provider}' 未配置 API key")
+            state.backend = backend
+            state.provider = provider
+            state.model = model
+        config = copy.copy(self._config)
+        config.model = model
+        agent = Agent(config, backend)
         agent._on_permission = lambda op, decision, _s=state: self._thread_permission(op, decision, _s)
         agent.on_tool_result = lambda tid, name, content, err, _s=state: self.call_from_thread(
             self._on_tool_result, tid, name, content, err, _s, _s.active_token
@@ -611,6 +642,30 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         for rule in self._load_permission_rules():
             agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
         return agent
+
+    def _session_backend(self, provider: str) -> ModelBackend | None:
+        """按 provider 解析 key/base_url/protocol 构造后端（ADR-0039 会话级）。
+
+        与 app 默认 provider 相同时直接复用启动时的后端；key 缺失返回 None。
+        """
+        from vague_code.config import build_backend
+
+        if provider == self._provider and self._backend is not None:
+            return self._backend
+        from vague_code.cli import _provider_settings
+        base_url, key_env, protocol = _provider_settings(provider, None, None, self._file_config)
+        key = self._resolve_key_for(provider)
+        if not key:
+            return None
+        return build_backend(provider, key, base_url, protocol, self._config.transport.timeout_s)
+
+    def _resolve_key_for(self, provider: str) -> str | None:
+        """provider 的 API key：项目 .env → 全局 .env → 环境变量（ADR-0039）。"""
+        from vague_code.cli import _provider_settings, _resolve_api_key
+        _base_url, key_env, _protocol = _provider_settings(provider, None, None, self._file_config)
+        if not key_env:
+            return None
+        return _resolve_api_key(key_env)
 
     def _begin_session_turn(self, state: SessionState) -> int:
         self._turn_token_counter += 1
@@ -671,12 +726,66 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             self._start_compact()
             return True
         if action_type == "model_changed":
-            model = str(action.get("model") or "")
-            if model:
-                self._config.model = model
-                self._refresh_topbar()
-            return True
+            return self._apply_model_change(
+                str(action.get("model") or ""), str(action.get("provider") or ""),
+            )
         return False
+
+    def _apply_model_change(self, model: str, provider: str) -> bool:
+        """会话级模型切换（ADR-0039）。
+
+        同 provider 直切模型；跨 provider 时目标有 key 则换会话 backend 直切，
+        无 key 弹 SetupWizard（预选目标 provider/模型，可取消 → 零改动回退）。
+        """
+        if not model:
+            return False
+        state = self._sessions.current
+        if state is None:
+            # 无会话（欢迎页）：作用于 app 默认
+            self._config.model = model
+            if provider:
+                self._provider = provider
+            self._refresh_topbar()
+            return True
+        target_provider = provider or state.provider or self._provider
+        if target_provider == (state.provider or self._provider):
+            # 同 provider：仅换模型
+            state.model = model
+            if state.agent is not None:
+                state.agent.config.model = model
+            self._refresh_topbar()
+            return True
+        # 跨 provider：目标 key 缺失 → 引导配置（取消则回退原模型）
+        if not self._resolve_key_for(target_provider):
+            self._open_setup_wizard(
+                preselect=target_provider, preselect_model=model, cancellable=True,
+            )
+            return True
+        key = self._resolve_key_for(target_provider)
+        self._switch_session_provider(state, target_provider, model, key or "")
+        return True
+
+    def _switch_session_provider(
+        self, state: SessionState, provider: str, model: str, key: str,
+    ) -> None:
+        """会话级换 provider：重建 backend + 换 agent.backend + 更新状态。"""
+        from vague_code.config import build_backend
+        from vague_code.cli import _provider_settings
+
+        base_url, key_env, protocol = _provider_settings(provider, None, None, self._file_config)
+        new_backend = build_backend(
+            provider, key, base_url, protocol, self._config.transport.timeout_s,
+        )
+        state.backend = new_backend
+        state.provider = provider
+        state.model = model
+        if state.agent is not None:
+            state.agent.backend = new_backend
+            state.agent.config.model = model
+        self._refresh_topbar()
+        self._write_line(
+            f"已切换会话模型：{provider}/{model}", kind=TuiEntryKind.SYSTEM,
+        )
 
     def _clear_output(self) -> None:
         state = self._sessions.current
@@ -958,22 +1067,9 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         The session is recreated with a fresh Agent wired to per-session callbacks;
         the transcript is replayed and the manager switches to it.
         """
-        from vague_code.agent.loop import Agent
-
-        agent = Agent(self._config, self._backend)
         state = self._sessions.create(run_id, run_id)
-        state.agent = agent
+        state.agent = self._new_session_agent(state)
         state.transcript = TuiTranscript()
-        agent._on_permission = lambda op, decision, _s=state: self._thread_permission(op, decision, _s)
-        agent.on_tool_result = lambda tid, name, content, err, _s=state: self.call_from_thread(
-            self._on_tool_result, tid, name, content, err, _s, _s.active_token
-        )
-        agent.on_state_change = lambda kind, payload, _s=state: self.call_from_thread(
-            self._on_state_change, kind, payload, _s, _s.active_token
-        )
-        agent.guidance_provider = lambda _s=state: self._drain_guidance(_s)
-        for rule in self._load_permission_rules():
-            agent.add_permission_rule(rule["pattern"], rule.get("action", "allow"))
         output = self.query_one("#output", ConversationView)
         output.transcript = state.transcript
         self._dismiss_welcome()

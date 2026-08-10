@@ -4,6 +4,10 @@
 
 ### Added
 
+- **会话级模型隔离 + 跨 provider 切换**（ADR-0039）：每个会话独立持有 provider/model/backend，会话 A deepseek / 会话 B openai 并行互不干扰；`/model` 切换只作用于当前会话，topbar 跟随当前会话显示；无参 `/model` picker 列出全部 provider 的模型（detail 标注服务商）；跨 provider 切换时目标无 API key → 弹 SetupWizard（预选目标 provider/模型，Esc/取消按钮可回退原模型，零改动）；wizard 完成同时写全局配置并切换当前会话；`Agent` 会话内换 backend 保留对话上下文；修复原隐患——跨 provider 改模型不再出现"模型名与端点不匹配"
+
+### Changed
+
 - **`/` 命令候选浮层**（ADR-0038，对齐 opencode/Claude Code）：输入框键入 `/` 弹出命令列表、前缀实时过滤、↑/↓ 高亮、Enter 无参执行/有参填入、Esc 收起；命令清单与 `/help` 共用单一事实源
 
 ## [Unreleased] — 2026-08-10
