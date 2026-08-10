@@ -33,16 +33,48 @@ Powered by **DeepSeek V4 Flash** (or any OpenAI/Anthropic compatible backend).
 
 ---
 
+## 安装
+
+```bash
+pip install vague-code
+```
+
+要求 Python ≥ 3.12（支持 Windows / Linux）。安装后提供 `vague-code` 命令，也可用 `python -m vague_code.cli`。
+
+## 配置 API Key
+
+vague-code 依次从 **`.env` 文件**（当前工作目录）与**环境变量**读取密钥，二者任一即可：
+
+**方式 1：`.env` 文件（推荐，跨平台一致）**
+
+在你要运行 Agent 的目录下创建 `.env` 文件：
+
+```ini
+DEEPSEEK_API_KEY=sk-xxxxxx
+# ANTHROPIC_API_KEY=sk-ant-xxxxxx   # 使用 --provider anthropic 时
+```
+
+**方式 2：环境变量**
+
+```bash
+# Linux / macOS
+export DEEPSEEK_API_KEY=sk-xxxxxx
+# Windows PowerShell
+$env:DEEPSEEK_API_KEY = "sk-xxxxxx"
+# Windows cmd
+set DEEPSEEK_API_KEY=sk-xxxxxx
+```
+
+API Key 获取：DeepSeek 开放平台（https://platform.deepseek.com）创建；`--provider anthropic` 使用 Anthropic 风格配置（当前默认指向 DeepSeek 的 Anthropic 兼容端点，密钥同样在 DeepSeek 平台获取）。
+
+---
+
 ## 快速开始
 
 ```bash
-# 环境
-uv sync                           # 安装依赖
-export DEEPSEEK_API_KEY=sk-xxx    # 设置 API Key
-
 # 运行 Agent（CLI 模式）
-python -m vague_code.cli "Fix the bug in stats.py"
-python -m vague_code.cli --provider anthropic "Refactor auth module"
+vague-code "Fix the bug in stats.py"
+vague-code --provider anthropic "Refactor auth module"
 
 # 运行 Agent（TUI 模式 — 全屏交互界面）
 vague-code tui "Fix the bug in stats.py"
@@ -53,6 +85,8 @@ python -m eval.cli --tasks eval/tasks.json --fake          # 验证框架
 python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --max-turns 25  # 真实 API（20 题本机可跑）
 python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融实验
 ```
+
+> 从源码运行（开发者）：`uv sync` 安装依赖后，把上述命令中的 `vague-code` 换成 `python -m vague_code.cli` 即可。
 
 ---
 
