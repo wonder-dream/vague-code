@@ -192,25 +192,43 @@ def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
     assert count_tokens(msgs) > 0
 
 
-def test_set_tokenizer_for_model_gpt_uses_cl100k() -> None:
-    """GPT 系列模型切换到 cl100k 词表（非 DeepSeek 词表）。"""
+def test_set_tokenizer_for_model_gpt_uses_o200k() -> None:
+    """GPT-4o/4.1/5.x 系列使用 o200k 词表（对齐 tiktoken MODEL_TO_ENCODING）。"""
     import vague_code.agent.context_tokens as ct
 
-    ct.set_tokenizer_for_model("gpt-4o")
     try:
-        enc = ct._get_enc()
-        assert enc is not None
-        assert getattr(enc, "model_max_length", 0) != 1_048_576
-        assert getattr(enc, "name", "") == "cl100k_base"
+        for model in ("gpt-4o", "gpt-4.1", "gpt-5", "gpt-5.6", "o3-mini"):
+            ct.set_tokenizer_for_model(model)
+            enc = ct._get_enc()
+            assert enc is not None, model
+            assert getattr(enc, "name", "") == "o200k_base", model
+    finally:
+        ct.set_tokenizer_for_model("")
+
+
+def test_set_tokenizer_for_model_legacy_gpt_uses_cl100k() -> None:
+    """老 gpt-4/gpt-3.5 系列仍用 cl100k 词表。"""
+    import vague_code.agent.context_tokens as ct
+
+    try:
+        for model in ("gpt-4", "gpt-4-turbo", "gpt-3.5-turbo"):
+            ct.set_tokenizer_for_model(model)
+            enc = ct._get_enc()
+            assert enc is not None, model
+            assert getattr(enc, "name", "") == "cl100k_base", model
     finally:
         ct.set_tokenizer_for_model("")
 
 
 def test_gpt_compute_budget() -> None:
-    """GPT 模型的上下文窗口预算（128K/1M），未知模型保持 64K 回退。"""
+    """GPT 模型窗口预算：精确 → 系列前缀回退（gpt-5* → 400K）→ 通用回退。"""
     assert compute_budget("gpt-4o") == 128_000 * 0.9
     assert compute_budget("gpt-4.1") == 1_000_000 * 0.9
     assert compute_budget("o3-mini") == 200_000 * 0.9
+    assert compute_budget("gpt-5") == 400_000 * 0.9
+    assert compute_budget("gpt-5.6") == 400_000 * 0.9
+    assert compute_budget("gpt-5.6-pro") == 400_000 * 0.9
+    assert compute_budget("gpt-9-future") == 128_000 * 0.9
     assert compute_budget("some-future-model") == 64_000 * 0.9
 
 

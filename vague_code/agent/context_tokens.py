@@ -21,12 +21,27 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "gpt-4.1-mini": 1_000_000,
     "o3-mini": 200_000,
     "o4-mini": 200_000,
+    "gpt-5": 400_000,
 }
 
 _SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-", "deepseek-")
 
-# GPT 系列使用 OpenAI cl100k 词表（gpt-* / o1-* / o3-* / o4-*）
-_GPT_PREFIXES: tuple[str, ...] = ("gpt-", "o1-", "o3-", "o4-")
+# GPT 系列词表（对齐 tiktoken MODEL_TO_ENCODING）：
+#   o200k_base：gpt-4o / gpt-4.1 / gpt-5.x / o1 / o3 / o4 及后续新模型
+#   cl100k_base：仅老 gpt-4 / gpt-3.5 / gpt2
+_GPT_O200K_PREFIXES: tuple[str, ...] = ("gpt-4o", "gpt-4.1", "gpt-5", "o1", "o3", "o4")
+_GPT_CL100K_PREFIXES: tuple[str, ...] = ("gpt-4", "gpt-3.5", "gpt-35", "gpt2")
+
+
+def _window_for(model: str) -> int:
+    """上下文窗口：精确匹配 → 系列前缀回退（gpt-5* → 400K）→ 通用回退。"""
+    if model in CONTEXT_WINDOWS:
+        return CONTEXT_WINDOWS[model]
+    if model.startswith("gpt-5"):
+        return 400_000
+    if model.startswith("gpt-"):
+        return 128_000
+    return 64_000
 
 # Wire-level structural token overhead, measured against the real DeepSeek API
 # (trajectory 8c10e58e83dc: local count 111201 vs API input_tokens 121506).
@@ -61,30 +76,34 @@ def set_tokenizer_for_model(model: str) -> None:
 
 
 def _get_enc():
-    """按当前模型返回对应 encoder：GPT 系列 → cl100k；其余 → DeepSeek-V4 官方
-    tokenizer（与 API 服务端同一套分词，实测偏差 <1%）。导入失败时 fallback
-    到 tiktoken cl100k。
+    """按当前模型返回对应 encoder：GPT 系列按词表映射（o200k/cl100k），其余
+    用 DeepSeek-V4 官方 tokenizer（与 API 服务端同一套分词，实测偏差 <1%）。
+    导入失败时 fallback 到 tiktoken o200k_base。
     """
     global _DS_ENC, _CL100K_ENC
-    if _MODEL_TOK.startswith(_GPT_PREFIXES):
-        if _CL100K_ENC is None:
-            try:
-                import tiktoken
-                _CL100K_ENC = tiktoken.get_encoding("cl100k_base")
-            except Exception:
-                _CL100K_ENC = False
-        return _CL100K_ENC if _CL100K_ENC is not False else None
+    if _MODEL_TOK.startswith(_GPT_O200K_PREFIXES):
+        return _get_tiktoken("o200k_base")
+    if _MODEL_TOK.startswith(_GPT_CL100K_PREFIXES):
+        return _get_tiktoken("cl100k_base")
+    if _MODEL_TOK.startswith("gpt-"):
+        return _get_tiktoken("o200k_base")  # 未知新 GPT 系列 → 现代词表
     if _DS_ENC is None:
         try:
             from deepseek_tokenizer import ds_token
             _DS_ENC = ds_token
         except Exception:
-            try:
-                import tiktoken
-                _DS_ENC = tiktoken.get_encoding("cl100k_base")
-            except Exception:
-                _DS_ENC = False
+            _DS_ENC = _get_tiktoken("o200k_base") or False
     return _DS_ENC if _DS_ENC is not False else None
+
+
+def _get_tiktoken(name: str):
+    """获取 tiktoken 编码（o200k_base/cl100k_base），失败返回 None。"""
+    global _CL100K_ENC
+    try:
+        import tiktoken
+        return tiktoken.get_encoding(name)
+    except Exception:
+        return None
 
 
 def count_tokens(
@@ -178,7 +197,7 @@ def per_message_tokens(messages: list, skip_thinking: bool = False) -> list[int]
 
 
 def compute_budget(model: str, user_max_tokens: int | None = None) -> int:
-    window = CONTEXT_WINDOWS.get(model, 64_000)
+    window = _window_for(model)
     budget = int(window * 0.9)
     if user_max_tokens is not None:
         budget = min(budget, user_max_tokens)
