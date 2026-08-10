@@ -16,7 +16,7 @@ date: 2026-07-22
 - 新增 §16 TransportConfig
 - status 保持 proposed，终验时转 accepted
 
-### 步骤2：IR 层（`src/agent/ir.py` + `tests/test_stream_ir.py`）
+### 步骤2：IR 层（`vague_code/agent/ir.py` + `tests/test_stream_ir.py`）
 - `ThinkingBlock.signature: str | None`
 - 9 个 StreamEvent dataclass + 联合类型 + `to_dict()`
 - `StreamEventVisitor` Protocol
@@ -53,8 +53,8 @@ date: 2026-07-22
 
 ```powershell
 pytest tests/ -q
-mypy src/ tests/
-ruff check src/ tests/
+mypy vague_code/ tests/
+ruff check vague_code/ tests/
 ```
 
 ## 评审 checklist（每 commit 自审）

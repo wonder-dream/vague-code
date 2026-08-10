@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/vague/xcode
+cd /home/vague/vague-code
 export DEEPSEEK_API_KEY="$DEEPSEEK_API_KEY"
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate

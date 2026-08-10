@@ -17,7 +17,7 @@ eval/audit_scores.json
 eval/fake_report.md
 eval/judge_results.jsonl
 eval/judge_audit_samples.json
-xcode.egg-info/
+vague_code.egg-info/
 src/__pycache__/
 src/agent/__pycache__/
 src/agent/codecs/__pycache__/

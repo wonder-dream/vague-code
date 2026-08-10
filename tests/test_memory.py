@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from src.agent.memory import MemoryStore
+from vague_code.agent.memory import MemoryStore
 
 
 def _make_store() -> MemoryStore:

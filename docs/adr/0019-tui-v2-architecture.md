@@ -10,18 +10,18 @@ v1 TUI（ADR-0015）是"能用但薄"的 MVP：视觉简陋（GitHub Dark 平铺
 
 ## 决策
 
-基于 `tui-reference-pack/`（firstcoder 项目的成熟 Textual Coding Agent TUI，约 3900 行 / 30 文件 / 267 测试）整体重写 UI 层。**UI 层设计照搬参考包，适配层自研**（XClaw 的 Agent 是同步生成器 + 阻塞回调，参考包是 asyncio AgentLoop，桥接方式不同）。
+基于 `tui-reference-pack/`（firstcoder 项目的成熟 Textual Coding Agent TUI，约 3900 行 / 30 文件 / 267 测试）整体重写 UI 层。**UI 层设计照搬参考包，适配层自研**（vague-code 的 Agent 是同步生成器 + 阻塞回调，参考包是 asyncio AgentLoop，桥接方式不同）。
 
 ### 1. 新分层
 
 ```
 app.py          薄壳：compose/bindings/事件分发/回合管理（v1 的 363 行拆解）
-runner.py       XClawAgentRunner：同步 Agent ↔ 异步 UI 桥（事件回调/取消/guidance/规则/resume）
-mixin.py        XClawViewMixin：流式三层缓冲 + 活动动画 + 回合 metrics
+runner.py       VagueCodeAgentRunner：同步 Agent ↔ 异步 UI 桥（事件回调/取消/guidance/规则/resume）
+mixin.py        VagueCodeViewMixin：流式三层缓冲 + 活动动画 + 回合 metrics
 state.py        TuiTranscript：展示态单一事实源（entries 带 widget 引用）
 views/          纯函数渲染（topbar/activity/welcome/transcript/review），可独立单测
 commands/       CompositeCommandHandler + CommandResult(handled, output, action)
-widgets/        ConversationView / ActivityLine / ComposerTextArea / XClawMarkdown
+widgets/        ConversationView / ActivityLine / ComposerTextArea / VagueCodeMarkdown
 screens/        PermissionDialog（diff 预览 + 拒绝理由）
 ```
 
@@ -38,12 +38,12 @@ screens/        PermissionDialog（diff 预览 + 拒绝理由）
 | 权限 | ALLOW/DENY 二元 | prewrite diff 预览 + `reject: 理由` 反馈闭环（`Operation.review/feedback`） |
 | 命令 | `_handle_slash` if/elif 链 | `CompositeCommandHandler` 前缀路由，命令即唯一事实源 |
 | resume | 清空对话静默跑 | `Trajectory.from_db` 重放历史后再静默恢复 |
-| 事件通道 | visitor 分发 + 回调不对称 | 全部经 `XClawAgentRunner` 回调直达 transcript；`on_tool_result` 带 tool id |
+| 事件通道 | visitor 分发 + 回调不对称 | 全部经 `VagueCodeAgentRunner` 回调直达 transcript；`on_tool_result` 带 tool id |
 
 ### 3. 为 UI 服务的 agent 层小改（4 处，最小侵入）
 
 1. `on_tool_result(tool_id, tool_name, content, is_error)`——tool id 关联工具条目（仅 TUI 使用该回调）
-2. `Operation.review`（`src/agent/prewrite.py` 计算的写入前 diff）+ `Operation.feedback`（拒绝理由并入返回模型的错误消息）
+2. `Operation.review`（`vague_code/agent/prewrite.py` 计算的写入前 diff）+ `Operation.feedback`（拒绝理由并入返回模型的错误消息）
 3. `Agent.guidance_provider`——回合头 drain 用户消息队列
 4. `on_state_change` compression payload 供上下文可见性
 
@@ -57,4 +57,4 @@ screens/        PermissionDialog（diff 预览 + 拒绝理由）
 
 **代价**：TUI 测试需真实时钟等待 flush timer（~0.2s/用例）；`on_tool_result` 签名变更影响所有调用点（已确认仅 TUI）；流式 finalize 依赖 Textual `Markdown.update` 的 `_future` 内部 API（textual 8.x 已验证）。
 
-**范围外**：附件粘贴（Agent 仅接受任务文本，需先定义附件语义）；task plan 面板（XClaw 无任务计划模型）。
+**范围外**：附件粘贴（Agent 仅接受任务文本，需先定义附件语义）；task plan 面板（vague-code 无任务计划模型）。

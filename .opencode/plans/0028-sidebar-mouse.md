@@ -5,8 +5,8 @@
 
 ## 改动
 
-- `src/tui/widgets/sidebar.py`：行 Static 挂 `run_id` 属性 + `on_click`（设置 selected_index + 重绘 + post SessionSelected）
-- `src/tui/theme.tcss`：`#session-rows > Static:hover` 悬停高亮
+- `vague_code/tui/widgets/sidebar.py`：行 Static 挂 `run_id` 属性 + `on_click`（设置 selected_index + 重绘 + post SessionSelected）
+- `vague_code/tui/theme.tcss`：`#session-rows > Static:hover` 悬停高亮
 
 ## 行为
 

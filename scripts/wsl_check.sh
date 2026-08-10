@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-cd /home/vague/xcode
+cd /home/vague/vague-code
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate
 

@@ -105,7 +105,7 @@ def apply_test_patch(workdir: str | Path, test_patch: str) -> None:
     if not test_patch.strip():
         return
     workdir = Path(workdir)
-    patch_file = workdir / ".xclaw_test_patch.diff"
+    patch_file = workdir / ".vaguecode_test_patch.diff"
     patch_file.write_text(test_patch, encoding="utf-8")
     try:
         # --ignore-whitespace 吸收 Windows 上 autocrlf 造成的 CRLF/LF 差异

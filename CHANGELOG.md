@@ -2,6 +2,13 @@
 
 ## [Unreleased] — 2026-08-10
 
+### Changed
+
+- **项目重命名为 vague-code**（ADR-0031）：PyPI 包名 `xcode` → `vague-code`、import 根 `src/` → `vague_code/`、console 脚本 `xcode` → `vague-code`、产品名 XClaw → vague-code（类标识符 XClaw* → VagueCode*）；PyPI 发布就绪——补全元数据（description/readme/license/authors/classifiers/keywords）、`package-data` 打包 `theme.tcss`、`vague_code/cli/__main__.py`、新增 publish workflow（tag 触发 + trusted publishing）
+- 死代码清理（ADR-0030 Phase 3，对应 死代码.md A 类）：见 2026-08-10 Fixed 段
+
+## [Unreleased] — 2026-08-10
+
 ### Fixed
 
 - **chat 多轮用户消息落轨迹**（ADR-0030）：新增 `EventType.user_message`，`chat()` 后续轮 emit 事件、`to_messages()` 消费——`chat_resume`/轨迹重放/LLM-as-Judge 不再丢失第 2+ 轮用户消息，也不再产生连续 assistant 消息（角色交替违例）
@@ -12,7 +19,7 @@
 
 ### Added
 
-- **CLI 权限可用**（S1）：`xcode`/`xcode chat`/`xcode tui` 增加 `--mode {safe,normal,autoedit,auto}`，并自动加载工作区 `.agent/permission-rules.json`（`xcode "Fix..." --mode auto` 可无人值守编辑）
+- **CLI 权限可用**（S1）：`vague-code`/`vague-code chat`/`vague-code tui` 增加 `--mode {safe,normal,autoedit,auto}`，并自动加载工作区 `.agent/permission-rules.json`（`vague-code "Fix..." --mode auto` 可无人值守编辑）
 - **危险命令模式补盲**（M5）：`git reset --hard`/`git clean`/`git checkout --`/`git restore`/`pip(p3) install`/`npm install`/`yarn add`/`taskkill`/`format X:` 判为 dangerous
 
 ### Removed
@@ -29,7 +36,7 @@
 
 ### Changed
 
-- 评测报告链：`runs/eval/results_20260807-{135536,161222,162351}.json` + `b10_p{1,2,3}.md` + `b10_baseline_report.md`；handoff `docs/handoff/2026-08-07-xclaw-baseline-complete.md`
+- 评测报告链：`runs/eval/results_20260807-{135536,161222,162351}.json` + `b10_p{1,2,3}.md` + `b10_baseline_report.md`；handoff `docs/handoff/2026-08-07-vague-code-baseline-complete.md`
 
 ## [Unreleased] — 2026-08-04
 
@@ -40,7 +47,7 @@
 
 ### Changed
 
-- **TUI**：侧边栏/visitor/status_bar 等旧实现删除（`visitor.py`、`widgets/sidebar.py`、`screens/session_detail.py` 等）；`src/tui` 测试从 6 个增至 74 个
+- **TUI**：侧边栏/visitor/status_bar 等旧实现删除（`visitor.py`、`widgets/sidebar.py`、`screens/session_detail.py` 等）；`vague_code/tui` 测试从 6 个增至 74 个
 
 ## [Unreleased] — 2026-08-01
 

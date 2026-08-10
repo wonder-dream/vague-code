@@ -30,11 +30,11 @@
 ## C. 常规核对
 
 - [ ] `ir.py:86-91` — StopReason 枚举加了 `unknown`
-- [ ] `pyproject.toml` — +python-dotenv、+mypy dotenv override、+`[project.scripts] xcode`
-- [ ] `src/agent/__init__.py` — 导出 Agent / AgentConfig
+- [ ] `pyproject.toml` — +python-dotenv、+mypy dotenv override、+`[project.scripts] vague-code`
+- [ ] `vague_code/agent/__init__.py` — 导出 Agent / AgentConfig
 - [ ] `tests/test_deepseek_codec.py:183-189` — unknown 断言更新（golden 三件套未动）
 - [ ] `day0_minimal_loop.py` 已删
-- [ ] 真实跑验证：`uv run xcode --model deepseek-chat "回复你好" .` → end_turn，SQLite 落盘正常（2 条 real run 记录）
+- [ ] 真实跑验证：`uv run vague-code --model deepseek-chat "回复你好" .` → end_turn，SQLite 落盘正常（2 条 real run 记录）
 - [ ] 验证结果：ruff ✅ / mypy ✅ / pytest 44 passed（本轮修复 5 条 bug，新增 5 复现测试，替换 1 假测试）
 
 ## D. ADR-0004 工具注册表

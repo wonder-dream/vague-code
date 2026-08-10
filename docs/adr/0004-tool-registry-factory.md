@@ -5,7 +5,7 @@ date: 2026-07-21
 
 # 工具系统采用可注入注册表 + bind(workdir) 工厂模式
 
-工具不内嵌于 Agent Runtime（loop.py），独立为 `src/agent/tools.py` 模块。工具抽象为 `Tool` dataclass：`spec: ToolSpec`（JSON Schema 声明）+ `factory: (workdir) → (input) → str`（绑定工作目录后产出无状态 handler）。Agent 通过构造函数注入工具注册表 `dict[str, Tool]`（默认 `DEFAULT_TOOLS`），与 backend 注入同一手法——Agent 核心只见抽象，不见具体工具实现。
+工具不内嵌于 Agent Runtime（loop.py），独立为 `vague_code/agent/tools.py` 模块。工具抽象为 `Tool` dataclass：`spec: ToolSpec`（JSON Schema 声明）+ `factory: (workdir) → (input) → str`（绑定工作目录后产出无状态 handler）。Agent 通过构造函数注入工具注册表 `dict[str, Tool]`（默认 `DEFAULT_TOOLS`），与 backend 注入同一手法——Agent 核心只见抽象，不见具体工具实现。
 
 `bind(workdir)` 在 `run()` 启动时执行一次（workdir 在一次 run 内不变），产出的 handler 闭包捕获 workdir，此后工具调用签名统一为 `handler(input: dict) -> str`，不含环境参数。
 

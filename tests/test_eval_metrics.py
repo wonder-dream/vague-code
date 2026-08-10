@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from src.agent.trajectory import Event, EventType
+from vague_code.agent.trajectory import Event, EventType
 
 from eval.metrics import (
     diff_touches_test_files,

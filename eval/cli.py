@@ -32,7 +32,7 @@ def _latest_results(out_dir: str = "runs/eval") -> list[TaskResult]:
 
 
 def main():
-    p = argparse.ArgumentParser(description="XClaw Evaluation Harness")
+    p = argparse.ArgumentParser(description="vague-code Evaluation Harness")
     p.add_argument("--tasks", help="Path to tasks.json (not needed with --regen)")
     p.add_argument("--out", default="eval_report.md", help="Output report path")
     p.add_argument("--repeat", type=int, default=3, help="Repeat count per cell")

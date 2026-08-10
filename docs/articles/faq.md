@@ -1,6 +1,6 @@
 # FAQ
 
-**谁需要读：** 对 XClaw 设计决策有疑问的任何人
+**谁需要读：** 对 vague-code 设计决策有疑问的任何人
 **前置阅读：** 无（按问题检索）
 **读完能做什么：** 理解关键设计决策的"为什么"
 
@@ -46,9 +46,9 @@ LIKE 不引入额外依赖，1000-10000 条记忆量级足够用。热度排序�
 
 GitHub PR。阅读 05-tool-system.md（添加工具）和 09-model-abstraction.md（添加 codec）。代码规范：ruff + mypy + pytest（586 项测试）。先提 issue → ADR 流程。
 
-### Q11：XClaw 与其他 Coding Agent 的性能对比？
+### Q11：vague-code 与其他 Coding Agent 的性能对比？
 
-不和其他商业产品比（资源差距悬殊）。聚焦消融实验：内部特性开关对比。2026-08 起评测升级为真验收（sanity gate 双检 + F2P/P2P 实跑），任务集按 OpenAI SWE-bench Verified 官方标注重建（31 题，本机可跑 20 题），数字以 `docs/handoff/2026-08-03-xclaw-eval-system.md` 与 `eval/README.md` 为准（早期 60%/93% 基于假 pass/fail，已废弃）。
+不和其他商业产品比（资源差距悬殊）。聚焦消融实验：内部特性开关对比。2026-08 起评测升级为真验收（sanity gate 双检 + F2P/P2P 实跑），任务集按 OpenAI SWE-bench Verified 官方标注重建（31 题，本机可跑 20 题），数字以 `docs/handoff/2026-08-03-vague-code-eval-system.md` 与 `eval/README.md` 为准（早期 60%/93% 基于假 pass/fail，已废弃）。
 
 ### Q12：trajectory 事件流中为什么会有重复的事件？
 

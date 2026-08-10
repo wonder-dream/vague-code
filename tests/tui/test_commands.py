@@ -3,8 +3,8 @@
 import tempfile
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import (
     MessageEnd,
     StopReason,
     TextDelta,
@@ -12,9 +12,9 @@ from src.agent.ir import (
     ThinkingEnd,
     ThinkingStart,
 )
-from src.tui.app import XClawApp
-from src.tui.commands.core import CompositeCommandHandler
-from src.tui.picker import (
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.commands.core import CompositeCommandHandler
+from vague_code.tui.picker import (
     TuiPickerItem,
     TuiPickerState,
     render_picker,
@@ -31,7 +31,7 @@ class _FakeTrajectory:
     events = []
 
 
-class _TestApp(XClawApp):
+class _TestApp(VagueCodeApp):
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []

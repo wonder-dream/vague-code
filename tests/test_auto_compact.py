@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.agent.context_compress import auto_compact
-from src.agent.ir import (
+from vague_code.agent.context_compress import auto_compact
+from vague_code.agent.ir import (
     Message,
     ModelResponse,
     NormalizedUsage,

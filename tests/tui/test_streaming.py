@@ -1,10 +1,10 @@
-"""App-level streaming tests: drive XClawApp events with a stub agent worker."""
+"""App-level streaming tests: drive VagueCodeApp events with a stub agent worker."""
 
 import tempfile
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import (
     ArgsDelta,
     MessageEnd,
     MessageStart,
@@ -16,8 +16,8 @@ from src.agent.ir import (
     ToolUseEnd,
     ToolUseStart,
 )
-from src.tui.app import XClawApp
-from src.tui.state import TuiEntryKind
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.state import TuiEntryKind
 
 
 class _FakeBackend:
@@ -29,7 +29,7 @@ class _FakeTrajectory:
     events = []
 
 
-class _StreamTestApp(XClawApp):
+class _StreamTestApp(VagueCodeApp):
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []
@@ -58,7 +58,7 @@ async def test_stream_text_renders_markdown_and_finalizes() -> None:
         await pilot.pause()
         app._submit_task("run")
         await pilot.pause(0.4)
-        markdown = app.query_one("XClawMarkdown")
+        markdown = app.query_one("VagueCodeMarkdown")
         assert "world" in markdown.source
         assert markdown.allow_select is True
         assistant_entries = [e for e in app.transcript.entries if e.kind == TuiEntryKind.ASSISTANT]

@@ -10,7 +10,7 @@
 
 | 症状 | 诊断 | 解决方案 |
 |------|------|---------|
-| `ModuleNotFoundError: No module named 'src'` | 工作目录不对 / 依赖未安装 | `cd xclaw && uv sync` |
+| `ModuleNotFoundError: No module named 'src'` | 工作目录不对 / 依赖未安装 | `cd vague-code && uv sync` |
 | `ImportError: cannot import name` | Python 版本 < 3.12 | `python --version` → 升级到 3.12+ |
 | `uv: command not found` | uv 未安装 | `pip install uv` |
 | `Could not find a version` | 依赖冲突 | `uv sync --reinstall` |
@@ -78,7 +78,7 @@
 | 症状 | 诊断 | 解决方案 |
 |------|------|---------|
 | 界面乱码 | 终端不兼容 | 使用 Windows Terminal / iTerm2 |
-| `xcode` 命令找不到 | venv 未激活（`.venv\Scripts` 不在 PATH） | `uv run xcode tui "task"` 或先 `.venv\Scripts\Activate.ps1`；也可 `python -m src.cli tui "task"` |
+| `vague-code` 命令找不到 | venv 未激活（`.venv\Scripts` 不在 PATH） | `uv run vague-code tui "task"` 或先 `.venv\Scripts\Activate.ps1`；也可 `python -m vague_code.cli tui "task"` |
 | Agent 卡住无法停止 | 运行中按 Esc 未生效 | 连按两次 Esc（1 秒内）中断；或 `/quit` 退出重启 |
 | resume 失败 | run_id 或工具集不匹配 | 检查 run_id 和工具注册 |
 

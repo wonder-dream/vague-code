@@ -12,7 +12,7 @@
 ## #2 — M5: trajectory.py 延迟导入提到顶部
 
 **问题**：
-`to_messages()` 内部有 `from src.agent.context import SystemPrompt` 延迟导入。
+`to_messages()` 内部有 `from vague_code.agent.context import SystemPrompt` 延迟导入。
 如果导入失败（循环依赖、模块未安装等），resume 路径崩溃。
 
 **修复**：

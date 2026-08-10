@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADR（Architecture Decision Record）是 XClaw 的架构决策记录。每份 ADR 记录一个关键设计决策的背景、备选方案、最终选择和后果。
+ADR（Architecture Decision Record）是 vague-code 的架构决策记录。每份 ADR 记录一个关键设计决策的背景、备选方案、最终选择和后果。
 
 状态说明：
 - **accepted** — 已采纳并实现

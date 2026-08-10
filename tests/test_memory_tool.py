@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from src.agent.memory import MemoryStore
-from src.agent.memory_tool import make_memory_search_handler
+from vague_code.agent.memory import MemoryStore
+from vague_code.agent.memory_tool import make_memory_search_handler
 
 
 def test_handler_returns_results() -> None:

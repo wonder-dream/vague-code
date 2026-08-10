@@ -1,6 +1,6 @@
 # Context Engineering
 
-**谁需要读：** 想理解 XClaw 如何管理上下文窗口的开发者
+**谁需要读：** 想理解 vague-code 如何管理上下文窗口的开发者
 **前置阅读：** 05-tool-system.md（了解工具输出对上下文的压力）
 **读完能做什么：** 理解五层压缩的完整机制、token 预算计算、可观测性设计
 
@@ -10,7 +10,7 @@
 
 LLM 上下文窗口是稀有资源。在真实编码任务中，一轮对话通常产生 10K+ token（工具调用 + 工具结果），一个 SWE-bench 任务常超过 30 轮。不做压缩，任何模型都会在任务完成前溢出上下文窗口。
 
-XClaw 使用**五层压缩流水线**解决这个问题：stale_snip（删被覆盖的旧读取）→ microcompact（折叠超长输出）→ structured_snip（轨迹驱动结构化压缩，零 LLM 成本）→ auto_compact（LLM 摘要）→ truncation（硬截断兜底）。五层按精准度排序，越靠前的越轻量、损失越小。
+vague-code 使用**五层压缩流水线**解决这个问题：stale_snip（删被覆盖的旧读取）→ microcompact（折叠超长输出）→ structured_snip（轨迹驱动结构化压缩，零 LLM 成本）→ auto_compact（LLM 摘要）→ truncation（硬截断兜底）。五层按精准度排序，越靠前的越轻量、损失越小。
 
 核心约束（ADR-0011）：
 - **纯函数：** 压缩不写数据库、不改 trajectory 事件流
@@ -39,7 +39,7 @@ XClaw 使用**五层压缩流水线**解决这个问题：stale_snip（删被覆
 
 **Segment 1 — AGENT_IDENTITY**（`context.py:10-16`）：
 硬编码行为守则，每次运行一致。内容包含：
-- "你是 XClaw，一个编码智能体（Coding Agent）"
+- "你是 vague-code，一个编码智能体（Coding Agent）"
 - "你的任务是阅读、理解、修改并测试代码"
 - "修改文件之前必须先阅读它"
 - "修改代码后运行测试验证正确性"
@@ -312,7 +312,7 @@ def compress_chain(messages, tools, cfg, budget, backend=None, model="", skip_th
 
 > ⚠️ 本节 v0.1 数据基于**假 pass/fail**（验收测试未实跑），已废弃，不得引用。
 > 2026-08 起评测升级为真验收 + 官方标注任务集（31 题，本机可跑 20 题），真数字待消融跑出后回填。
-> 现状见 `docs/handoff/2026-08-03-xclaw-eval-system.md` 与 `eval/README.md`。
+> 现状见 `docs/handoff/2026-08-03-vague-code-eval-system.md` 与 `eval/README.md`。
 
 消融实验固定其他变量，开关压缩和并发两个特性。待跑配置（官方保留任务集 + `--max-turns 25`）：
 

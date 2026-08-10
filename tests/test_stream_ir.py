@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.agent.ir import (
+from vague_code.agent.ir import (
     ArgsDelta,
     MessageEnd,
     MessageStart,

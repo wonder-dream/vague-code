@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.codecs.deepseek import DeepSeekStreamDecoder
-from src.agent.ir import (
+from vague_code.agent.codecs.deepseek import DeepSeekStreamDecoder
+from vague_code.agent.ir import (
     StopReason,
     dispatch_event,
 )
@@ -84,7 +84,7 @@ class TestDeepSeekStreamDecoder:
 
     def test_error_chunk_raises(self):
         decoder = DeepSeekStreamDecoder()
-        from src.agent.ir import StreamDisconnect
+        from vague_code.agent.ir import StreamDisconnect
         with pytest.raises(StreamDisconnect, match="stream error"):
             decoder.decode_chunk({"error": {"message": "overloaded"}})
 
@@ -163,7 +163,7 @@ class TestDeepSeekStreamDecoder:
 
     def test_dispatch_event_does_not_crash(self):
         """所有 StreamEvent 类型都能正常 dispatch"""
-        from src.agent.ir import NullVisitor
+        from vague_code.agent.ir import NullVisitor
 
         decoder = DeepSeekStreamDecoder()
         chunks = [

@@ -11,10 +11,10 @@
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/memory.py` | **新建** |
-| 2 | `src/agent/memory_tool.py` | **新建** |
-| 3 | `src/agent/config.py` | 改：加 `MemoryConfig` |
-| 4 | `src/agent/loop.py` | 改：pinned 注入 + 蒸馏集成 |
+| 1 | `vague_code/agent/memory.py` | **新建** |
+| 2 | `vague_code/agent/memory_tool.py` | **新建** |
+| 3 | `vague_code/agent/config.py` | 改：加 `MemoryConfig` |
+| 4 | `vague_code/agent/loop.py` | 改：pinned 注入 + 蒸馏集成 |
 | 5 | `tests/test_memory.py` | **新建** |
 
 ## 步骤 1：`memory.py`

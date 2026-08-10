@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 from textual.app import App, ComposeResult
 
-from src.agent.permission import Decision, Operation
-from src.tui.screens.permission import PermissionDialog
-from src.tui.views.permission import operation_rows, permission_title, tool_accent
+from vague_code.agent.permission import Decision, Operation
+from vague_code.tui.screens.permission import PermissionDialog
+from vague_code.tui.views.permission import operation_rows, permission_title, tool_accent
 
 
 def _dialog_app(op: Operation) -> App:

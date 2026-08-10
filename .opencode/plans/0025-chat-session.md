@@ -19,13 +19,13 @@
 - `Agent.chat_end()`：无 run_end 时 emit `run_end(reason="chat_end")` + persist；清空会话状态
 - `_run_gen(*, chat_mode)`：end_turn 时暂停（保存 `_chat_turn`、不 emit run_end）；压缩后 messages 回写 `_chat_messages`；finally persist 保留
 
-## CLI：`xcode chat [--resume <run_id>]`
+## CLI：`vague-code chat [--resume <run_id>]`
 
 Rich 流式渲染 REPL；`exit`/Ctrl+C/EOF → chat_end 退出；`/new` 新会话；`/resume <id>` 切换会话。
 
 ## TUI
 
-- app 持有复用 `XClawAgentRunner`（懒创建），每轮调 `run_chat(text)`（首轮自动初始化）
+- app 持有复用 `VagueCodeAgentRunner`（懒创建），每轮调 `run_chat(text)`（首轮自动初始化）
 - `/new` → `runner.end_chat()` + 清空
 - `/resume` picker 分组：对话会话（mode=chat）走 `chat_resume`，任务走原 resume（自动结束当前会话）
 - `_on_run_complete`：无 run_end 时活动行显示 `done · turn N`

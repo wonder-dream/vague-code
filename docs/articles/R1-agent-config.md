@@ -85,9 +85,9 @@
 ## 6. 编程用法示例
 
 ```python
-from src.agent.config import AgentConfig, TransportConfig, CompressionConfig, MemoryConfig
-from src.agent.loop import Agent
-from src.agent.backend import create_deepseek_backend
+from vague_code.agent.config import AgentConfig, TransportConfig, CompressionConfig, MemoryConfig
+from vague_code.agent.loop import Agent
+from vague_code.agent.backend import create_deepseek_backend
 
 config = AgentConfig(
     model="deepseek-v4-flash",

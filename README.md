@@ -1,4 +1,4 @@
-# XClaw
+# vague-code
 
 面向真实编码场景的轻量级本地 Coding Agent CLI。自研 Agent Runtime、可控工具系统、四层上下文压缩、冲突可串行化并发调度、权限安全体系与跨会话记忆，以及配套的自动化评测工具链。
 
@@ -41,12 +41,12 @@ uv sync                           # 安装依赖
 export DEEPSEEK_API_KEY=sk-xxx    # 设置 API Key
 
 # 运行 Agent（CLI 模式）
-python -m src.cli "Fix the bug in stats.py"
-python -m src.cli --provider anthropic "Refactor auth module"
+python -m vague_code.cli "Fix the bug in stats.py"
+python -m vague_code.cli --provider anthropic "Refactor auth module"
 
 # 运行 Agent（TUI 模式 — 全屏交互界面）
-xcode tui "Fix the bug in stats.py"
-xcode tui --model deepseek-v4-pro "Analyze the project structure"
+vague-code tui "Fix the bug in stats.py"
+vague-code tui --model deepseek-v4-pro "Analyze the project structure"
 
 # 运行评测（现行体系：真验收 + sanity gate + pass^k，详见 eval/README.md）
 python -m eval.cli --tasks eval/tasks.json --fake          # 验证框架
@@ -58,7 +58,7 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融�
 
 ## TUI 模式
 
-`xcode tui [task]` 启动全屏交互式终端界面（基于 Textual 框架，v2 分层架构见 `docs/adr/0019-tui-v2-architecture.md`）。
+`vague-code tui [task]` 启动全屏交互式终端界面（基于 Textual 框架，v2 分层架构见 `docs/adr/0019-tui-v2-architecture.md`）。
 
 ### 布局
 - **Topbar** — brand · 运行状态 · provider/model · 权限模式 · 工作目录（窄屏自动截断）
@@ -98,10 +98,10 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # 消融�
 
 ### 选项
 ```
-xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
+vague-code tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 ```
 
-> 提示：`xcode` 命令需要激活虚拟环境（`uv run xcode tui ...` 或先 `.venv\Scripts\Activate.ps1`）。
+> 提示：`vague-code` 命令需要激活虚拟环境（`uv run vague-code tui ...` 或先 `.venv\Scripts\Activate.ps1`）。
 
 ---
 
@@ -109,16 +109,16 @@ xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 
 | 模块 | 文件 | 描述 |
 |------|------|------|
-| **Agent Loop** | `src/agent/loop.py` | ReAct 循环：LLM → tool_use → tool_result → LLM，含 retry/checkpoint/resume |
-| **Tool System** | `src/agent/tools.py` | 7 个工具（read/write/patch/glob/grep/bash/code_search），JSON Schema 校验，50K 截断 |
-| **Concurrency** | `src/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
-| **Context Engineering** | `src/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
-| **Permission System** | `src/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 24 类危险命令正则 |
-| **Memory System** | `src/agent/memory.py` | SQLite 统一记忆库 + episodic 检索注入 + auto-compact 蒸馏 |
-| **Repo Map** | `src/agent/repomap.py` | tree-sitter 符号索引，code_search 工具 + 符号地图注入 |
-| **Model Abstraction** | `src/agent/codecs/` | 自定义 IR → DeepSeek/Anthropic codec，统一流式事件 |
-| **Trajectory** | `src/agent/trajectory.py` | Event-sourced JSONL → SQLite 事件流，to_messages() 导出 |
-| **CLI** | `src/cli/` | argparse + Rich 渲染，--stream/--no-stream，--provider |
+| **Agent Loop** | `vague_code/agent/loop.py` | ReAct 循环：LLM → tool_use → tool_result → LLM，含 retry/checkpoint/resume |
+| **Tool System** | `vague_code/agent/tools.py` | 7 个工具（read/write/patch/glob/grep/bash/code_search），JSON Schema 校验，50K 截断 |
+| **Concurrency** | `vague_code/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
+| **Context Engineering** | `vague_code/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
+| **Permission System** | `vague_code/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 24 类危险命令正则 |
+| **Memory System** | `vague_code/agent/memory.py` | SQLite 统一记忆库 + episodic 检索注入 + auto-compact 蒸馏 |
+| **Repo Map** | `vague_code/agent/repomap.py` | tree-sitter 符号索引，code_search 工具 + 符号地图注入 |
+| **Model Abstraction** | `vague_code/agent/codecs/` | 自定义 IR → DeepSeek/Anthropic codec，统一流式事件 |
+| **Trajectory** | `vague_code/agent/trajectory.py` | Event-sourced JSONL → SQLite 事件流，to_messages() 导出 |
+| **CLI** | `vague_code/cli/` | argparse + Rich 渲染，--stream/--no-stream，--provider |
 | **Eval Harness** | `eval/` | 官方保留 31 题 + 真验收/sanity gate + pass^k + Markdown 报告 |
 
 ---
@@ -129,7 +129,7 @@ xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 > 2026-08 起评测体系按 `docs/plans/0016-eval-methods.md` 全面升级：真验收（sanity gate 双检 +
 > F2P/P2P 实跑）、pass^k 可靠性、任务集按 OpenAI SWE-bench Verified 官方标注重建。
 
-**现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md` 与 `docs/handoff/2026-08-05-xclaw-concurrency-and-ablation.md`）：**
+**现状（详见 `docs/handoff/2026-08-03-vague-code-eval-system.md` 与 `docs/handoff/2026-08-05-vague-code-concurrency-and-ablation.md`）：**
 - 任务集 **31 题**（全部官方保留，17 道脏题已剔除），本机可跑 **20 题**（sympy 17 + sphinx 2 + pytest 1）
 - 环境策展 5 仓实证验证（sanity gate 全过）；sklearn/astropy 10 题需 MSVC/Linux CI
 - **8 题小消融（2026-08-05，max_turns 25，k=1，$3.05）**：
@@ -148,8 +148,8 @@ xcode tui [task] [--model] [--max-turns] [--db-path] [--provider] [--timeout-s]
 ## 项目结构
 
 ```
-xcode/
-├── src/agent/                 # Agent 核心包
+vague-code/
+├── vague_code/agent/                 # Agent 核心包
 │   ├── loop.py                # ReAct 主循环
 │   ├── tools.py               # 6 个基础工具 + code_search spec
 │   ├── concurrency.py         # 冲突可串行化并发

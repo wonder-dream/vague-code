@@ -5,7 +5,7 @@
 
 ## 背景
 
-项目原仅提供 CLI 前端（Rich 渲染器，`xcode <task>`）。用户需要全屏交互式界面来查看流式 LLM 输出、通过交互式对话框确认工具权限、管理会话历史，并实时查看运行状态指标。
+项目原仅提供 CLI 前端（Rich 渲染器，`vague-code <task>`）。用户需要全屏交互式界面来查看流式 LLM 输出、通过交互式对话框确认工具权限、管理会话历史，并实时查看运行状态指标。
 
 ## 约束条件
 
@@ -32,7 +32,7 @@
 ```
         主 asyncio 线程（Textual）                   后台线程（Agent）
   ┌─────────────────────────────┐         ┌─────────────────────┐
-  │ XClawApp                    │         │ Agent.run()         │
+  │ VagueCodeApp                    │         │ Agent.run()         │
   │  ┌─────────┐ ┌──────────┐  │ call_from_thread()          │
   │  │ RichLog │ │ Sidebar  │──┼────► on_stream_event         │
   │  │ (conv)  │ │(sessions)│  │         ▲                     │
@@ -55,7 +55,7 @@
 ### 组件树
 
 ```
-XClawApp(App)
+VagueCodeApp(App)
 ├── Sidebar (VerticalScroll)
 │   ├── "Recent Sessions" header
 │   ├── ListView (clickable sessions)
@@ -72,7 +72,7 @@ XClawApp(App)
 
 ### 正面
 - 完整的 TUI 界面：流式输出 / 折叠 / sidepanel / 状态 / 权限对话框 / 斜杠命令
-- `xcode tui <task>` 子命令保持 CLI 侧不变
+- `vague-code tui <task>` 子命令保持 CLI 侧不变
 - 复用 `dispatch_event` + `NullVisitor` + `StreamEvent` IR —— 无需改动核心层
 
 ### 负面

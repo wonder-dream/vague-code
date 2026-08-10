@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: xcode
+Version: 0.1.0
+Requires-Python: >=3.12
+License-File: LICENSE
+Requires-Dist: anthropic>=0.117.0
+Requires-Dist: deepseek-tokenizer>=0.3.0
+Requires-Dist: openai>=2.46.0
+Requires-Dist: pydantic>=2.13.4
+Requires-Dist: python-dotenv>=1.1.0
+Requires-Dist: rich>=15.0.0
+Requires-Dist: textual>=8.0.0
+Requires-Dist: tiktoken>=0.8.0
+Requires-Dist: tree-sitter==0.26.0
+Requires-Dist: tree-sitter-python==0.25.0
+Dynamic: license-file

@@ -1,6 +1,6 @@
-"""CLI subprocess tests — L4: real `xcode` process invocation.
+"""CLI subprocess tests — L4: real `vague-code` process invocation.
 
-These tests run `uv run xcode ...` as a subprocess, testing the full
+These tests run `uv run vague-code ...` as a subprocess, testing the full
 entry point including argument parsing, env resolution, and error messages
 exactly as the user sees them.
 
@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import subprocess
 
-XCODE = ["uv", "run", "xcode"]
+VAGUE_CODE = ["uv", "run", "vague-code"]
 
 
 def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    """Run xcode with given args and return CompletedProcess."""
-    cmd = XCODE + list(args)
+    """Run vague-code with given args and return CompletedProcess."""
+    cmd = VAGUE_CODE + list(args)
     merged_env = None
     if env is not None:
         merged_env = {**__import__("os").environ, **env}
@@ -26,7 +26,7 @@ class TestSubprocessArgs:
     """L4 tests that don't need any config/environment setup."""
 
     def test_help_output(self):
-        """xcode --help lists all flags."""
+        """vague-code --help lists all flags."""
         result = _run("--help")
         assert result.returncode == 0
         assert "--resume RUN_ID" in result.stdout
@@ -43,7 +43,7 @@ class TestSubprocessArgs:
         assert "--model" in result.stdout
 
     def test_no_args_errors(self):
-        """xcode with no args — parser.error about missing task."""
+        """vague-code with no args — parser.error about missing task."""
         result = _run()
         assert result.returncode == 2  # argparse parser.error
         # The project's .env may provide a key, so message may vary.

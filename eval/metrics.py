@@ -141,7 +141,7 @@ def metrics_from_events(events: list[Any], run_id: str = "") -> RunMetrics:
 
 
 def run_metrics(run_id: str, db_path: str | Path) -> RunMetrics:
-    from src.agent.trajectory import Trajectory
+    from vague_code.agent.trajectory import Trajectory
 
     traj = Trajectory.from_db(run_id, str(db_path))
     return metrics_from_events(traj.events, run_id=run_id)

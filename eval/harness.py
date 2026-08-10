@@ -91,7 +91,7 @@ def _build_deepseek_backend(model_name: str):
     key = (dotenv_values().get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "")
     if not key:
         raise RuntimeError("DEEPSEEK_API_KEY not set (set it in .env or environment)")
-    from src.agent.backend import create_deepseek_backend
+    from vague_code.agent.backend import create_deepseek_backend
 
     return create_deepseek_backend(api_key=key, base_url="https://api.deepseek.com", timeout_s=120.0)
 
@@ -352,9 +352,9 @@ def run_eval(
     supervisor: bool = False,
     supervisor_model: str | None = None,
 ) -> list[TaskResult]:
-    from src.agent.loop import Agent
-    from src.agent.config import AgentConfig, MemoryConfig, SupervisionConfig
-    from src.agent.ir import ModelResponse, NormalizedUsage, StopReason, TextBlock
+    from vague_code.agent.loop import Agent
+    from vague_code.agent.config import AgentConfig, MemoryConfig, SupervisionConfig
+    from vague_code.agent.ir import ModelResponse, NormalizedUsage, StopReason, TextBlock
 
     results: list[TaskResult] = []
     manifest = load_manifest() if resume else {}
@@ -427,7 +427,7 @@ def run_eval(
             config.db_path = _run_db_path(instance_id, cell)
 
             if use_fake:
-                from src.agent.ir import Message, MessageEnd, MessageStart
+                from vague_code.agent.ir import Message, MessageEnd, MessageStart
 
                 class _FakeBackend:
                     def complete(self, messages, tools=None, config=None) -> ModelResponse:

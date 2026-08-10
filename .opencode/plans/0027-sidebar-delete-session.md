@@ -11,13 +11,13 @@
 
 ## 改动
 
-- `src/tui/screens/confirm.py`（新）：`ConfirmDialog(title, message) -> ModalScreen[bool]`
-- `src/tui/session.py`：`SessionManager.remove(run_id) -> bool`（是否删除当前）
-- `src/tui/app.py`：
+- `vague_code/tui/screens/confirm.py`（新）：`ConfirmDialog(title, message) -> ModalScreen[bool]`
+- `vague_code/tui/session.py`：`SessionManager.remove(run_id) -> bool`（是否删除当前）
+- `vague_code/tui/app.py`：
   - `_prompt_delete_session()`（busy 检查 + push ConfirmDialog）
   - `_delete_session(run_id)`（DB 事务 + 内存移除 + 删除当前则切换到剩余第一个/欢迎页）
   - on_key 侧边栏焦点 `d` 分支
-- `src/tui/theme.tcss`：ConfirmDialog 样式
+- `vague_code/tui/theme.tcss`：ConfirmDialog 样式
 
 ## 测试
 

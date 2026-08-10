@@ -10,7 +10,7 @@
 
 ## 修复
 
-### src/agent/tools.py `_bash_factory`
+### vague_code/agent/tools.py `_bash_factory`
 
 检测 `python -c "..."` 且代码含换行 → 提取代码写入 `tempfile.gettempdir()/xclaw_<uuid>.py` → 命令改写为 `python "tmp.py"` → 执行后 finally 删除。提取失败/无换行保持现状。
 

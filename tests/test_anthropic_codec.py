@@ -5,12 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.codecs.anthropic import (
+from vague_code.agent.codecs.anthropic import (
     AnthropicStreamDecoder,
     decode_response,
     encode_request,
 )
-from src.agent.ir import (
+from vague_code.agent.ir import (
     Message,
     ModelResponse,
     NormalizedUsage,
@@ -313,16 +313,16 @@ def test_stream_single_tool():
     assert "ToolUseEnd" in types
     assert "MessageEnd" in types
 
-    from src.agent.ir import ToolUseStart as TUS
+    from vague_code.agent.ir import ToolUseStart as TUS
     tus = [e for e in output if isinstance(e, TUS)][0]
     assert tus.id == "toolu_s01"
     assert tus.name == "read_file"
 
-    from src.agent.ir import ArgsDelta as AD
+    from vague_code.agent.ir import ArgsDelta as AD
     args = [e for e in output if isinstance(e, AD)]
     assert len(args) == 2
 
-    from src.agent.ir import MessageEnd as ME
+    from vague_code.agent.ir import MessageEnd as ME
     me = [e for e in output if isinstance(e, ME)][0]
     assert me.stop_reason == StopReason.tool_use
 
@@ -334,8 +334,8 @@ def test_stream_multi_tool():
     for ev in events:
         output.extend(decoder.decode_event(ev))
 
-    from src.agent.ir import ToolUseStart as TUS
-    from src.agent.ir import ToolUseEnd as TUE
+    from vague_code.agent.ir import ToolUseStart as TUS
+    from vague_code.agent.ir import ToolUseEnd as TUE
     starts = [e for e in output if isinstance(e, TUS)]
     ends = [e for e in output if isinstance(e, TUE)]
     assert len(starts) == 2
@@ -353,9 +353,9 @@ def test_stream_thinking():
     for ev in events:
         output.extend(decoder.decode_event(ev))
 
-    from src.agent.ir import ThinkingStart as TS
-    from src.agent.ir import ThinkingDelta as TD
-    from src.agent.ir import ThinkingEnd as TE
+    from vague_code.agent.ir import ThinkingStart as TS
+    from vague_code.agent.ir import ThinkingDelta as TD
+    from vague_code.agent.ir import ThinkingEnd as TE
     assert any(isinstance(e, TS) for e in output)
     assert any(isinstance(e, TD) for e in output)
     thinking_ends = [e for e in output if isinstance(e, TE)]
@@ -383,7 +383,7 @@ def test_stream_no_usage():
     output = []
     for ev in events:
         output.extend(decoder.decode_event(ev))
-    from src.agent.ir import MessageEnd as ME
+    from vague_code.agent.ir import MessageEnd as ME
     me = [e for e in output if isinstance(e, ME)][0]
     assert me.usage is not None
 

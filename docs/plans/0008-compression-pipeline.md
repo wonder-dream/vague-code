@@ -17,11 +17,11 @@
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/config.py` | 改：加 `CompressionConfig` |
-| 2 | `src/agent/context_tokens.py` | 改：`count_tokens` 加 `skip_thinking` |
-| 3 | `src/agent/context_compress.py` | **新建**：四层 + compress_chain |
-| 4 | `src/agent/context.py` | 改：re-export `compress_chain` |
-| 5 | `src/agent/loop.py` | 改：预算处接入 compress_chain |
+| 1 | `vague_code/agent/config.py` | 改：加 `CompressionConfig` |
+| 2 | `vague_code/agent/context_tokens.py` | 改：`count_tokens` 加 `skip_thinking` |
+| 3 | `vague_code/agent/context_compress.py` | **新建**：四层 + compress_chain |
+| 4 | `vague_code/agent/context.py` | 改：re-export `compress_chain` |
+| 5 | `vague_code/agent/loop.py` | 改：预算处接入 compress_chain |
 | 6 | `tests/test_stale_snip.py` | **新建** |
 | 7 | `tests/test_microcompact.py` | **新建** |
 | 8 | `tests/test_auto_compact.py` | **新建** |
@@ -114,11 +114,11 @@ def _count_rough(messages, tools, skip_thinking):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from src.agent.ir import (
+from vague_code.agent.ir import (
     Block, Message, TextBlock, ToolResultBlock, ToolUseBlock,
     ThinkingBlock,
 )
-from src.agent.context_tokens import count_tokens
+from vague_code.agent.context_tokens import count_tokens
 
 
 @dataclass
@@ -301,7 +301,7 @@ def _count_recent_pairs(messages: list[Message], n: int) -> int:
 添加单行 re-export：
 
 ```python
-from src.agent.context_compress import compress_chain  # noqa: F401
+from vague_code.agent.context_compress import compress_chain  # noqa: F401
 ```
 
 ---
@@ -352,11 +352,11 @@ else:
 ### 通用测试夹具
 
 ```python
-from src.agent.ir import (
+from vague_code.agent.ir import (
     Block, Message, TextBlock, ToolUseBlock, ToolResultBlock, ThinkingBlock,
     StopReason, ModelResponse, NormalizedUsage,
 )
-from src.agent.config import CompressionConfig
+from vague_code.agent.config import CompressionConfig
 ```
 
 ### `test_stale_snip.py`
@@ -446,7 +446,7 @@ FakeBackend 这里的 `complete` 可以返回一个固定摘要文本或抛出�
 ## 验收标准
 
 - [x] `pytest tests/` 全量通过（含现有测试）
-- [x] `ruff check src/` 无新增告警
-- [x] `mypy src/` 无新增类型错误
+- [x] `ruff check vague_code/` 无新增告警
+- [x] `mypy vague_code/` 无新增类型错误
 - [ ] demo 脚本能跑出压缩前后 token 对比数字
 - [ ] `scripts/demo_week2_phase2.py` — 可选：用长会话验证 M2

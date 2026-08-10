@@ -79,9 +79,9 @@ chat 会话链 Bug、2 个遗留问题（S1 CLI 不可写、M5 危险命令盲�
 ## Phase 2 — 遗留问题修复
 
 ### Step 6: S1 — CLI 增加权限模式与规则加载
-- **问题**：CLI 单次模式与 `xcode chat` 不设 `_on_permission`、不加载
+- **问题**：CLI 单次模式与 `vague-code chat` 不设 `_on_permission`、不加载
   `.agent/permission-rules.json`、无 `--mode` → normal 默认下写操作全 DENY。
-- **改法**：`src/cli/__init__.py` 三个入口加 `--mode {safe,normal,autoedit,auto}`
+- **改法**：`vague_code/cli/__init__.py` 三个入口加 `--mode {safe,normal,autoedit,auto}`
   （默认 normal）；启动时从 workdir 加载 `.agent/permission-rules.json` 注入 agent。
 - **验证**：扩展 test_cli.py——`--mode auto` 生效、规则文件加载生效。
 

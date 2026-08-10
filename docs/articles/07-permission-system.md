@@ -1,6 +1,6 @@
 # Permission System
 
-**谁需要读：** 想理解 XClaw 安全模型和权限决策流程的开发者/用户
+**谁需要读：** 想理解 vague-code 安全模型和权限决策流程的开发者/用户
 **前置阅读：** 06-context-engineering.md
 **读完能做什么：** 选择合适的安全等级、编写自定义权限规则、理解审计日志
 
@@ -8,7 +8,7 @@
 
 ## 1. 概述
 
-XClaw 的权限系统遵循一个设计哲学：**默认安全，渐进信任**。Agent 有修改代码和执行命令的能力，因此权限系统必须确保这些能力不会在用户不知情的情况下被滥用。
+vague-code 的权限系统遵循一个设计哲学：**默认安全，渐进信任**。Agent 有修改代码和执行命令的能力，因此权限系统必须确保这些能力不会在用户不知情的情况下被滥用。
 
 核心设计：
 - **4 种模式**按操作可逆性切分信任等级——从"完全只读"到"最大自动"
@@ -164,7 +164,7 @@ def evaluate(mode, operation, rules) -> Decision:
 `_check_tool_permission()`（`loop.py:498-541`）在工具执行前做 pre-pass：
 - **DENY** → 直接生成 `ToolResultBlock(is_error=True)` + 错误消息，跳过执行
 - **CONFIRM** → 回调 `_on_permission(op, decision)`
-  - TUI：弹出 `PermissionDialog`（`app.py:_thread_permission`）；`write_file`/`patch` 先由 `src/agent/prewrite.py` 计算写入前 diff 挂到 `op.review`，弹窗展示预览；拒绝理由（`op.feedback`）并入返回模型的错误消息
+  - TUI：弹出 `PermissionDialog`（`app.py:_thread_permission`）；`write_file`/`patch` 先由 `vague_code/agent/prewrite.py` 计算写入前 diff 挂到 `op.review`，弹窗展示预览；拒绝理由（`op.feedback`）并入返回模型的错误消息
   - CLI：默认拒绝（无回调时）
 - **ALLOW** → 通过，进入执行
 

@@ -33,7 +33,7 @@ date: 2026-07-26
 ### 1. 三个文件
 
 ```
-src/agent/
+vague_code/agent/
   context.py          → SystemPrompt 类 + build() 方法
   context_rules.py    → load_rules(workdir) 纯函数
   context_tokens.py   → count_tokens(messages, tools) 纯函数
@@ -64,7 +64,7 @@ def load_rules(workdir: str | Path) -> str:
 **context_tokens.py**：
 
 ```python
-from src.agent.ir import Message, ToolSpec
+from vague_code.agent.ir import Message, ToolSpec
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-flash": 1_000_000,
@@ -85,8 +85,8 @@ def compute_budget(model: str, user_max_tokens: int | None = None) -> int:
 **context.py**：
 
 ```python
-from src.agent.context_rules import load_rules
-from src.agent.context_tokens import count_tokens, compute_budget
+from vague_code.agent.context_rules import load_rules
+from vague_code.agent.context_tokens import count_tokens, compute_budget
 
 class SystemPrompt:
     AGENT_IDENTITY = "..."
@@ -106,8 +106,8 @@ class SystemPrompt:
 ### 3. loop.py 接入方式
 
 ```python
-from src.agent.context import SystemPrompt
-from src.agent.context_tokens import count_tokens, compute_budget
+from vague_code.agent.context import SystemPrompt
+from vague_code.agent.context_tokens import count_tokens, compute_budget
 
 # start() 中
 system_prompt = SystemPrompt(workdir).build()

@@ -1,5 +1,5 @@
-from src.agent.permission import Decision, Operation
-from src.tui.runner import XClawAgentRunner
+from vague_code.agent.permission import Decision, Operation
+from vague_code.tui.runner import VagueCodeAgentRunner
 
 
 class _FakeHandle:
@@ -66,7 +66,7 @@ def _make_runner(events, **overrides):
 
         return handler
 
-    runner = XClawAgentRunner(
+    runner = VagueCodeAgentRunner(
         config=object(),
         backend=object(),
         on_stream_event=collector("on_stream_event"),

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.agent.config import AgentConfig, SupervisionConfig
+from vague_code.agent.config import AgentConfig, SupervisionConfig
 
 
 # ── SupervisionConfig ────────────────────────────────────────────────────

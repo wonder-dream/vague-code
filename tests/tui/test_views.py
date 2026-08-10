@@ -1,14 +1,14 @@
-from src.tui.state import TuiEntryKind, TuiTranscriptEntry
-from src.tui.views.activity import (
+from vague_code.tui.state import TuiEntryKind, TuiTranscriptEntry
+from vague_code.tui.views.activity import (
     activity_markup,
     compact_tool_content,
     format_elapsed_time,
     truncate_activity_text,
     turn_metrics_text,
 )
-from src.tui.views.topbar import topbar_markup
-from src.tui.views.transcript import entry_classes, entry_markdown_text, entry_plain_text
-from src.tui.views.welcome import welcome_renderable
+from vague_code.tui.views.topbar import topbar_markup
+from vague_code.tui.views.transcript import entry_classes, entry_markdown_text, entry_plain_text
+from vague_code.tui.views.welcome import welcome_renderable
 
 
 def _entry(kind: TuiEntryKind, body: str = "x", status: str | None = None) -> TuiTranscriptEntry:
@@ -56,15 +56,15 @@ def test_compact_tool_content() -> None:
 # ── topbar ───────────────────────────────────────────────────────────────────
 
 def test_topbar_markup_fits_width() -> None:
-    markup = topbar_markup("running", "deepseek", "v4-flash", "normal", "xcode", 200)
-    assert "xclaw" in markup
+    markup = topbar_markup("running", "deepseek", "v4-flash", "normal", "vague-code", 200)
+    assert "vaguecode" in markup
     assert "deepseek" in markup
     assert "normal" in markup
 
 
 def test_topbar_markup_truncates_on_narrow_terminal() -> None:
-    markup = topbar_markup("running · bash", "deepseek", "v4-flash", "normal", "xcode", 10)
-    assert "xclaw" in markup
+    markup = topbar_markup("running · bash", "deepseek", "v4-flash", "normal", "vague-code", 10)
+    assert "vaguecode" in markup
     assert len(markup) < 100
 
 
@@ -98,4 +98,4 @@ def test_welcome_renderable_compact_and_full() -> None:
     full = welcome_renderable(compact=False, particle_frame=1)
     assert full.renderable.plain
     compact = welcome_renderable(compact=True)
-    assert "xclaw" in compact.renderable.plain
+    assert "vaguecode" in compact.renderable.plain

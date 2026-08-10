@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from src.agent.context_compress import compress_chain
-from src.agent.config import CompressionConfig
-from src.agent.context_tokens import compute_budget, count_tokens
-from src.agent.ir import (
+from vague_code.agent.context_compress import compress_chain
+from vague_code.agent.config import CompressionConfig
+from vague_code.agent.context_tokens import compute_budget, count_tokens
+from vague_code.agent.ir import (
     Message,
     ModelResponse,
     NormalizedUsage,

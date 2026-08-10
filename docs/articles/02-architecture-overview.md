@@ -1,6 +1,6 @@
 # Architecture Overview
 
-**谁需要读：** 想快速理解 XClaw 整体架构的读者
+**谁需要读：** 想快速理解 vague-code 整体架构的读者
 **前置阅读：** 01-terminology.md（术语）
 **读完能做什么：** 知道所有子系统如何协作，能在哪个文件的哪个位置找到对应的代码
 
@@ -8,7 +8,7 @@
 
 ## 1. 一张图看懂——分层架构
 
-XClaw 由 7 个子系统构成，组织为四层架构：
+vague-code 由 7 个子系统构成，组织为四层架构：
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -45,7 +45,7 @@ XClaw 由 7 个子系统构成，组织为四层架构：
 各层的职责从上到下：
 
 - **CLI/TUI（薄壳层）：** 提供命令行和终端界面。两者都是"薄 shell"——只做参数解析、API Key 管理、流式渲染，所有业务逻辑委托给 Agent Runtime。
-- **Agent Runtime（核心层）：** 驱动 ReAct 循环，通过 4 个并行的子系统执行工具调用、管理上下文、检查权限、读写记忆。这是 XClaw 的大脑。
+- **Agent Runtime（核心层）：** 驱动 ReAct 循环，通过 4 个并行的子系统执行工具调用、管理上下文、检查权限、读写记忆。这是 vague-code 的大脑。
 - **Model Abstraction（模型接入层）：** 统一 LLM 后端接入。自定义 IR（Internal Representation）屏蔽厂商差异，Codec 做翻译。
 - **Trajectory（持久化层）：** 事件溯源存储。Agent 的每次运行自动保存为 JSONL 事件流，支持崩溃恢复和离线分析。
 - **Eval Harness（评测层）：** 程序化驱动 Agent 完成评测任务，验证设计决策。独立于主代码库。
@@ -127,7 +127,7 @@ CLI              Agent              Context            Backend          Codec
 
 ---
 
-## 4. 目录地图——src/ 每个文件的职责
+## 4. 目录地图——vague_code/ 每个文件的职责
 
 ### agent/ 核心模块
 
@@ -168,14 +168,14 @@ CLI              Agent              Context            Backend          Codec
 
 | 文件 | 职责 | 核心类/函数 | 核心功能 |
 |------|------|------------|---------|
-| `tui/app.py` | TUI 主应用（薄壳） | `XClawApp` | compose/bindings、事件分发、回合管理、权限桥 |
-| `tui/runner.py` | 同步 Agent ↔ 异步 UI 桥 | `XClawAgentRunner` | 事件回调、取消、guidance、permission rules、resume |
-| `tui/mixin.py` | 流式与活动动画 | `XClawViewMixin` | Markdown 三层缓冲、thinking/streaming/running 动画、回合 metrics |
+| `tui/app.py` | TUI 主应用（薄壳） | `VagueCodeApp` | compose/bindings、事件分发、回合管理、权限桥 |
+| `tui/runner.py` | 同步 Agent ↔ 异步 UI 桥 | `VagueCodeAgentRunner` | 事件回调、取消、guidance、permission rules、resume |
+| `tui/mixin.py` | 流式与活动动画 | `VagueCodeViewMixin` | Markdown 三层缓冲、thinking/streaming/running 动画、回合 metrics |
 | `tui/state.py` | 展示态单一事实源 | `TuiTranscript` | entries + widget 引用、工具活动跟踪 |
 | `tui/views/` | 纯函数渲染 | `topbar` / `activity` / `welcome` / `transcript` / `review` | 可独立单测的渲染层 |
 | `tui/commands/` | 斜杠命令路由 | `CompositeCommandHandler` + 各 handler | `/resume /model /mode /permissions /save /new ...` |
 | `tui/screens/permission.py` | 权限弹窗 | `PermissionDialog` | prewrite diff 预览 + 拒绝理由输入 |
-| `tui/widgets/` | TUI 组件 | `ConversationView` / `ActivityLine` / `ComposerTextArea` / `XClawMarkdown` | transcript 驱动渲染、活动行、多行输入、Markdown 选择门控 |
+| `tui/widgets/` | TUI 组件 | `ConversationView` / `ActivityLine` / `ComposerTextArea` / `VagueCodeMarkdown` | transcript 驱动渲染、活动行、多行输入、Markdown 选择门控 |
 
 ---
 

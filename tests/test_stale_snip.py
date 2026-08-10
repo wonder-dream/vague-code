@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from src.agent.context_compress import stale_snip
-from src.agent.context_tokens import count_tokens
-from src.agent.ir import (
+from vague_code.agent.context_compress import stale_snip
+from vague_code.agent.context_tokens import count_tokens
+from vague_code.agent.ir import (
     Block,
     Message,
     ToolResultBlock,

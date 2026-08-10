@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.tools import DEFAULT_TOOLS, _is_test_command, _summarize_test_output
+from vague_code.agent.tools import DEFAULT_TOOLS, _is_test_command, _summarize_test_output
 
 
 # ── helpers ──────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ def test_read_file_truncates_large_file(tmp_path):
     ws = _ws(tmp_path)
     big = ws / "big.txt"
     big.write_text("A" * 2000, encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig = tmod.MAX_READ_BYTES
     try:
         tmod.MAX_READ_BYTES = 1000
@@ -96,7 +96,7 @@ def test_read_file_byte_truncation_chinese(tmp_path):
     f = ws / "chinese.txt"
     chinese_chars = "中" * 5000
     f.write_text(chinese_chars, encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig = tmod.MAX_READ_BYTES
     try:
         tmod.MAX_READ_BYTES = 100
@@ -496,7 +496,7 @@ def test_grep_output_truncation(tmp_path):
     ws = _ws(tmp_path)
     for i in range(100):
         (ws / f"f{i}.py").write_text(f"line1\nline2\nline3\nline4\nline5\nx_{i}\n", encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig = tmod.MAX_GREP_RESULTS
     try:
         tmod.MAX_GREP_RESULTS = 10
@@ -514,7 +514,7 @@ def test_grep_skips_large_file(tmp_path):
     (ws / "small.py").write_text("keep me", encoding="utf-8")
     big = ws / "big.py"
     big.write_bytes(b"x" * 5_000_000)
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig_size = tmod.MAX_GREP_FILE_SIZE
     orig_count = tmod.MAX_GREP_FILE_COUNT
     try:
@@ -533,7 +533,7 @@ def test_grep_file_count_truncation(tmp_path):
     ws = _ws(tmp_path)
     for i in range(600):
         (ws / f"f{i}.py").write_text(f"x_{i}\n", encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig_size = tmod.MAX_GREP_FILE_SIZE
     orig_count = tmod.MAX_GREP_FILE_COUNT
     try:
@@ -607,7 +607,7 @@ def test_bash_timeout_raises(tmp_path, monkeypatch):
 
 def test_bash_output_truncation(tmp_path):
     ws = _ws(tmp_path)
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig = tmod.MAX_OUTPUT
     try:
         tmod.MAX_OUTPUT = 10
@@ -652,7 +652,7 @@ def test_bash_empty_command(tmp_path):
 def test_bash_chcp_command_not_doubled(tmp_path):
     ws = _ws(tmp_path)
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     orig_popen = tmod.subprocess.Popen
     try:
         class FakePopen:
@@ -725,7 +725,7 @@ def test_bash_non_test_command_no_verdict(tmp_path):
 
 def test_multiline_python_c_runs_from_temp_script(tmp_path) -> None:
     import tempfile
-    from src.agent.tools import _bash_factory
+    from vague_code.agent.tools import _bash_factory
 
     handler = _bash_factory(str(tmp_path))
     code = (
@@ -739,12 +739,12 @@ def test_multiline_python_c_runs_from_temp_script(tmp_path) -> None:
     assert "line 1" in result
     assert "line 2" in result
     assert "done" in result
-    leftovers = list(Path(tempfile.gettempdir()).glob("xclaw_*.py"))
+    leftovers = list(Path(tempfile.gettempdir()).glob("vaguecode_*.py"))
     assert not leftovers, "temp scripts must be cleaned up"
 
 
 def test_single_line_python_c_untouched(tmp_path) -> None:
-    from src.agent.tools import _bash_factory
+    from vague_code.agent.tools import _bash_factory
 
     handler = _bash_factory(str(tmp_path))
     result = handler({"command": "python -c \"print('ok')\""})
@@ -752,7 +752,7 @@ def test_single_line_python_c_untouched(tmp_path) -> None:
 
 
 def test_grep_excludes_noise_dirs(tmp_path) -> None:
-    from src.agent.tools import _grep_factory
+    from vague_code.agent.tools import _grep_factory
 
     (tmp_path / "runs").mkdir()
     (tmp_path / "runs" / "log.jsonl").write_text("secret_token_abc", encoding="utf-8")
@@ -765,7 +765,7 @@ def test_grep_excludes_noise_dirs(tmp_path) -> None:
 
 
 def test_bash_interactive_confirm_gets_guidance(tmp_path) -> None:
-    from src.agent.tools import _bash_factory
+    from vague_code.agent.tools import _bash_factory
 
     ws = tmp_path
     (ws / "tmp_a.py").write_text("print(1)", encoding="utf-8")
@@ -781,7 +781,7 @@ def test_bash_interactive_confirm_gets_guidance(tmp_path) -> None:
 
 
 def test_bash_normal_output_unaffected(tmp_path) -> None:
-    from src.agent.tools import _bash_factory
+    from vague_code.agent.tools import _bash_factory
 
     handler = _bash_factory(str(tmp_path))
     result = handler({"command": "echo hello"})
@@ -790,7 +790,7 @@ def test_bash_normal_output_unaffected(tmp_path) -> None:
 
 
 def test_bash_spec_describes_cmd_exe() -> None:
-    from src.agent.tools import BASH_SPEC
+    from vague_code.agent.tools import BASH_SPEC
 
     assert "cmd.exe" in BASH_SPEC.description
     assert "&" in BASH_SPEC.description

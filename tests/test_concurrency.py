@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from src.agent.concurrency import (
+from vague_code.agent.concurrency import (
     OpType,
     ResourceScope,
     ScopeType,
@@ -14,7 +14,7 @@ from src.agent.concurrency import (
     execute_concurrent,
     schedule,
 )
-from src.agent.ir import ToolUseBlock
+from vague_code.agent.ir import ToolUseBlock
 
 
 # ── _pattern_prefix ─────────────────────────────────────────────────────────
@@ -294,7 +294,7 @@ def test_schedule_case_insensitive_conflict_on_windows() -> None:
 
 def test_execute_timeout_returns_promptly(tmp_path, monkeypatch) -> None:
     import time
-    monkeypatch.setattr("src.agent.concurrency._CONCURRENT_TIMEOUT", 0.1)
+    monkeypatch.setattr("vague_code.agent.concurrency._CONCURRENT_TIMEOUT", 0.1)
     calls = [ToolUseBlock(id="c1", name="bash", input={"command": "sleep"})]
 
     def slow_handler(_: dict) -> str:

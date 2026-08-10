@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.agent.config import AgentConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import (
     Message,
     ModelResponse,
     NormalizedUsage,
@@ -12,8 +12,8 @@ from src.agent.ir import (
     ToolResultBlock,
     ToolUseBlock,
 )
-from src.agent.loop import Agent
-from src.agent.trajectory import EventType, Trajectory
+from vague_code.agent.loop import Agent
+from vague_code.agent.trajectory import EventType, Trajectory
 
 
 class _SmartFakeBackend:
@@ -319,7 +319,7 @@ def test_compact_chat_failure_keeps_messages(tmp_path) -> None:
 
     agent = _make_agent(_FailingBackend(), tmp_path)
     # chat 首轮会走 backend.complete → 直接手动构造消息
-    from src.agent.ir import ToolUseBlock, ToolResultBlock
+    from vague_code.agent.ir import ToolUseBlock, ToolResultBlock
     msgs = [
         Message(role="system", content="sys"),
         Message(role="user", content="u1"),

@@ -13,8 +13,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.agent.config import AgentConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import (
     Block,
     Message,
     ModelResponse,
@@ -23,7 +23,7 @@ from src.agent.ir import (
     TextBlock,
     ToolUseBlock,
 )
-from src.agent.loop import Agent
+from vague_code.agent.loop import Agent
 
 
 def tool_response(*tools: tuple[str, str, dict]) -> ModelResponse:
@@ -96,7 +96,7 @@ class DemoBackend:
 
     def stream(self, messages, tools=None, config=None):
         resp = self.complete(messages, tools, config)
-        from src.agent.ir import (
+        from vague_code.agent.ir import (
             ArgsDelta, MessageStart, MessageEnd,
             TextBlock, TextDelta, ThinkingBlock,
             ThinkingStart, ThinkingDelta, ThinkingEnd,

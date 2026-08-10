@@ -69,7 +69,7 @@ def load_manifest(path: str | Path) -> list[RunRecord]:
 
 def scan_runs(runs_dir: str | Path) -> list[RunRecord]:
     """回退路径：扫描 runs/eval/*.db，从 run_start 事件恢复 task/workdir。"""
-    from src.agent.trajectory import Trajectory
+    from vague_code.agent.trajectory import Trajectory
 
     records: list[RunRecord] = []
     for db in sorted(Path(runs_dir).glob("*.db")):
@@ -107,7 +107,7 @@ MAX_TRANSCRIPT_CHARS = 12_000
 
 
 def _transcript_text(record: RunRecord, db_path: str) -> str:
-    from src.agent.trajectory import Trajectory
+    from vague_code.agent.trajectory import Trajectory
 
     traj = Trajectory.from_db(record.run_id, db_path)
     messages = traj.to_messages()
@@ -152,7 +152,7 @@ def _git_diff(workdir: str) -> str:
 
 
 def build_messages(record: RunRecord, rubric: Rubric, db_path: str) -> list:
-    from src.agent.ir import Message
+    from vague_code.agent.ir import Message
 
     system = "\n\n".join([
         JUDGE_SYSTEM_PREFIX,
@@ -251,7 +251,7 @@ def judge_run(
 
 
 def _build_backend(judge_model: str) -> Any:
-    from src.agent.backend import create_deepseek_backend
+    from vague_code.agent.backend import create_deepseek_backend
 
     key = (dotenv_values().get("DEEPSEEK_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or "")
     if not key:

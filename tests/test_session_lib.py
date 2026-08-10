@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from src.agent.trajectory import SCHEMA_EVENTS, SCHEMA_INDEX_EVENTS, SCHEMA_RUNS
-from src.tui.session_lib import list_recent_runs
+from vague_code.agent.trajectory import SCHEMA_EVENTS, SCHEMA_INDEX_EVENTS, SCHEMA_RUNS
+from vague_code.tui.session_lib import list_recent_runs
 
 
 def _make_db(path, runs: list[tuple[str, str, float, str | None]]) -> None:

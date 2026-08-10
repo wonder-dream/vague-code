@@ -10,7 +10,7 @@
 
 **记忆 ≠ 上下文。** 这是 Memory System 的第一设计边界。上下文（Context Engineering）管理当前对话的 token 窗口，是短期的、瞬态的。记忆负责长期知识——跨会话、可检索、持续积累。
 
-XClaw 的记忆系统围绕一个统一记忆库（SQLite）构建，提供按需检索的 episodic 注入策略：
+vague-code 的记忆系统围绕一个统一记忆库（SQLite）构建，提供按需检索的 episodic 注入策略：
 
 - **Episodic（情景记忆）：** 按需检索。Agent 通过 `memory_search` 工具主动搜索历史经验。
 
@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
 
 ```python
 if self._memory_store and task.strip():
-    from src.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
+    from vague_code.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
     self._tool_specs.append(MEMORY_SEARCH_SPEC)
     memory_search_handler = make_memory_search_handler(self._memory_store)
     bound_tools["memory_search"] = memory_search_handler

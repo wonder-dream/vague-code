@@ -36,7 +36,7 @@ date: 2026-07-21
 
 ---
 
-## B1: `src/agent/ir.py` — 4 个 `__post_init__`
+## B1: `vague_code/agent/ir.py` — 4 个 `__post_init__`
 
 ### B1.1 — `Message.__init__` 拒绝 `content=None`
 
@@ -136,7 +136,7 @@ def test_normalized_usage_negative_output_tokens_raises():
 
 ---
 
-## B2: `src/agent/config.py` — 扩展 `__post_init__`
+## B2: `vague_code/agent/config.py` — 扩展 `__post_init__`
 
 ### B2.1 — 扩充校验字段
 
@@ -183,7 +183,7 @@ def test_config_empty_db_path_raises():
 
 ---
 
-## B3: `src/agent/codecs/deepseek.py` — 结构防御 + 空消息报错
+## B3: `vague_code/agent/codecs/deepseek.py` — 结构防御 + 空消息报错
 
 ### B3.1 — `decode_response` 结构防御
 
@@ -332,7 +332,7 @@ def test_encode_user_empty_after_dropping_raises():
 
 ---
 
-## B4: `src/agent/loop.py` — 异常兜底 + recovery
+## B4: `vague_code/agent/loop.py` — 异常兜底 + recovery
 
 ### B4.1 — 通用异常捕获
 
@@ -436,7 +436,7 @@ def test_persist_failure_writes_recovery_jsonl(tmp_path, monkeypatch):
 
 ---
 
-## B5: `src/agent/trajectory.py` — 拷贝 + 防御 + WAL
+## B5: `vague_code/agent/trajectory.py` — 拷贝 + 防御 + WAL
 
 ### B5.1 — `emit()` 浅拷贝 payload
 
@@ -509,7 +509,7 @@ def test_sqlite_persist_uses_wal_mode(tmp_path):
 
 ---
 
-## B6: `src/agent/backend.py` — config 安全读取
+## B6: `vague_code/agent/backend.py` — config 安全读取
 
 ### B6.1 — 防御 `config` 非 dict（backend.py）
 
@@ -542,7 +542,7 @@ def test_sqlite_persist_uses_wal_mode(tmp_path):
 
 ```python
 def test_backend_config_not_dict_uses_default_model(tmp_path):
-    from src.agent.backend import DeepSeekBackend
+    from vague_code.agent.backend import DeepSeekBackend
     from uuid import uuid4
 
     db_path = str(tmp_path / "test.db")
@@ -572,7 +572,7 @@ def test_backend_config_not_dict_uses_default_model(tmp_path):
 
 ---
 
-## B7: `src/agent/tools.py` — 截断 + null byte
+## B7: `vague_code/agent/tools.py` — 截断 + null byte
 
 ### B7.1 — 文件大小截断
 
@@ -635,7 +635,7 @@ def test_read_file_truncates_large_file(tmp_path):
     ws.mkdir()
     big_file = ws / "big.txt"
     big_file.write_text("A" * 2000, encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     original_max = tmod.MAX_READ_BYTES
     try:
         tmod.MAX_READ_BYTES = 1000

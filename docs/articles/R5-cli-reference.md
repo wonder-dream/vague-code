@@ -10,7 +10,7 @@
 
 **代码位置：** `cli/__init__.py:17-128` `main()`
 
-**命令格式：** `xcode [flags] [task] [workdir]`
+**命令格式：** `vague-code [flags] [task] [workdir]`
 
 **子命令路由：** `argv[0] == "tui"` → `_tui_main()`（`cli/__init__.py:20-22`）
 
@@ -118,12 +118,12 @@
 
 | 场景 | 命令 |
 |------|------|
-| 修 bug | `xcode "Fix the division by zero" ./project --max-turns 30` |
-| 只读模式 | `xcode --permission-mode safe "Review auth" ./project` |
-| 恢复中断 | `xcode --resume abc123456789` |
-| 导出分析 | `xcode --export-jsonl traj.jsonl --no-stream "task"` |
-| TUI 模式 | `xcode tui "Refactor data layer" ./project` |
-| Anthropic | `xcode --provider anthropic --model claude-sonnet-4-5 "task"` |
+| 修 bug | `vague-code "Fix the division by zero" ./project --max-turns 30` |
+| 只读模式 | `vague-code --permission-mode safe "Review auth" ./project` |
+| 恢复中断 | `vague-code --resume abc123456789` |
+| 导出分析 | `vague-code --export-jsonl traj.jsonl --no-stream "task"` |
+| TUI 模式 | `vague-code tui "Refactor data layer" ./project` |
+| Anthropic | `vague-code --provider anthropic --model claude-sonnet-4-5 "task"` |
 | 评测验证 | `python -m eval.cli --tasks eval/tasks_test.json --fake` |
 | 评测全量 | `python -m eval.cli --tasks eval/tasks.json --model deepseek-v4-flash --repeat 3` |
 

@@ -5,14 +5,14 @@
 
 ## 问题
 
-`_bash_factory`（src/agent/tools.py:250）Windows 上执行 `python -c`：
+`_bash_factory`（vague_code/agent/tools.py:250）Windows 上执行 `python -c`：
 
 1. **主因（实锤）**：`chcp 65001` 前缀只改控制台代码页，python 管道模式（stdout=PIPE）忽略它，用 ANSI 代码页（GBK）。实测 `python -c "print('中文')"` 输出 `b'\xd6\xd0\xce\xc4\r\n'`（GBK），而 agent 用 `decode("utf-8")` → 中文全变 `�`，模型视为无输出。
 2. **次因**：30s 超时 kill 进程树时 python 8KB 块缓冲未 flush 输出丢失；kill 后 `communicate()` 无二次超时，极端组合下挂起（复现 120s 未返回）。
 
 ## 修复
 
-### src/agent/tools.py `_bash_factory`
+### vague_code/agent/tools.py `_bash_factory`
 
 ```python
 env = dict(os.environ)

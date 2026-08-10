@@ -1,4 +1,4 @@
-﻿# XClaw 文档
+﻿# vague-code 文档
 
 共 **24 篇**成品文章，按推荐阅读路径分为 6 个阶段。
 
@@ -10,7 +10,7 @@
 
 | 顺序 | 文章 | 读完能做什么 |
 |------|------|-------------|
-| 00 | [What Is a Coding Agent?](00-what-is-a-coding-agent.md) | 理解 XClaw 是什么、和 Copilot/ChatGPT 的区别 |
+| 00 | [What Is a Coding Agent?](00-what-is-a-coding-agent.md) | 理解 vague-code 是什么、和 Copilot/ChatGPT 的区别 |
 | 01 | [Terminology](01-terminology.md) | 掌握所有核心术语 |
 | 02 | [Architecture Overview](02-architecture-overview.md) | 理解 10 个子系统的协作关系 |
 
@@ -40,7 +40,7 @@
 |------|------|---------|
 | T1 | [Your First Task](T1-your-first-task.md) | 安装到跑通第一个任务 |
 | T2 | [Fixing a Real Bug](T2-fixing-a-real-bug.md) | 观察完整修 Bug 流程 |
-| T3 | [Extending XClaw](T3-extending-xclaw.md) | 添加工具/厂商/评测任务 |
+| T3 | [Extending vague-code](T3-extending-vague-code.md) | 添加工具/厂商/评测任务 |
 | T4 | [Running Ablation Experiments](T4-running-ablation-experiments.md) | 配置矩阵、FakeBackend、报告解读 |
 
 ### Phase 4 — API 参考（按需查阅）

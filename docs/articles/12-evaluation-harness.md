@@ -5,7 +5,7 @@
 > **真验收**（sanity gate 双检 + F2P/P2P 实跑，不再全标 True）、**pass^k 可靠性指标**、
 > 任务集按 **OpenAI SWE-bench Verified 官方标注**重建（17 道脏题剔除，现 31 题/本机可跑 20 题）。
 > 现行用法以 [`eval/README.md`](../../eval/README.md) 为准；重建与策展全过程见
-> [`docs/handoff/2026-08-03-xclaw-eval-system.md`](../handoff/2026-08-03-xclaw-eval-system.md)。
+> [`docs/handoff/2026-08-03-vague-code-eval-system.md`](../handoff/2026-08-03-vague-code-eval-system.md)。
 > 下文保留 v0.1 结构讲解（矩阵/轨迹/报告架构仍成立），"当前结果"一节已被新数据取代。
 
 **谁需要读：** 想运行评测或理解评测系统设计的开发者
@@ -224,7 +224,7 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 ## 7. 当前结果
 
 > ⚠️ 本节 v0.1 的 83%/93% 等数字基于**假 pass/fail**（`passed=True` 硬编码，验收测试未实跑），已废弃且不得引用。
-> 2026-08 现状（详见 `docs/handoff/2026-08-03-xclaw-eval-system.md`）：
+> 2026-08 现状（详见 `docs/handoff/2026-08-03-vague-code-eval-system.md`）：
 
 - **评测体系**：真验收（sanity gate 双检 + F2P/P2P 实跑）、pass^k、轨迹指标、LLM-as-Judge、八类失败分类全部落地
 - **任务集**：31 题（全部 OpenAI SWE-bench Verified 官方保留）；17 道脏题已剔除；本机可跑 20 题（sympy 17 + sphinx 2 + pytest 1），sklearn/astropy 10 题因本机无 MSVC 待 Linux/CI
@@ -249,4 +249,4 @@ FakeBackend 可以让评测框架的 CI 在几秒内验证配置正确性，而�
 
 → **T1: 你的第一个任务**：动手教程——从安装到跑通第一个 Agent 任务。
 
-**相关链接：** eval/README.md（现行用法）、docs/plans/0016-eval-methods.md（设计）、docs/handoff/2026-08-03-xclaw-eval-system.md（全量总结）
+**相关链接：** eval/README.md（现行用法）、docs/plans/0016-eval-methods.md（设计）、docs/handoff/2026-08-03-vague-code-eval-system.md（全量总结）

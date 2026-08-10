@@ -1,6 +1,6 @@
 # 0017: TUI 整体重写（v2 = 参考包分层 × 同步 Agent）
 
-基于 `tui-reference-pack/`（firstcoder 项目的 Textual TUI）整体重写现有 `src/tui/`：当前 TUI 视觉简陋、交互薄弱，重写为参考包的分层架构 + 交互模型，适配层自研（XClaw 的 Agent 是同步生成器 + 线程回调）。
+基于 `tui-reference-pack/`（firstcoder 项目的 Textual TUI）整体重写现有 `vague_code/tui/`：当前 TUI 视觉简陋、交互薄弱，重写为参考包的分层架构 + 交互模型，适配层自研（vague-code 的 Agent 是同步生成器 + 线程回调）。
 
 ---
 
@@ -15,7 +15,7 @@
 ### 决策来源
 
 1. **参考包已验证**：`tui-reference-pack/firstcoder/app/`（约 3900 行 / 30 文件）是同类产品（Textual Coding Agent TUI）的成熟实现，含 267 个测试。UI 层设计（transcript 单一事实源、views 纯函数、命令路由、picker、流式三层缓冲、Markdown 增量渲染）直接可移植
-2. **差异化在适配层**：参考包的 `AgentChatRunner` 是 asyncio AgentLoop 封装；XClaw 的 `Agent.start()` 是同步生成器 + 阻塞回调（`_on_permission` / `on_tool_result` / `on_state_change`），桥接方式不同，需自研 `XClawAgentRunner`
+2. **差异化在适配层**：参考包的 `AgentChatRunner` 是 asyncio AgentLoop 封装；vague-code 的 `Agent.start()` 是同步生成器 + 阻塞回调（`_on_permission` / `on_tool_result` / `on_state_change`），桥接方式不同，需自研 `VagueCodeAgentRunner`
 3. **技术选型**：textual 8.x（现有依赖）；组件移植前先做 spike 验证（最大技术风险是 `FirstCoderMarkdown` 对 textual 8.x 的兼容性，通不过则降级 Static + 节流）
 
 ---
@@ -33,10 +33,10 @@
 ### 1. 新目录结构
 
 ```
-src/tui/
+vague_code/tui/
 ├── __init__.py        # main()：task 有值自动开跑，无值显示 welcome
-├── app.py             # XClawApp 薄壳：compose / bindings / actions / worker 编排
-├── runner.py          # ★ XClawAgentRunner：同步 Agent → 异步 UI 桥（新核心）
+├── app.py             # VagueCodeApp 薄壳：compose / bindings / actions / worker 编排
+├── runner.py          # ★ VagueCodeAgentRunner：同步 Agent → 异步 UI 桥（新核心）
 ├── state.py           # TuiTranscript / TuiEntryKind / TuiEntry（移植 tui_state.py）
 ├── widgets.py         # FirstCoderMarkdown / ComposerTextArea / _observe_markdown_update（移植）
 ├── views/             # 纯函数渲染（移植，可单测）
@@ -98,16 +98,16 @@ src/tui/
 
 ## 兼容性
 
-- `xcode tui <task>` 入口不变；有 task 自动开跑，无 task 显示 welcome 待输入
-- `src/cli`（Rich 模式）与 eval 工具链零改动（`on_tool_result` 签名改动仅影响 TUI）
+- `vague-code tui <task>` 入口不变；有 task 自动开跑，无 task 显示 welcome 待输入
+- `vague_code/cli`（Rich 模式）与 eval 工具链零改动（`on_tool_result` 签名改动仅影响 TUI）
 - 权限规则文件（`.agent/permission-rules.json`）格式不变
-- 参考包 textual 不锁版本，XClaw 为 `>=8.0.0`；M1 spike 先行验证，通不过则降级 Static + 节流
+- 参考包 textual 不锁版本，vague-code 为 `>=8.0.0`；M1 spike 先行验证，通不过则降级 Static + 节流
 
 ---
 
 ## 执行状态（全部完成）
 
-- **M1 骨架 + spike** ✅ `e585fa4` — 新结构 / theme.tcss / state.py / views / 骨架 app；XClawMarkdown 在 textual 8.2.8 验证可移植
+- **M1 骨架 + spike** ✅ `e585fa4` — 新结构 / theme.tcss / state.py / views / 骨架 app；VagueCodeMarkdown 在 textual 8.2.8 验证可移植
 - **M2 事件流** ✅ `48bc6f1` — runner.py 桥 / 流式 Markdown 三层缓冲 / transcript 渲染（agent 小改①）
 - **M3 工具活动流 + metrics** ✅ `3b3ab67` — 活动动画（thinking/streaming/running）/ 回合耗时与工具计数 / 工具状态机
 - **M4 命令系统** ✅ `905d0d3` — commands/ 路由 / picker / 输入历史 / Esc 二次中断 / guidance 队列（agent 小改③）

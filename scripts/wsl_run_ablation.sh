@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/vague/xcode
+cd /home/vague/vague-code
 export DEEPSEEK_API_KEY="sk-REPLACED"
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate
@@ -9,9 +9,9 @@ import json, subprocess, os, shutil, sys, time
 from pathlib import Path
 
 sys.path.insert(0, ".")
-from src.agent.loop import Agent
-from src.agent.config import AgentConfig, MemoryConfig
-from src.agent.backend import DeepSeekBackend
+from vague_code.agent.loop import Agent
+from vague_code.agent.config import AgentConfig, MemoryConfig
+from vague_code.agent.backend import DeepSeekBackend
 
 api_key = os.environ.get("DEEPSEEK_API_KEY", "")
 BASE = "/tmp/xcode_eval_ablation"

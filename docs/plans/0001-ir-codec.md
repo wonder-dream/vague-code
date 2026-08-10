@@ -12,7 +12,7 @@ date: 2026-07-20
 ## 文件结构
 
 ```
-src/agent/
+vague_code/agent/
 ├── __init__.py
 ├── ir.py                  # IR dataclass + 辅助类型
 └── codecs/
@@ -34,7 +34,7 @@ scripts/
 
 ## 实现步骤
 
-### 1. IR dataclass（`src/agent/ir.py`）
+### 1. IR dataclass（`vague_code/agent/ir.py`）
 
 Block 类型（Content Block 模型，语义照抄 Anthropic）：
 
@@ -64,7 +64,7 @@ Message：
 
 - 每个 Block 带 `meta: dict = field(default_factory=dict)`，为后续 stale 标记、折叠状态、event id 预留（ADR-0002 要求，v0 不实现逻辑）
 
-### 2. DeepSeek codec（`src/agent/codecs/deepseek.py`）
+### 2. DeepSeek codec（`vague_code/agent/codecs/deepseek.py`）
 
 三个纯函数 + 一个便捷包装：
 

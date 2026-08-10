@@ -17,9 +17,9 @@
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/concurrency.py` | **新建**：核心模块 |
-| 2 | `src/agent/config.py` | 改：加 `concurrent_tools` 字段 |
-| 3 | `src/agent/loop.py` | 改：插入并发路径分支 |
+| 1 | `vague_code/agent/concurrency.py` | **新建**：核心模块 |
+| 2 | `vague_code/agent/config.py` | 改：加 `concurrent_tools` 字段 |
+| 3 | `vague_code/agent/loop.py` | 改：插入并发路径分支 |
 | 4 | `tests/test_concurrency.py` | **新建**：单元 + 集成测试 |
 
 ---
@@ -37,7 +37,7 @@ from enum import Enum
 from pathlib import Path
 from dataclasses import dataclass
 
-from src.agent.ir import ToolResultBlock, ToolUseBlock
+from vague_code.agent.ir import ToolResultBlock, ToolUseBlock
 
 
 class OpType(Enum):
@@ -231,7 +231,7 @@ concurrent_tools: bool = False
 
 ```python
 if self.config.concurrent_tools:
-    from src.agent.concurrency import execute_concurrent
+    from vague_code.agent.concurrency import execute_concurrent
 
     tool_results = execute_concurrent(tool_uses, bound_tools, workdir)
     for block, result in zip(tool_uses, tool_results):

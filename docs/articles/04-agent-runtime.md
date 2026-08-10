@@ -8,7 +8,7 @@
 
 ## 1. 概述
 
-Agent Runtime 是 XClaw 的中央引擎——它连接所有子系统，驱动 ReAct 循环，管理重试、超时熔断和检查点。
+Agent Runtime 是 vague-code 的中央引擎——它连接所有子系统，驱动 ReAct 循环，管理重试、超时熔断和检查点。
 
 核心公式：`Agent(config).run(task, workdir) → Trajectory`
 

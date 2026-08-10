@@ -1,4 +1,4 @@
-from src.tui.state import TuiEntryKind, TuiTranscript
+from vague_code.tui.state import TuiEntryKind, TuiTranscript
 
 
 def test_add_entry_assigns_ids_and_default_labels() -> None:
@@ -8,7 +8,7 @@ def test_add_entry_assigns_ids_and_default_labels() -> None:
     assert first.id == 1
     assert second.id == 2
     assert first.label == "you"
-    assert second.label == "XClaw"
+    assert second.label == "vague-code"
     assert len(t.entries) == 2
 
 

@@ -33,7 +33,7 @@ date: 2026-07-26
 
 ### 1. IR 层：Message 新增 system 角色
 
-`src/agent/ir.py`：
+`vague_code/agent/ir.py`：
 
 ```python
 # 改前

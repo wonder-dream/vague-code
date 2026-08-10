@@ -16,10 +16,10 @@
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/ir.py` | 改：`ToolSpec.to_anthropic_tool()` |
-| 2 | `src/agent/codecs/anthropic.py` | **新建**：encode + decode + stream decoder |
-| 3 | `src/agent/backend.py` | 改：加 `AnthropicBackend` + 创建函数 |
-| 4 | `src/cli/__init__.py` | 改：加 `--provider` 切换 |
+| 1 | `vague_code/agent/ir.py` | 改：`ToolSpec.to_anthropic_tool()` |
+| 2 | `vague_code/agent/codecs/anthropic.py` | **新建**：encode + decode + stream decoder |
+| 3 | `vague_code/agent/backend.py` | 改：加 `AnthropicBackend` + 创建函数 |
+| 4 | `vague_code/cli/__init__.py` | 改：加 `--provider` 切换 |
 | 5 | `.env.example` | 改：加 `ANTHROPIC_API_KEY` 注释 |
 | 6 | `tests/golden/anthropic/` | **新建**：fixture JSON |
 | 7 | `tests/test_anthropic_codec.py` | **新建** |

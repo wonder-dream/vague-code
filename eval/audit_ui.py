@@ -136,7 +136,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>XClaw 任务集筛查打分</title>
+<title>vague-code 任务集筛查打分</title>
 <style>
 :root {
   --bg: #0f1115; --card: #171a21; --card2: #1d212b; --line: #2a2f3a;
@@ -211,7 +211,7 @@ footer { color: var(--dim); text-align: center; font-size: 12px; padding: 20px; 
 </head>
 <body>
 <header>
-  <h1>XClaw 任务集筛查打分</h1>
+  <h1>vague-code 任务集筛查打分</h1>
   <div class="progress"><span id="progText">0/0 已打分</span><div class="bar"><div id="progBar"></div></div></div>
   <button class="btn" id="importBtn">导入 JSON</button>
   <button class="btn" id="exportBtn">导出 JSON</button>
@@ -248,11 +248,11 @@ footer { color: var(--dim); text-align: center; font-size: 12px; padding: 20px; 
     <button class="btn" data-filter="env">环境可跑</button>
   </div>
   <div id="cards"></div>
-  <footer>XClaw eval · 0016 计划 P0-5 任务筛查</footer>
+  <footer>vague-code eval · 0016 计划 P0-5 任务筛查</footer>
 </main>
 <script>
 const DATA = __DATA__;
-const LS_KEY = "xclaw_audit_scores_v1";
+const LS_KEY = "vaguecode_audit_scores_v1";
 const scores = loadScores();
 
 function loadScores() {

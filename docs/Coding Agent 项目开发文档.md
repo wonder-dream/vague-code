@@ -431,7 +431,7 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ## 八、简历呈现预案（做完后数字回填）
 
-> **XClaw：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
+> **vague-code：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
 > 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tree-sitter、tiktoken
 
 - **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **8 个工具**（6 基础 read/write/patch/glob/grep/bash + memory_search/code_search 动态注入），基于冲突可串行化的并发调度（消融数字待 20 题真验收跑出后回填）；
@@ -447,7 +447,7 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 
 ## 九、完成检查清单
 
-- [x] 第 2.2 节 8 项量化指标全部测出并截图存档（评测体系见 `docs/plans/0016-eval-methods.md` + `docs/handoff/2026-08-03-xclaw-eval-system.md`；真消融数字待 20 题基线跑出后回填）
+- [x] 第 2.2 节 8 项量化指标全部测出并截图存档（评测体系见 `docs/plans/0016-eval-methods.md` + `docs/handoff/2026-08-03-vague-code-eval-system.md`；真消融数字待 20 题基线跑出后回填）
 - [x] GitHub 仓库：README 含架构图、数据表（`docs/architecture.drawio`)
 - [ ] Demo 录屏（待生成）
 - [x] 技术博客至少 1 篇（`docs/blog/compression.md`）

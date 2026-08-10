@@ -12,7 +12,7 @@ tiktoken 改为延迟加载（首次调用 `count_tokens` 时才初始化），�
 降级时不影响 Agent 正常运行，仅 token 计数精度从 ±3% 降为 ±15%。
 
 **疑点**：pyproject.toml 已声明依赖，卸载概率低。但模块级 import 在测试和代码分析工具
-（如 `pytest --collect-only`、`import src.agent.loop` 等）中也触发，不应崩溃。
+（如 `pytest --collect-only`、`import vague_code.agent.loop` 等）中也触发，不应崩溃。
 
 ## C2 — token 计账在 retry try/except 之外
 

@@ -3,9 +3,27 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "xcode"
+name = "vague-code"
 version = "0.1.0"
+description = "Lightweight local Coding Agent CLI with agent runtime, tool system, context compression, and eval harness"
+readme = "README.md"
 requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [
+    { name = "vague-dream" },
+]
+keywords = ["coding-agent", "cli", "tui", "llm", "agent", "deepseek"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+]
 dependencies = [
     "anthropic>=0.117.0",
     "deepseek-tokenizer>=0.3.0",
@@ -20,7 +38,7 @@ dependencies = [
 ]
 
 [project.scripts]
-xcode = "src.cli:main"
+vague-code = "vague_code.cli:main"
 
 [dependency-groups]
 dev = [
@@ -36,7 +54,7 @@ dev = [
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = "src.*"
+module = "vague_code.*"
 ignore_errors = false
 
 [[tool.mypy.overrides]]
@@ -57,4 +75,7 @@ asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["vague_code*"]
+
+[tool.setuptools.package-data]
+"vague_code.tui" = ["*.tcss"]

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import cast
 
-from src.agent.context_tokens import compute_budget, count_tokens
-from src.agent.ir import (
+from vague_code.agent.context_tokens import compute_budget, count_tokens
+from vague_code.agent.ir import (
     Message,
     TextBlock,
     ThinkingBlock,
@@ -71,7 +71,7 @@ def test_count_tokens_none_tool_ignored() -> None:
 
 
 def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
-    import src.agent.context_tokens as ct
+    import vague_code.agent.context_tokens as ct
 
     monkeypatch.setattr(ct, "_ENC", False)
     msgs = [Message(role="user", content="test message")]
@@ -80,7 +80,7 @@ def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
 
 
 def test_fallback_less_precise_but_reasonable() -> None:
-    import src.agent.context_tokens as ct
+    import vague_code.agent.context_tokens as ct
 
     saved = ct._ENC
     ct._ENC = False
@@ -161,7 +161,7 @@ def test_chinese_tool_args_not_ascii_escaped() -> None:
 
 def test_prefers_deepseek_tokenizer_when_available() -> None:
     """默认编码器必须是 DeepSeek-V4 官方 tokenizer（精确计数）。"""
-    import src.agent.context_tokens as ct
+    import vague_code.agent.context_tokens as ct
 
     enc = ct._get_enc()
     assert enc is not None
@@ -170,7 +170,7 @@ def test_prefers_deepseek_tokenizer_when_available() -> None:
 
 def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
     """deepseek_tokenizer 导入失败时回退 tiktoken，不崩溃。"""
-    import src.agent.context_tokens as ct
+    import vague_code.agent.context_tokens as ct
 
     monkeypatch.setattr(ct, "_ENC", None)
 
@@ -191,7 +191,7 @@ def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
 
 def test_deepseek_tokenizer_counts_chinese_compactly() -> None:
     """ds_token 对中文按官方 tokenizer 计数（比 cl100k 字节估算紧凑得多）。"""
-    import src.agent.context_tokens as ct
+    import vague_code.agent.context_tokens as ct
 
     enc = ct._get_enc()
     text = "这是一个中文长句子" * 20

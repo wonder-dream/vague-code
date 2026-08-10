@@ -1,6 +1,6 @@
 # 面试设计题分析手册
 
-> 面向 XClaw 项目的面试设计题准备文档。每个主题按"面试问题 → 分析思路 → 回答要点 → 加分深度 → 数据与坑"五段式组织。
+> 面向 vague-code 项目的面试设计题准备文档。每个主题按"面试问题 → 分析思路 → 回答要点 → 加分深度 → 数据与坑"五段式组织。
 > 用途：架构设计题 + 简历深挖。
 > 数据来源：docs/adr/（18 份）、docs/Coding Agent 项目开发文档.md、docs/faq.md、eval/results.md、docs/known-issues.md、源码。
 
@@ -175,12 +175,12 @@
 
 **回答要点**：
 1. 选 Textual：Rich 同生态、ModalScreen、线程安全原语完善。
-2. Agent 在后台线程跑（`run_worker(thread=True)` → `XClawAgentRunner`），Textual 主线程跑 asyncio 循环；事件经 `call_from_thread` 回主循环；权限弹窗用 `run_coroutine_threadsafe` + `push_screen_wait` 阻塞回传。
+2. Agent 在后台线程跑（`run_worker(thread=True)` → `VagueCodeAgentRunner`），Textual 主线程跑 asyncio 循环；事件经 `call_from_thread` 回主循环；权限弹窗用 `run_coroutine_threadsafe` + `push_screen_wait` 阻塞回传。
 3. 回调钩子（`_on_permission` / `on_tool_result` / `on_state_change` / `guidance_provider`）让 TUI 不入侵核心循环——核心不认识 TUI。
 4. v2 重写（ADR-0019）：UI 层移植 firstcoder 参考包的分层架构——`TuiTranscript` 单一事实源、views 纯函数渲染、`CompositeCommandHandler` 命令路由、流式 Markdown 三层缓冲（0.2s flush + update guard + 流式禁选）、活动动画与回合 metrics、picker、prewrite diff 写入审查 + 拒绝反馈闭环；侧边栏移除改 `/resume` picker；turn token 过期过滤防事件污染。
 5. 代价：+依赖、线程桥接点、~200ms 冷启动。
 
-**加分深度**：核心层复用 `dispatch_event` + StreamEvent IR；CLI 用 `RichStreamVisitor`，TUI v2 已弃用 visitor——事件经 `XClawAgentRunner` 回调直达 transcript。Eval Harness 完全不设回调——同一核心，三种消费者。agent 层为 TUI 做了 4 处小改（`on_tool_result` 带 tool id、`Operation.review/feedback`、`guidance_provider`）。
+**加分深度**：核心层复用 `dispatch_event` + StreamEvent IR；CLI 用 `RichStreamVisitor`，TUI v2 已弃用 visitor——事件经 `VagueCodeAgentRunner` 回调直达 transcript。Eval Harness 完全不设回调——同一核心，三种消费者。agent 层为 TUI 做了 4 处小改（`on_tool_result` 带 tool id、`Operation.review/feedback`、`guidance_provider`）。
 
 **数据与坑**：权限弹窗 120 秒超时，超时降级 DENY。**坑**：别说"Agent 是异步的"，核心是**零 asyncio 同步循环**，异步只在 TUI 层；也不要提已删除的 `visitor.py` 侧边栏——v2 已换成 transcript 驱动。
 

@@ -47,12 +47,12 @@ error 事件 `kind=retry_exhausted` 的 payload 携带 `last_error_kind`。
 
 | 文件 | 改动 |
 |------|------|
-| `src/agent/config.py` | `TransportConfig` 新增 timeout/retry 字段 + 校验；`AgentConfig` 移除 `turn_timeout_s` |
-| `src/agent/backend.py` | `OpenAI(max_retries=2)` |
-| `src/agent/trajectory.py` | `EventType` 新增 `retry` / `retry_divergence` |
-| `src/agent/ir.py` | 新增 `StreamDisconnect` 异常 |
-| `src/agent/retry.py` | 新建：`RetryDecision`, `RetryPolicy`, `classify_llm_error`, `estimate_input_tokens`, `response_signature` |
-| `src/cli/__init__.py` | `timeout_s` 改读 `config.transport.timeout_s`；新增 `--no-retry` / `--retry-*` 参数 |
+| `vague_code/agent/config.py` | `TransportConfig` 新增 timeout/retry 字段 + 校验；`AgentConfig` 移除 `turn_timeout_s` |
+| `vague_code/agent/backend.py` | `OpenAI(max_retries=2)` |
+| `vague_code/agent/trajectory.py` | `EventType` 新增 `retry` / `retry_divergence` |
+| `vague_code/agent/ir.py` | 新增 `StreamDisconnect` 异常 |
+| `vague_code/agent/retry.py` | 新建：`RetryDecision`, `RetryPolicy`, `classify_llm_error`, `estimate_input_tokens`, `response_signature` |
+| `vague_code/cli/__init__.py` | `timeout_s` 改读 `config.transport.timeout_s`；新增 `--no-retry` / `--retry-*` 参数 |
 | `tests/test_retry.py` | 新建 |
 | `tests/test_agent_loop.py` | 适配 config 变化，异常注入测试设 `retry_enabled=False` |
 

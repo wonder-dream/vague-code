@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import time
 
-from src.agent.context_compress import _detect_subtasks, structured_snip
-from src.agent.context_tokens import count_tokens
-from src.agent.ir import (
+from vague_code.agent.context_compress import _detect_subtasks, structured_snip
+from vague_code.agent.context_tokens import count_tokens
+from vague_code.agent.ir import (
     Message,
     ToolResultBlock,
     ToolUseBlock,
 )
-from src.agent.trajectory import Event, EventType
+from vague_code.agent.trajectory import Event, EventType
 
 
 def _event(etype: EventType, turn: int | None, payload: dict) -> Event:

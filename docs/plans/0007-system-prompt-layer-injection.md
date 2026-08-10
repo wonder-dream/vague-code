@@ -18,14 +18,14 @@
 | 步骤 | 文件 | 操作 |
 |------|------|------|
 | 1 | `pyproject.toml` | 改：加 `tiktoken>=0.8.0` |
-| 2 | `src/agent/ir.py` | 改：`role` 支持 `"system"` |
-| 3 | `src/agent/context_rules.py` | **新建** |
-| 4 | `src/agent/context_tokens.py` | **新建** |
-| 5 | `src/agent/context.py` | **新建** |
-| 6 | `src/agent/codecs/deepseek.py` | 改：system role 编码 |
-| 7 | `src/agent/codecs/anthropic.py` | 改：system 剥离 → `body["system"]` |
-| 8 | `src/agent/loop.py` | 改：注入 system + budget |
-| 9 | `src/agent/trajectory.py` | 改：resume 重建 system |
+| 2 | `vague_code/agent/ir.py` | 改：`role` 支持 `"system"` |
+| 3 | `vague_code/agent/context_rules.py` | **新建** |
+| 4 | `vague_code/agent/context_tokens.py` | **新建** |
+| 5 | `vague_code/agent/context.py` | **新建** |
+| 6 | `vague_code/agent/codecs/deepseek.py` | 改：system role 编码 |
+| 7 | `vague_code/agent/codecs/anthropic.py` | 改：system 剥离 → `body["system"]` |
+| 8 | `vague_code/agent/loop.py` | 改：注入 system + budget |
+| 9 | `vague_code/agent/trajectory.py` | 改：resume 重建 system |
 | 10 | `tests/test_context_rules.py` | 新建 |
 | 11 | `tests/test_context_tokens.py` | 新建 |
 | 12 | `tests/test_context.py` | 新建 |
@@ -83,7 +83,7 @@ def load_rules(workdir: str | Path) -> str:
 from __future__ import annotations
 import json
 import tiktoken
-from src.agent.ir import TextBlock, ToolSpec
+from vague_code.agent.ir import TextBlock, ToolSpec
 
 CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-flash": 1_000_000,
@@ -120,7 +120,7 @@ def compute_budget(model: str, user_max_tokens: int | None = None) -> int:
 ```python
 from __future__ import annotations
 from pathlib import Path
-from src.agent.context_rules import load_rules
+from vague_code.agent.context_rules import load_rules
 
 class SystemPrompt:
     AGENT_IDENTITY = (

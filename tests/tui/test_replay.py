@@ -2,17 +2,17 @@
 
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.agent.trajectory import EventType, Trajectory
-from src.tui.app import XClawApp
-from src.tui.state import TuiEntryKind
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.trajectory import EventType, Trajectory
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.state import TuiEntryKind
 
 
 class _FakeBackend:
     name = "fake"
 
 
-class _ReplayApp(XClawApp):
+class _ReplayApp(VagueCodeApp):
     pass
 
 

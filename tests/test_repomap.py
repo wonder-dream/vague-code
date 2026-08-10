@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from src.agent.repomap import RepoIndex, _extract_symbols
+from vague_code.agent.repomap import RepoIndex, _extract_symbols
 
 SRC = """
 import os
@@ -199,7 +199,7 @@ def test_refresh_specific_paths(tmp_path: Path) -> None:
 # ── make_code_search_handler / code_search tool ───────────────────────────
 
 def test_code_search_handler_end_to_end(tmp_path: Path) -> None:
-    from src.agent.tools import make_code_search_handler
+    from vague_code.agent.tools import make_code_search_handler
 
     _write(tmp_path, "stats.py", SRC)
     idx = _make_index(tmp_path)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.codecs.deepseek import encode_request, decode_response
-from src.agent.ir import (
+from vague_code.agent.codecs.deepseek import encode_request, decode_response
+from vague_code.agent.ir import (
     Message,
     ModelResponse,
     NormalizedUsage,

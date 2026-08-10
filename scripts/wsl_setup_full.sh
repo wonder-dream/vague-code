@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-echo "=== Setting up XClaw in WSL2 ==="
+echo "=== Setting up vague-code in WSL2 ==="
 
-cd /home/vague/xcode || {
+cd /home/vague/vague-code || {
     # Copy project if not exists
-    cp -r /mnt/d/document/xcode /home/vague/
-    cd /home/vague/xcode
+    cp -r /mnt/d/document/vague-code /home/vague/
+    cd /home/vague/vague-code
 }
 
 export PATH="$HOME/.local/bin:$PATH"

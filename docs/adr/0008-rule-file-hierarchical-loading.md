@@ -57,7 +57,7 @@ AGENTS.md（Claude Code 使用）和 `.cursorrules` 都是单文件的 root-only
   project/                    ← workdir，读 .agent/rules.md
   ├── .agent/rules.md         → 追加
   │   └── (wip)               → 追加 (workdir 中的根)
-  ├── src/
+  ├── vague_code/
   └── tests/
 ```
 

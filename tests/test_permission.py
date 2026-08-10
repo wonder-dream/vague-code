@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.agent.permission import (
+from vague_code.agent.permission import (
     Decision,
     DangerLevel,
     Operation,

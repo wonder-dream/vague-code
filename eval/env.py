@@ -18,7 +18,7 @@ def _raise_stub(mod_name: str) -> str:
         f"    if name.startswith('__'):\n"
         f"        raise AttributeError(name)\n"
         f"    raise NotImplementedError("
-        f"'XClaw shim: {mod_name} is a compiled module, "
+        f"'vague-code shim: {mod_name} is a compiled module, "
         f"no MSVC build available on this machine')\n"
     )
 
@@ -194,7 +194,7 @@ def ensure_env(
     """为任务提供可复用的 uv venv（缓存于 eval/.venvs/<repo>__<commit>/）。
 
     位于任务仓库树之外，P0-2 的 git clean -fdx 不会扫到。
-    缓存命中以 `.xclaw_ready` 标记为准——install 任一步失败则重建，
+    缓存命中以 `.vaguecode_ready` 标记为准——install 任一步失败则重建，
     避免"装一半"的 venv 被当成就绪（REPO_SETUP 变更后需 clear）。
     """
     workdir = Path(workdir)
@@ -208,7 +208,7 @@ def ensure_env(
     key = venv_key(task)
     venv_dir = (Path(venvs_root) / key).resolve()
     python_bin = _venv_python(venv_dir)
-    ready_marker = venv_dir / ".xclaw_ready"
+    ready_marker = venv_dir / ".vaguecode_ready"
     lock_file = venv_dir / "requirements.lock"
 
     if not clear and python_bin.exists() and ready_marker.exists():

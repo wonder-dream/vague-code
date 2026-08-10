@@ -11,12 +11,12 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.agent.ir import MessageEnd, MessageStart, StopReason, TextDelta
-from src.agent.permission import Decision, Operation
-from src.tui.app import XClawApp
-from src.tui.screens.permission import PermissionDialog
-from src.tui.state import TuiEntryKind
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import MessageEnd, MessageStart, StopReason, TextDelta
+from vague_code.agent.permission import Decision, Operation
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.screens.permission import PermissionDialog
+from vague_code.tui.state import TuiEntryKind
 
 
 class _FakeBackend:
@@ -28,7 +28,7 @@ class _FakeTrajectory:
     events = []
 
 
-class _InteractionApp(XClawApp):
+class _InteractionApp(VagueCodeApp):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.submitted: list[str] = []
@@ -99,7 +99,7 @@ async def test_picker_enter_selects_highlighted(tmp_path, monkeypatch) -> None:
     class _DummyTraj:
         events = []
 
-    monkeypatch.setattr("src.agent.trajectory.Trajectory.from_db", lambda run_id, db_path: _DummyTraj())
+    monkeypatch.setattr("vague_code.agent.trajectory.Trajectory.from_db", lambda run_id, db_path: _DummyTraj())
     async with app.run_test() as pilot:
         await pilot.pause()
         app._submit_task("/resume")
@@ -117,7 +117,7 @@ async def test_picker_digit_selects_number(tmp_path, monkeypatch) -> None:
     class _DummyTraj:
         events = []
 
-    monkeypatch.setattr("src.agent.trajectory.Trajectory.from_db", lambda run_id, db_path: _DummyTraj())
+    monkeypatch.setattr("vague_code.agent.trajectory.Trajectory.from_db", lambda run_id, db_path: _DummyTraj())
     async with app.run_test() as pilot:
         await pilot.pause()
         app._submit_task("/resume")
@@ -171,11 +171,11 @@ async def test_permission_dialog_escape_denies() -> None:
 async def test_css_path_resolves_to_package_file() -> None:
     from pathlib import Path
 
-    assert Path(XClawApp.CSS_PATH).is_file()
+    assert Path(VagueCodeApp.CSS_PATH).is_file()
 
 
 async def test_reasoning_status_cleared_after_finalize() -> None:
-    from src.agent.ir import ThinkingDelta, ThinkingEnd, ThinkingStart
+    from vague_code.agent.ir import ThinkingDelta, ThinkingEnd, ThinkingStart
 
     app = _make_app()
 
@@ -254,9 +254,9 @@ class _ChatFakeAgent:
 
 
 async def test_two_chat_turns_share_session(monkeypatch) -> None:
-    from src.agent.loop import Agent
+    from vague_code.agent.loop import Agent
 
-    class _RealChatApp(XClawApp):
+    class _RealChatApp(VagueCodeApp):
         pass
 
     fake = _ChatFakeAgent()
@@ -277,9 +277,9 @@ async def test_two_chat_turns_share_session(monkeypatch) -> None:
 
 
 async def test_new_session_creates_parallel_session(monkeypatch) -> None:
-    from src.agent.loop import Agent
+    from vague_code.agent.loop import Agent
 
-    class _RealChatApp(XClawApp):
+    class _RealChatApp(VagueCodeApp):
         pass
 
     fake = _ChatFakeAgent()

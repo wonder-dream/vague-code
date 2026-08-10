@@ -17,13 +17,13 @@ from openai import (
     UnprocessableEntityError,
 )
 
-from src.agent.config import TransportConfig
-from src.agent.ir import (
+from vague_code.agent.config import TransportConfig
+from vague_code.agent.ir import (
     Message,
     TextBlock,
     ToolUseBlock,
 )
-from src.agent.retry import (
+from vague_code.agent.retry import (
     RetryPolicy,
     classify_llm_error,
     estimate_input_tokens,
@@ -147,7 +147,7 @@ class TestClassifyLlmError:
         self._assert(RuntimeError("uh oh"), retryable=False, reason="unknown", error_kind="llm_error", terminal_reason="llm_error")
 
     def test_stream_disconnect(self):
-        from src.agent.ir import StreamDisconnect
+        from vague_code.agent.ir import StreamDisconnect
         self._assert(StreamDisconnect("stream dropped"), retryable=True, reason="stream_disconnect", error_kind="stream_disconnect", terminal_reason="llm_error")
 
 
@@ -173,7 +173,7 @@ class TestEstimateInputTokens:
         assert t >= 10
 
     def test_with_tools(self):
-        from src.agent.ir import ToolSpec
+        from vague_code.agent.ir import ToolSpec
         msgs = [Message(role="user", content="Read README")]
         tools = [ToolSpec(name="read_file", description="Read a file", parameters={"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]})]
         t = estimate_input_tokens(msgs, tools)

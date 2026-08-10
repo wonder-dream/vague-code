@@ -3,16 +3,16 @@
 import tempfile
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.tui.app import XClawApp
-from src.tui.widgets.common import ComposerTextArea
+from vague_code.agent.config import AgentConfig
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.widgets.common import ComposerTextArea
 
 
 class _FakeBackend:
     name = "fake"
 
 
-class _TestApp(XClawApp):
+class _TestApp(VagueCodeApp):
     pass
 
 

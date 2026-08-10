@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /home/vague/xcode
+cd /home/vague/vague-code
 export DEEPSEEK_API_KEY="sk-REPLACED"
 export PATH="$HOME/.local/bin:$PATH"
 source .venv/bin/activate
@@ -27,7 +27,7 @@ for key, r in results.items():
 
 # Markdown report
 lines = [
-    "# XClaw Ablation Results",
+    "# vague-code Ablation Results",
     "",
     "| Compression | Concurrency | Pass Rate | Avg Turns | Avg Tokens | Reclaimed |",
     "|------------|-------------|-----------|-----------|------------|-----------|",

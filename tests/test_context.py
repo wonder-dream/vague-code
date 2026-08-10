@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.agent.context import SystemPrompt
+from vague_code.agent.context import SystemPrompt
 
 
 def test_identity_section_present() -> None:
     sp = SystemPrompt(Path.cwd())
     result = sp.build()
-    assert "XClaw" in result
+    assert "vague-code" in result
 
 
 def test_session_includes_workdir() -> None:

@@ -1,0 +1,10 @@
+anthropic>=0.117.0
+deepseek-tokenizer>=0.3.0
+openai>=2.46.0
+pydantic>=2.13.4
+python-dotenv>=1.1.0
+rich>=15.0.0
+textual>=8.0.0
+tiktoken>=0.8.0
+tree-sitter==0.26.0
+tree-sitter-python==0.25.0

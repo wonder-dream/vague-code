@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.agent.context_rules import load_rules
+from vague_code.agent.context_rules import load_rules
 
 
 def test_no_rules_returns_empty(tmp_path: Path) -> None:
@@ -60,7 +60,7 @@ def test_load_rules_skips_too_large_file(tmp_path: Path) -> None:
     agent_dir.mkdir()
     rules_file = agent_dir / "rules.md"
     rules_file.write_text("x" * 20_000, encoding="utf-8")
-    import src.agent.context_rules as cr
+    import vague_code.agent.context_rules as cr
     orig = cr.MAX_RULES_SIZE
     try:
         cr.MAX_RULES_SIZE = 15_000

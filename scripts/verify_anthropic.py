@@ -20,9 +20,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from dotenv import dotenv_values
 
-from src.agent.backend import create_anthropic_backend
-from src.agent.config import TransportConfig
-from src.agent.ir import (
+from vague_code.agent.backend import create_anthropic_backend
+from vague_code.agent.config import TransportConfig
+from vague_code.agent.ir import (
     Message,
     StreamEvent,
     StopReason,

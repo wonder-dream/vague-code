@@ -5,8 +5,8 @@ from pathlib import Path
 
 import time
 
-from src.agent.config import AgentConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import (
     ArgsDelta,
     MessageEnd,
     StopReason,
@@ -15,9 +15,9 @@ from src.agent.ir import (
     ThinkingStart,
     ToolUseStart,
 )
-from src.tui.app import XClawApp
-from src.tui.state import TuiEntryKind
-from src.tui.views.activity import tool_activity_line_text, turn_metrics_text
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.state import TuiEntryKind
+from vague_code.tui.views.activity import tool_activity_line_text, turn_metrics_text
 
 
 class _FakeBackend:
@@ -29,7 +29,7 @@ class _FakeTrajectory:
     events = []
 
 
-class _TestApp(XClawApp):
+class _TestApp(VagueCodeApp):
     def __init__(self, *args, events=None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._fake_events = events or []

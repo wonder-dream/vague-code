@@ -1,6 +1,6 @@
 # 0014: Repo Map 代码库符号索引（tree-sitter）
 
-新增基于 tree-sitter 的仓库符号索引子系统，提供 `code_search` 工具 + 浓缩符号地图注入，解决 XClaw 代码理解能力与主流产品（Aider repo map / Cursor 向量索引）的最大差距。
+新增基于 tree-sitter 的仓库符号索引子系统，提供 `code_search` 工具 + 浓缩符号地图注入，解决 vague-code 代码理解能力与主流产品（Aider repo map / Cursor 向量索引）的最大差距。
 
 ---
 
@@ -8,13 +8,13 @@
 
 ### 现状问题
 
-XClaw 的"代码理解"完全依赖 `grep` / `glob` / `read_file` 三个无状态工具（`tools.py:149-209`、`85-105`、`29-57`），每次 run 都由 Agent 反复搜索定位，**没有持久索引**。对比：
+vague-code 的"代码理解"完全依赖 `grep` / `glob` / `read_file` 三个无状态工具（`tools.py:149-209`、`85-105`、`29-57`），每次 run 都由 Agent 反复搜索定位，**没有持久索引**。对比：
 
 | 产品 | 代码理解机制 |
 |------|-------------|
 | Aider | tree-sitter 解析 + 每次请求注入最相关 ~1K token 的 repo map（graph ranking 挑选） |
 | Cursor | 全仓库 embedding 向量索引，语义检索 |
-| XClaw（现状） | 仅 grep/glob/read 工具，无索引 |
+| vague-code（现状） | 仅 grep/glob/read 工具，无索引 |
 
 在 SWE-bench 30 题评测中，Agent 大量轮次浪费在"反复 grep 找文件定位符号"上——这正是 repo map 能直接压缩的。
 
@@ -40,7 +40,7 @@ XClaw 的"代码理解"完全依赖 `grep` / `glob` / `read_file` 三个无状�
 
 ## 核心设计
 
-### 1. 新模块 `src/agent/repomap.py`
+### 1. 新模块 `vague_code/agent/repomap.py`
 
 ```python
 @dataclass
@@ -64,7 +64,7 @@ class RepoIndex:
 - **热度排序**：`top_symbols()` 按符号在文件间被引用次数降序，供注入挑选。
 - **注入文本**：`to_map_text()` 生成 `file:line: signature` 列表，按热度挑选直到达到 token 预算。
 
-### 2. 新工具 `code_search`（`src/agent/tools.py`）
+### 2. 新工具 `code_search`（`vague_code/agent/tools.py`）
 
 - **ToolSpec**：`name="code_search"`，输入 `query`（符号名/正则，必填）+ 可选 `path` 过滤；输出 `file:line: signature` 列表（截断保护，对齐既有 `MAX_GREP_RESULTS` 风格）。
 - **factory**：绑定 `workdir`，handler 查询 `self._repo_index`（经 Agent 注入绑定）。
@@ -83,7 +83,7 @@ system_prompt = SystemPrompt(workdir).build()    # identity + rules + workdir
 - `Agent.start()` 构建 `RepoIndex`，绑定 `self._repo_index`，供 `code_search` 与增量刷新共用。
 - 构建失败/超时 → 不注入，不影响主循环（降级为纯工具模式）。
 
-### 4. 配置（`src/agent/config.py`）
+### 4. 配置（`vague_code/agent/config.py`）
 
 ```python
 @dataclass
@@ -108,10 +108,10 @@ CLI 加 `--no-repo-map` / `--repo-map-tokens`。
 
 ### 6. Pinned 移除（配套收尾）
 
-- `src/agent/config.py:58` 删 `inject_pinned`。
-- `src/agent/memory.py:88-92` 删 `get_pinned()`。
-- `src/agent/loop.py:201-208` 删 pinned 注入块。
-- `src/tui/widgets/sidebar.py:73-84` 记忆面板改为展示最近蒸馏（或移除 pinned 展示）。
+- `vague_code/agent/config.py:58` 删 `inject_pinned`。
+- `vague_code/agent/memory.py:88-92` 删 `get_pinned()`。
+- `vague_code/agent/loop.py:201-208` 删 pinned 注入块。
+- `vague_code/tui/widgets/sidebar.py:73-84` 记忆面板改为展示最近蒸馏（或移除 pinned 展示）。
 - `tests/test_memory.py` 重写依赖 `kind="pinned"` 的测试（`kind` 列保留，只余 `'episodic'`）。
 - 文档清理：README / CONTEXT.md / ADR-0014 / articles(01,02,03,04,08,11) / guide(02,03,04,08) / R1 / troubleshooting / DOCUMENTATION_PLAN / architecture.drawio 中 pinned 相关表述（约 25 处）。
 
@@ -122,15 +122,15 @@ CLI 加 `--no-repo-map` / `--repo-map-tokens`。
 | 步骤 | 文件 | 操作 |
 |------|------|------|
 | 1 | `pyproject.toml` | 加 `tree-sitter` + `tree-sitter-python` 依赖 |
-| 2 | `src/agent/repomap.py` | **新建**：`Symbol` / `RepoIndex` + 符号提取 + 热度排序 + map 文本生成 |
-| 3 | `src/agent/config.py` | 加 `RepoMapConfig` + `AgentConfig.repo_map`；删 `inject_pinned` |
-| 4 | `src/agent/tools.py` | 加 `code_search` 工具 spec + factory |
-| 5 | `src/agent/concurrency.py` | `_extract_scope` 加 `code_search` 分支 |
-| 6 | `src/agent/loop.py` | `start()` 构建索引 + 注入 map + 注册工具；删 pinned 注入 |
-| 7 | `src/agent/context.py` | `SystemPrompt.build()` 接受可选 map 段 |
-| 8 | `src/agent/memory.py` | 删 `get_pinned()` |
-| 9 | `src/tui/widgets/sidebar.py` | 记忆面板去 pinned |
-| 10 | `src/cli/__init__.py` | 加 `--no-repo-map` / `--repo-map-tokens` |
+| 2 | `vague_code/agent/repomap.py` | **新建**：`Symbol` / `RepoIndex` + 符号提取 + 热度排序 + map 文本生成 |
+| 3 | `vague_code/agent/config.py` | 加 `RepoMapConfig` + `AgentConfig.repo_map`；删 `inject_pinned` |
+| 4 | `vague_code/agent/tools.py` | 加 `code_search` 工具 spec + factory |
+| 5 | `vague_code/agent/concurrency.py` | `_extract_scope` 加 `code_search` 分支 |
+| 6 | `vague_code/agent/loop.py` | `start()` 构建索引 + 注入 map + 注册工具；删 pinned 注入 |
+| 7 | `vague_code/agent/context.py` | `SystemPrompt.build()` 接受可选 map 段 |
+| 8 | `vague_code/agent/memory.py` | 删 `get_pinned()` |
+| 9 | `vague_code/tui/widgets/sidebar.py` | 记忆面板去 pinned |
+| 10 | `vague_code/cli/__init__.py` | 加 `--no-repo-map` / `--repo-map-tokens` |
 | 11 | `eval/matrix.py` / `eval/harness.py` | repo_map 变量接入 |
 | 12 | `tests/test_repomap.py` | **新建**：索引提取 / 搜索 / 注入文本 / 增量刷新 |
 | 13 | `tests/test_concurrency.py` | 补 `code_search` scope 测试 |

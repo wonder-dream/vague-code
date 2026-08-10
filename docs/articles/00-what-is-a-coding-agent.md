@@ -2,7 +2,7 @@
 
 **谁需要读：** 所有对 Coding Agent 感兴趣的人，零编程基础可读
 **前置阅读：** 无
-**读完能做什么：** 理解 XClaw 是什么、能做什么、和 Copilot/ChatGPT 的区别
+**读完能做什么：** 理解 vague-code 是什么、能做什么、和 Copilot/ChatGPT 的区别
 
 ---
 
@@ -16,7 +16,7 @@ Coding Agent（编码智能体）是一种能独立完成编程任务的 AI 程�
 - **ChatGPT** = 你问问题，它给你答案
 - **Coding Agent** = 你布置任务，它从需求到验证独立完成
 
-XClaw 就是一个 Coding Agent 的具体实现——一个轻量级的、可在本地命令行运行的编码智能体。
+vague-code 就是一个 Coding Agent 的具体实现——一个轻量级的、可在本地命令行运行的编码智能体。
 
 ## 2. 和 Copilot/ChatGPT 的区别
 
@@ -40,12 +40,12 @@ XClaw 就是一个 Coding Agent 的具体实现——一个轻量级的、可在
 
 ## 3. 一次完整任务的旅程
 
-让我们用一个真实的案例来看 XClaw 是如何完成一个任务的。
+让我们用一个真实的案例来看 vague-code 是如何完成一个任务的。
 
 **任务：** "修一下 stats.py 的除零 bug"
 
 ```
-  你                              XClaw
+  你                              vague-code
   │                                │
   ├─ "修一下 stats.py 的除零 bug" ─→│
   │                                │
@@ -72,15 +72,15 @@ XClaw 就是一个 Coding Agent 的具体实现——一个轻量级的、可在
 
 每个步骤都对应 Agent 使用的具体工具和产生的输出。搜索阶段用 `grep` 工具查找问题位置，读取阶段用 `read_file` 工具确认上下文，修改阶段用 `patch` 工具做最小改动，验证阶段用 `bash` 执行测试。
 
-这个案例可以在 `tests/_target_bug/src/stats.py` 中找到真实代码。
+这个案例可以在 `tests/_target_bug/vague_code/stats.py` 中找到真实代码。
 
 ## 4. Agent 的能力清单
 
-XClaw 提供了 7 项核心能力，每一项对应一个工具（tool）：
+vague-code 提供了 7 项核心能力，每一项对应一个工具（tool）：
 
 | 能力 | 对应工具 | 一句话示例 |
 |------|---------|-----------|
-| 读代码 | `read_file` | "看看 src/main.py 的内容" |
+| 读代码 | `read_file` | "看看 vague_code/main.py 的内容" |
 | 写代码 | `write_file` | "创建一个新的模块文件 utils.py" |
 | 精确修改 | `patch` | "把第 23 行的 pass 改为 continue" |
 | 搜索文件 | `glob` | "找到所有 test_*.py 文件" |
@@ -96,9 +96,9 @@ XClaw 提供了 7 项核心能力，每一项对应一个工具（tool）：
 
 这两条行为守则由系统提示（System Prompt）强制执行（`context.py:11-16`），是 Agent 可靠性的基础保障。
 
-## 5. XClaw 的特别之处
+## 5. vague-code 的特别之处
 
-XClaw 有五个独特的设计点，每一个都解决一个真实工程问题：
+vague-code 有五个独特的设计点，每一个都解决一个真实工程问题：
 
 ### 上下文压缩（Context Compression）
 
@@ -106,7 +106,7 @@ XClaw 有五个独特的设计点，每一个都解决一个真实工程问题�
 
 > **例子：** 20 轮对话后 Agent 仍然记得你最开始提到的需求，因为旧内容已经被智能压缩而非直接丢弃。
 
-XClaw 使用五层压缩流水线：stale_snip（删被覆盖的旧读取）→ microcompact（折叠超长输出）→ structured_snip（轨迹驱动结构化压缩，零 LLM 成本）→ auto_compact（全量会话摘要）→ truncation（硬截断兜底）。详见 06-context-engineering.md。
+vague-code 使用五层压缩流水线：stale_snip（删被覆盖的旧读取）→ microcompact（折叠超长输出）→ structured_snip（轨迹驱动结构化压缩，零 LLM 成本）→ auto_compact（全量会话摘要）→ truncation（硬截断兜底）。详见 06-context-engineering.md。
 
 ### 权限系统（Permission System）
 
@@ -128,7 +128,7 @@ Agent 记住你的偏好和历史解决方案，下次自动使用。
 
 多个不冲突的操作同时执行，速度更快。
 
-> **例子：** Agent 需要同时搜索 3 个不同的文件——如果互不冲突，XClaw 会并行执行，而不是一个个来。
+> **例子：** Agent 需要同时搜索 3 个不同的文件——如果互不冲突，vague-code 会并行执行，而不是一个个来。
 
 并发调度基于冲突可串行化（Conflict Serializability）模型，保证并行效果与顺序执行一致。详见 05-tool-system.md。
 
@@ -136,13 +136,13 @@ Agent 记住你的偏好和历史解决方案，下次自动使用。
 
 跑分验证每个设计决策，数据驱动改进。
 
-> **例子：** 消融实验可控制变量验证每个设计决策（如并发调度、上下文压缩）对 pass rate / token 消耗的实际影响。2026-08 起评测升级为真验收（sanity gate 双检 + F2P/P2P 实跑），数字口径见 `docs/handoff/2026-08-03-xclaw-eval-system.md`。
+> **例子：** 消融实验可控制变量验证每个设计决策（如并发调度、上下文压缩）对 pass rate / token 消耗的实际影响。2026-08 起评测升级为真验收（sanity gate 双检 + F2P/P2P 实跑），数字口径见 `docs/handoff/2026-08-03-vague-code-eval-system.md`。
 
-XClaw 内置评测框架，支持消融实验（Ablation Experiment），可控制变量验证每个设计选择。详见 12-evaluation-harness.md。
+vague-code 内置评测框架，支持消融实验（Ablation Experiment），可控制变量验证每个设计选择。详见 12-evaluation-harness.md。
 
 ## 6. 你需要准备什么
 
-要在本地运行 XClaw，你需要：
+要在本地运行 vague-code，你需要：
 
 - **Python 3.12+**：`python --version` 验证
 - **uv 包管理器**：`pip install uv`
@@ -152,8 +152,8 @@ XClaw 内置评测框架，支持消融实验（Ablation Experiment），可控�
 安装命令：
 
 ```bash
-git clone <xclaw-repo-url>
-cd xclaw
+git clone <vague-code-repo-url>
+cd vague-code
 uv sync
 echo 'DEEPSEEK_API_KEY=sk-xxx' > .env
 ```
@@ -161,15 +161,15 @@ echo 'DEEPSEEK_API_KEY=sk-xxx' > .env
 安装完成后，运行第一个任务：
 
 ```bash
-xcode "列出当前目录的文件"
+vague-code "列出当前目录的文件"
 ```
 
 ## 7. 总结
 
-XClaw 是一个自主模式的 Coding Agent——它能独立完成编程任务，而不仅仅是一个代码补全或问答工具。它背后的核心子系统包括：Agent Runtime（主循环引擎）、Tool System（与世界交互的接口）、Context Engineering（上下文管理）、Permission System（安全防护）、Memory System（跨会话记忆）、Model Abstraction Layer（LLM 统一接入）和 Evaluation Harness（评测验证）。
+vague-code 是一个自主模式的 Coding Agent——它能独立完成编程任务，而不仅仅是一个代码补全或问答工具。它背后的核心子系统包括：Agent Runtime（主循环引擎）、Tool System（与世界交互的接口）、Context Engineering（上下文管理）、Permission System（安全防护）、Memory System（跨会话记忆）、Model Abstraction Layer（LLM 统一接入）和 Evaluation Harness（评测验证）。
 
 接下来的文档将逐个深入这些子系统：从术语表（01）和架构总览（02）开始，到一次完整的单轮循环（03），再到每个子系统的专题深潜（04-12）。
 
-**下一篇推荐：** 01-terminology.md——了解 XClaw 的核心术语，后续文档将直接使用。
+**下一篇推荐：** 01-terminology.md——了解 vague-code 的核心术语，后续文档将直接使用。
 
 **相关链接：** README.md（项目总览）、CONTEXT.md（术语规范）、ADR-0001（Agent 即库设计决策）

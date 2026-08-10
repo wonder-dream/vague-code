@@ -8,14 +8,14 @@ import tempfile
 import threading
 import time
 
-from src.agent.config import AgentConfig
-from src.agent.ir import MessageEnd, MessageStart, StopReason, TextDelta
-from src.agent.loop import Agent
-from src.agent.permission import Decision
-from src.tui.app import XClawApp
-from src.tui.screens.permission import PermissionDialog
-from src.tui.state import TuiEntryKind
-from src.tui.widgets.sidebar import SessionSidebar
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import MessageEnd, MessageStart, StopReason, TextDelta
+from vague_code.agent.loop import Agent
+from vague_code.agent.permission import Decision
+from vague_code.tui.app import VagueCodeApp
+from vague_code.tui.screens.permission import PermissionDialog
+from vague_code.tui.state import TuiEntryKind
+from vague_code.tui.widgets.sidebar import SessionSidebar
 from textual.widgets import Static
 
 
@@ -81,7 +81,7 @@ class _ParallelAgent:
         return (task or "会话")[:max_chars]
 
 
-def _make_app(cls=XClawApp, **kwargs):
+def _make_app(cls=VagueCodeApp, **kwargs):
     config = AgentConfig(model="m", max_turns=5, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
     config.permission_mode = "normal"
     return cls(config=config, backend=_FakeBackend(), workdir=".", **kwargs)
@@ -171,7 +171,7 @@ async def test_title_summary_generated_on_first_turn(monkeypatch) -> None:
 
 
 async def test_permission_requests_serialize_across_sessions(monkeypatch) -> None:
-    from src.agent.permission import Operation
+    from vague_code.agent.permission import Operation
 
     calls: list[str] = []
     decisions: list = []
@@ -240,7 +240,7 @@ async def test_cold_session_message_resumes_same_run(monkeypatch) -> None:
         ]
 
     monkeypatch.setattr(
-        "src.agent.trajectory.Trajectory.from_db",
+        "vague_code.agent.trajectory.Trajectory.from_db",
         lambda run_id, db_path: _FakeTraj(),
     )
     app = _make_app()
@@ -325,7 +325,7 @@ async def test_queued_turn_auto_starts_after_worker_exit(monkeypatch) -> None:
 
 
 async def test_sidebar_delete_requires_confirmation(monkeypatch) -> None:
-    from src.tui.screens.confirm import ConfirmDialog
+    from vague_code.tui.screens.confirm import ConfirmDialog
 
     fake = _ParallelAgent(parallel=False)
     monkeypatch.setattr(Agent, "chat", fake.chat)
@@ -393,7 +393,7 @@ async def test_busy_session_cannot_be_deleted(monkeypatch) -> None:
         run_id = app._sessions.current_run_id
         app._prompt_delete_session()
         await pilot.pause(0.3)
-        from src.tui.screens.confirm import ConfirmDialog
+        from vague_code.tui.screens.confirm import ConfirmDialog
         assert not isinstance(app.screen, ConfirmDialog)
         assert run_id in app._sessions.sessions
 
@@ -466,7 +466,7 @@ async def test_sidebar_delete_button_click(monkeypatch) -> None:
 
         sidebar.on_click(_Click(cell_len - 1, row))
         await pilot.pause(0.3)
-        from src.tui.screens.confirm import ConfirmDialog
+        from vague_code.tui.screens.confirm import ConfirmDialog
         assert isinstance(app.screen, ConfirmDialog)
         await pilot.press("n")
         await pilot.pause(0.3)
@@ -488,7 +488,7 @@ async def test_confirm_delete_keeps_focus_on_sidebar(monkeypatch) -> None:
         sidebar.move_selection(0)
         app._prompt_delete_session()
         await pilot.pause(0.3)
-        from src.tui.screens.confirm import ConfirmDialog
+        from vague_code.tui.screens.confirm import ConfirmDialog
         assert isinstance(app.screen, ConfirmDialog)
         await pilot.press("n")
         await pilot.pause(0.4)
@@ -578,7 +578,7 @@ async def test_delete_session_cleans_artifacts(tmp_path) -> None:
 
     config = AgentConfig(model="m", max_turns=5, db_path=db_path)
     config.memory.memory_db_path = mem_path
-    app = XClawApp(config=config, backend=_FakeBackend(), workdir=".")
+    app = VagueCodeApp(config=config, backend=_FakeBackend(), workdir=".")
 
     async with app.run_test() as pilot:
         await pilot.pause()

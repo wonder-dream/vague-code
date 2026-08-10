@@ -96,7 +96,7 @@ if total > budget → truncate()
 
 **代码位置：** `loop.py:682-710` `_stream_from()` + `loop.py:331-376` 内层循环
 
-XClaw 支持流式和非流式两种模式：
+vague-code 支持流式和非流式两种模式：
 
 ```
 config.transport.stream=True  → backend.stream()  → SSE chunks → StreamEvent

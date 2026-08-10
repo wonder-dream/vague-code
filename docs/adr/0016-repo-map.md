@@ -7,7 +7,7 @@ date: 2026-08-01
 
 ## 背景
 
-XClaw 的"代码理解"完全依赖 `grep`/`glob`/`read_file` 三个无状态工具，每次 run 都由 Agent 反复搜索定位符号，**没有持久索引**。在 SWE-bench 30 题评测中，Agent 大量轮次浪费在"反复 grep 找文件定位符号"上。
+vague-code 的"代码理解"完全依赖 `grep`/`glob`/`read_file` 三个无状态工具，每次 run 都由 Agent 反复搜索定位符号，**没有持久索引**。在 SWE-bench 30 题评测中，Agent 大量轮次浪费在"反复 grep 找文件定位符号"上。
 
 主流 Coding Agent 的差异化能力在"代码库理解"（Aider repo map、Cursor 向量索引），而非"跨会话对话记忆"。本 ADR 决定补齐代码理解能力。
 

@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from src.agent.permission import Operation
-from src.agent.prewrite import compute_prewrite_review
-from src.tui.views.review import render_prewrite_review
+from vague_code.agent.permission import Operation
+from vague_code.agent.prewrite import compute_prewrite_review
+from vague_code.tui.views.review import render_prewrite_review
 
 
 def _write(tmp_path: Path, rel: str, content: str) -> None:

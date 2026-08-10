@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.agent.config import AgentConfig
-from src.agent.ir import Message, ModelResponse, NormalizedUsage, StopReason, TextBlock
-from src.agent.trajectory import EventType, Trajectory
+from vague_code.agent.config import AgentConfig
+from vague_code.agent.ir import Message, ModelResponse, NormalizedUsage, StopReason, TextBlock
+from vague_code.agent.trajectory import EventType, Trajectory
 
 from eval.judge import (
     RunRecord,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from src.agent.context_compress import microcompact
-from src.agent.context_tokens import count_tokens
-from src.agent.ir import (
+from vague_code.agent.context_compress import microcompact
+from vague_code.agent.context_tokens import count_tokens
+from vague_code.agent.ir import (
     Block,
     Message,
     TextBlock,

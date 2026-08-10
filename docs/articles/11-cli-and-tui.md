@@ -14,7 +14,7 @@ CLI 遵循 thin shell 原则（ADR-0001）：它只是 Agent 库的一层薄壳�
 
 职责链：`参数解析 → AgentConfig 构造 → Backend 创建 → Agent 实例 → start → dispatch StreamEvent`
 
-入口点：`xcode` → `src/cli/__init__.py:main()`
+入口点：`vague-code` → `vague_code/cli/__init__.py:main()`
 
 ### 2. 入口与参数
 
@@ -86,12 +86,12 @@ CLI 的渲染在非 verbose 模式下只显示 TextDelta 和 ToolUseStart/ToolRe
 TUI 与 CLI 使用同一个 Agent 库（ADR-0001）。启动方式：
 
 ```
-xcode tui [task]
+vague-code tui [task]
 ```
 
-职责链：`_tui_main()`（`cli/__init__.py:136-186`）→ `src/tui/__init__.py:main()` → `XClawApp`
+职责链：`_tui_main()`（`cli/__init__.py:136-186`）→ `vague_code/tui/__init__.py:main()` → `VagueCodeApp`
 
-基于 Textual 框架的全屏交互式终端界面。v2 采用分层架构（ADR-0019）：UI 是薄壳，所有能力通过 runner / command handler 注入，事件全部写入 `TuiTranscript` 单一事实源，再驱动渲染。代码不再使用 `StreamEventVisitor`（`visitor.py` 已删除）——Agent 线程的事件经 `XClawAgentRunner` 回调直达 transcript。
+基于 Textual 框架的全屏交互式终端界面。v2 采用分层架构（ADR-0019）：UI 是薄壳，所有能力通过 runner / command handler 注入，事件全部写入 `TuiTranscript` 单一事实源，再驱动渲染。代码不再使用 `StreamEventVisitor`（`visitor.py` 已删除）——Agent 线程的事件经 `VagueCodeAgentRunner` 回调直达 transcript。
 
 ### 6. 架构：Agent 在线程中同步运行
 
@@ -101,7 +101,7 @@ Agent Runtime 是同步的（零 asyncio 约束）。但 Textual 基于 asyncio�
 Textual 主循环（asyncio）      Agent 线程（run_worker(thread=True)）
      │                              │
      │  run_worker(thread=True)      │
-     │  ───────────────────────────→ │  XClawAgentRunner.run_task()
+     │  ───────────────────────────→ │  VagueCodeAgentRunner.run_task()
      │                               │  agent.start() → _run_gen()
      │  call_from_thread(on_ev)      │
      │  ←─────────────────────────── │  yield StreamEvent
@@ -114,13 +114,13 @@ Textual 主循环（asyncio）      Agent 线程（run_worker(thread=True)）
 
 | 组件 | 文件 | 职责 |
 |------|------|------|
-| `XClawApp` | `app.py` | 薄壳：compose / bindings / 事件分发 / 回合管理 |
-| `XClawAgentRunner` | `runner.py` | 同步 Agent ↔ 异步 UI 桥：事件回调、权限桥、取消、guidance、permission rules |
-| `XClawViewMixin` | `mixin.py` | 流式 Markdown 三层缓冲（0.2s flush + update guard）、活动动画、回合 metrics |
+| `VagueCodeApp` | `app.py` | 薄壳：compose / bindings / 事件分发 / 回合管理 |
+| `VagueCodeAgentRunner` | `runner.py` | 同步 Agent ↔ 异步 UI 桥：事件回调、权限桥、取消、guidance、permission rules |
+| `VagueCodeViewMixin` | `mixin.py` | 流式 Markdown 三层缓冲（0.2s flush + update guard）、活动动画、回合 metrics |
 | `TuiTranscript` | `state.py` | 展示态单一事实源（entries 带 widget 引用） |
 | views/ | `views/*.py` | 纯函数渲染（topbar / activity / welcome / transcript / review），可独立单测 |
 | commands/ | `commands/*.py` | `CompositeCommandHandler` + `CommandResult(handled, output, action)` |
-| `XClawMarkdown` | `widgets/common.py` | 流式期间禁选、finalize 后放开的选择门控 |
+| `VagueCodeMarkdown` | `widgets/common.py` | 流式期间禁选、finalize 后放开的选择门控 |
 
 **三层回调**（Agent 线程 → TUI 主循环，均经 `call_from_thread`）：
 
@@ -140,7 +140,7 @@ Textual 主循环（asyncio）      Agent 线程（run_worker(thread=True)）
 TUI 主界面分为四个区域：
 
 **Topbar**（`views/topbar.py`）：
-- 五段式：`xclaw · 状态 · provider/model · 权限模式 · cwd`
+- 五段式：`vague-code · 状态 · provider/model · 权限模式 · cwd`
 - 按 Rich 渲染宽度截断（不是字符数），窄屏逐段丢弃右侧段
 
 **Conversation View**（`widgets/conversation.py`）：
@@ -164,7 +164,7 @@ TUI 主界面分为四个区域：
 **代码位置：** `screens/permission.py` `PermissionDialog` + `app.py:_thread_permission`
 
 交互流程：
-1. Agent 线程：`_check_tool_permission()` → 对 `write_file`/`patch` 先计算 prewrite diff（`src/agent/prewrite.py`，纯函数）挂到 `op.review`
+1. Agent 线程：`_check_tool_permission()` → 对 `write_file`/`patch` 先计算 prewrite diff（`vague_code/agent/prewrite.py`，纯函数）挂到 `op.review`
 2. TUI：`_thread_permission()` → `asyncio.run_coroutine_threadsafe` → `push_screen_wait`
 3. 弹窗显示操作详情 + **写入前 diff 预览**（红删绿增，`views/review.py` 渲染）+ 可选的拒绝理由输入框
 4. 用户选择：
@@ -187,12 +187,12 @@ TUI 主界面分为四个区域：
 - **Resume 流程**（`app.py:_start_resume`）：
   1. `Trajectory.from_db(run_id, db_path)` 加载
   2. `_replay_trajectory()` 从事件流重建 transcript（user 任务 / assistant Markdown / 工具调用与结果生命周期）
-  3. `XClawAgentRunner.resume(traj)` 静默恢复运行（不 yield 事件，与 replay 互补）
+  3. `VagueCodeAgentRunner.resume(traj)` 静默恢复运行（不 yield 事件，与 replay 互补）
 - **`/model`** → picker 选择预设模型（deepseek-v4-flash / v4-pro / chat / reasoner），选中后重路由 `/model <name>` 更新 config
 
 ### 10. 键绑定参考表
 
-来源：`XClawApp`（`app.py` BINDINGS + `on_key`）
+来源：`VagueCodeApp`（`app.py` BINDINGS + `on_key`）
 
 | 键 | 操作 | 行为 |
 |-------|--------|------|

@@ -2,7 +2,7 @@
 
 ## 目标
 
-将 `day0_minimal_loop.py` 的裸 while 循环迁移为符合 ADR-0001 的库形态 `Agent(config, backend).run(task, workdir) → Trajectory`。复用 day1 的 IR (`src/agent/ir.py`) 与 DeepSeek codec (`src/agent/codecs/deepseek.py`)，带轮次熔断、SQLite 事件流轨迹、异常处理和 API key 脱敏。Agent 内部不接触任何厂商协议类型，仅与 IR 交互。
+将 `day0_minimal_loop.py` 的裸 while 循环迁移为符合 ADR-0001 的库形态 `Agent(config, backend).run(task, workdir) → Trajectory`。复用 day1 的 IR (`vague_code/agent/ir.py`) 与 DeepSeek codec (`vague_code/agent/codecs/deepseek.py`)，带轮次熔断、SQLite 事件流轨迹、异常处理和 API key 脱敏。Agent 内部不接触任何厂商协议类型，仅与 IR 交互。
 
 ## 改动清单
 
@@ -15,7 +15,7 @@ dependencies = [
 ]
 ```
 
-### 2. `src/agent/config.py`（新建）
+### 2. `vague_code/agent/config.py`（新建）
 
 `AgentConfig` dataclass — 厂商无关，不含 api_key/base_url：
 
@@ -28,7 +28,7 @@ dependencies = [
 
 `to_public_dict()`：序列化时脱敏（当前无敏感字段，保留为防回归钩子）。
 
-### 3. `src/agent/backend.py`（新建）
+### 3. `vague_code/agent/backend.py`（新建）
 
 `ModelBackend` 协议：
 
@@ -42,7 +42,7 @@ class ModelBackend(Protocol):
     ) -> ModelResponse: ...
 ```
 
-`DeepSeekBackend` 实现（放 `src/agent/backend.py`；`codecs/deepseek.py` 只保留纯函数）：
+`DeepSeekBackend` 实现（放 `vague_code/agent/backend.py`；`codecs/deepseek.py` 只保留纯函数）：
 
 - 持有 `OpenAI(api_key=..., base_url=..., timeout=turn_timeout_s)` 实例
 - `complete()` 调用 codec 的 `encode_request` → `client.chat.completions.create` → `decode_response`
@@ -63,7 +63,7 @@ class DeepSeekBackend:
 
 `create_deepseek_backend(api_key, base_url, timeout_s) -> DeepSeekBackend` 工厂函数。
 
-### 4. `src/agent/trajectory.py`（新建）
+### 4. `vague_code/agent/trajectory.py`（新建）
 
 按 ADR-0003 事件流规范，SQLite 为主，JSONL 为调试导出。
 
@@ -107,7 +107,7 @@ events(
 - `.export_jsonl(path)` — 调试导出 JSONL（非主要存储）
 - `.persist(path)` — 写入 SQLite（含 runs 表 upsert + events 表批量插入）
 
-### 5. `src/agent/loop.py`（新建）
+### 5. `vague_code/agent/loop.py`（新建）
 
 `Agent.__init__(config, backend)` — 接受 ModelBackend 实现，不接触厂商类型。
 
@@ -180,11 +180,11 @@ events(
 
 每事件一定携带 `run_id`、`ts`（time.time() 浮点）、`turn`（可为 NULL）、`type`、`payload`（dict 转 JSON）。确保 to_messages() 和 LLM-as-Judge 消费时能追踪到原始上下文。
 
-### 9. `src/agent/ir.py` 改动
+### 9. `vague_code/agent/ir.py` 改动
 
 `StopReason` 新增 `unknown`，`content_filter` 已是成员。codec 的 `_decode_stop_reason` 修正：`None`/未识别 finish_reason → `unknown`，不再复用 `stop_sequence`。
 
-### 10. `src/cli/__init__.py`（薄壳）
+### 10. `vague_code/cli/__init__.py`（薄壳）
 
 命令行入口：
 - 解析参数（task, workdir, --model, --max-turns, --db-path, --export-jsonl, ...）

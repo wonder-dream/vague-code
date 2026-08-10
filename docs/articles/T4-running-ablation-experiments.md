@@ -5,7 +5,7 @@
 > ② 验收改为 **sanity gate 双检 + F2P/P2P 实跑**（不再全标 True），新增 **pass^k** 可靠性指标；
 > ③ 环境改为 `eval/env.py` 的 `REPO_SETUP` 策展（PYTHONPATH 源码策略），不再手工装依赖。
 > 现行流程以 [`eval/README.md`](../../eval/README.md) 为准；重建与策展见
-> [`docs/handoff/2026-08-03-xclaw-eval-system.md`](../handoff/2026-08-03-xclaw-eval-system.md)。
+> [`docs/handoff/2026-08-03-vague-code-eval-system.md`](../handoff/2026-08-03-vague-code-eval-system.md)。
 > 本文档 v0.1 的 83%/93% 等数字基于假 pass/fail，**不得引用**。
 
 **谁需要读：** 想运行评测并复现消融实验结果的开发者

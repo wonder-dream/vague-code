@@ -11,10 +11,10 @@
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/permission.py` | **新建** |
-| 2 | `src/agent/config.py` | 改：`AgentConfig` 加权限字段 |
-| 3 | `src/agent/loop.py` | 改：bash 执行前接入权限 |
-| 4 | `src/agent/trajectory.py` | 改：`EventType` 加权限事件 |
+| 1 | `vague_code/agent/permission.py` | **新建** |
+| 2 | `vague_code/agent/config.py` | 改：`AgentConfig` 加权限字段 |
+| 3 | `vague_code/agent/loop.py` | 改：bash 执行前接入权限 |
+| 4 | `vague_code/agent/trajectory.py` | 改：`EventType` 加权限事件 |
 | 5 | `tests/test_permission.py` | **新建** |
 
 ## 步骤 1：`permission.py`
@@ -161,7 +161,7 @@ permission_mode: str = "normal"  # safe / normal / autoedit / auto
 
 ```python
 if block.name == "bash":
-    from src.agent.permission import evaluate, Operation, PermissionMode
+    from vague_code.agent.permission import evaluate, Operation, PermissionMode
     mode = PermissionMode(self.config.permission_mode)
     op = Operation(tool_name=block.name, input=block.input, command=block.input.get("command", ""))
     decision = evaluate(mode, op)

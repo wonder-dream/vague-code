@@ -7,7 +7,7 @@ date: 2026-08-01
 
 ## 背景
 
-XClaw 是单 Agent 架构：`Agent(config).run(task, workdir) → Trajectory`。当任务需要理解大项目（如 100 个文件）时，所有内容堆在同一个上下文窗口，工具级并发无法并行探索，五层压缩只能"消化"而非"根治"单上下文压力。主流产品（OpenCode / Cursor / Aider）已具备 subagent 委派能力，这是 XClaw 的差异化缺口。
+vague-code 是单 Agent 架构：`Agent(config).run(task, workdir) → Trajectory`。当任务需要理解大项目（如 100 个文件）时，所有内容堆在同一个上下文窗口，工具级并发无法并行探索，五层压缩只能"消化"而非"根治"单上下文压力。主流产品（OpenCode / Cursor / Aider）已具备 subagent 委派能力，这是 vague-code 的差异化缺口。
 
 ## 决策
 

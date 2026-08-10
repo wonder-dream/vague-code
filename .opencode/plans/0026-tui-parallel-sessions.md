@@ -19,7 +19,7 @@
 
 ## 架构改动
 
-### 1. 会话管理器（新 `src/tui/session.py`）
+### 1. 会话管理器（新 `vague_code/tui/session.py`）
 - `SessionState`：run_id / title / agent / transcript / worker / busy / pending_guidance
 - `SessionManager`：`sessions: dict[run_id, SessionState]`、当前会话、新建/切换/查询
 

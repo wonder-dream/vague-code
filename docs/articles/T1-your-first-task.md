@@ -1,8 +1,8 @@
 # T1：你的第一个任务
 
-**谁需要读：** 第一次使用 XClaw 的开发者
+**谁需要读：** 第一次使用 vague-code 的开发者
 **前置阅读：** 00-what-is-a-coding-agent.md（概念理解）
-**读完能做什么：** 在本地跑起来 XClaw，完成第一个简单任务，会读运行记录
+**读完能做什么：** 在本地跑起来 vague-code，完成第一个简单任务，会读运行记录
 
 ---
 
@@ -24,8 +24,8 @@ uv --version       # 需要 uv 包管理器
 ### 克隆与安装
 
 ```bash
-git clone <xclaw-repo-url>
-cd xclaw
+git clone <vague-code-repo-url>
+cd vague-code
 uv sync
 ```
 
@@ -39,7 +39,7 @@ Resolved 42 packages in 1.2s
 ### 验证安装
 
 ```bash
-python -c "from src.agent.loop import Agent; print('OK')"
+python -c "from vague_code.agent.loop import Agent; print('OK')"
 ```
 
 输出 `OK` 即安装成功。
@@ -63,7 +63,7 @@ $env:DEEPSEEK_API_KEY = "sk-xxxx"
 ### 任务：列出当前目录文件
 
 ```bash
-python -m src.cli "列出当前目录下的文件"
+python -m vague_code.cli "列出当前目录下的文件"
 ```
 
 输出分段解释（--verbose 模式将展示更多细节）：
@@ -73,7 +73,7 @@ python -m src.cli "列出当前目录下的文件"
 [Thinking: ...]                       ← 推理过程（默认折叠）
 [read_file 目录结构...]               ← ToolUseStart
 [glob] **.*                          ← ToolUseStart
-[Tool result: src\ README.md ...]     ← ToolResult
+[Tool result: vague_code/ README.md ...]     ← ToolResult
 [Thinking: ...]                       ← 再次推理
 [end_turn]                            ← MessageEnd：Agent 完成
 Run {id} finished, reason: end_turn  ← 运行摘要
@@ -84,7 +84,7 @@ Run {id} finished, reason: end_turn  ← 运行摘要
 ### 第二个任务：创建并运行文件
 
 ```bash
-python -m src.cli "创建一个 hello.py 文件，内容为 print('Hello')，然后运行它"
+python -m vague_code.cli "创建一个 hello.py 文件，内容为 print('Hello')，然后运行它"
 ```
 
 观察 Agent 的操作序列：
@@ -97,7 +97,7 @@ python -m src.cli "创建一个 hello.py 文件，内容为 print('Hello')，然
 ### 对比 --no-stream 模式
 
 ```bash
-python -m src.cli --no-stream "列出文件"
+python -m vague_code.cli --no-stream "列出文件"
 ```
 
 输出一次性打印，无流式效果。适合在管道或日志场景使用。
@@ -109,7 +109,7 @@ python -m src.cli --no-stream "列出文件"
 ### 修改最大轮次
 
 ```bash
-python -m src.cli --max-turns 3 "复杂的多步骤任务"
+python -m vague_code.cli --max-turns 3 "复杂的多步骤任务"
 ```
 
 观察：3 轮耗尽后 Agent 结束，pending tool calls 被记录。对比默认 20 轮的输出差异——记得有些任务确实需要多轮迭代才能完成。
@@ -117,7 +117,7 @@ python -m src.cli --max-turns 3 "复杂的多步骤任务"
 ### 切换模型
 
 ```bash
-python -m src.cli --model deepseek-v4-pro "分析项目结构"
+python -m vague_code.cli --model deepseek-v4-pro "分析项目结构"
 ```
 
 用 `--verbose` 验证模型名是否正确传递。
@@ -125,7 +125,7 @@ python -m src.cli --model deepseek-v4-pro "分析项目结构"
 ### 指定工作目录
 
 ```bash
-python -m src.cli "分析这个项目" /path/to/other/project
+python -m vague_code.cli "分析这个项目" /path/to/other/project
 ```
 
 SystemPrompt 中的 `工作目录根路径` 会变为对应路径。Agent 的 read/write 操作都会被限制在这个目录下。
@@ -134,13 +134,13 @@ SystemPrompt 中的 `工作目录根路径` 会变为对应路径。Agent 的 re
 
 ```bash
 # 关闭重试
-python -m src.cli --no-retry "任务"
+python -m vague_code.cli --no-retry "任务"
 
 # 设置超时（秒）
-python -m src.cli --timeout-s 60 "任务"
+python -m vague_code.cli --timeout-s 60 "任务"
 
 # 导出轨迹 JSONL
-python -m src.cli --export-jsonl my_trajectory.jsonl "列出文件"
+python -m vague_code.cli --export-jsonl my_trajectory.jsonl "列出文件"
 ```
 
 `--export-jsonl` 会在当前目录生成 `my_trajectory.jsonl` 文件，内含一次运行的完整事件流。
@@ -199,20 +199,20 @@ end_reason = next(
 ### 启动 TUI
 
 ```bash
-python -m src.cli tui "浏览项目结构"
+python -m vague_code.cli tui "浏览项目结构"
 ```
 
 TUI 布局（纯文字描述，v2 分层架构见 ADR-0019）：
 
 ```
 ┌───────────────────────────────────────────────────┐
-│ xclaw · running [=  ] · deepseek/v4-flash · normal│  ← Topbar
+│ vague-code · running [=  ] · deepseek/v4-flash · normal│  ← Topbar
 ├───────────────────────────────────────────────────┤
 │  > 浏览项目结构                                    │  ← 用户消息（青左边线）
 │  [thinking — 32 词，按 T 展开]                     │  ← 折叠的推理（T 展开）
-│  我正在分析 src/ 目录结构…                         │  ← 助手 Markdown（绿左边线）
-│  正在调用工具：read_file {"path": "src/..."}       │  ← 工具活动（灰）
-│  工具完成：read_file：src/__init__.py …            │
+│  我正在分析 vague_code/ 目录结构…                         │  ← 助手 Markdown（绿左边线）
+│  正在调用工具：read_file {"path": "vague_code/..."}       │  ← 工具活动（灰）
+│  工具完成：read_file：vague_code/__init__.py …            │
 │  …                                                │
 ├───────────────────────────────────────────────────┤
 │ running [=   ] · read_file         12.3s · 2 tools│  ← Activity Line（动画+指标）

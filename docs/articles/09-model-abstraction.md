@@ -1,6 +1,6 @@
 # Model Abstraction
 
-**谁需要读：** 想理解 XClaw 如何统一多厂商 LLM 接口的开发者
+**谁需要读：** 想理解 vague-code 如何统一多厂商 LLM 接口的开发者
 **前置阅读：** 05-tool-system.md（了解工具 spec 的跨厂商映射）
 **读完能做什么：** 理解 IR 设计、codec 架构、添加新厂商的方法
 
@@ -10,7 +10,7 @@
 
 各厂商的 LLM API 在消息格式、流式协议、工具调用编码上各不相同。如果上层代码直接面对这些差异，每个特性都要写 N 份分支逻辑。
 
-XClaw 的解法：**自定义 IR（Internal Representation） + 每厂商一个薄 codec**。
+vague-code 的解法：**自定义 IR（Internal Representation） + 每厂商一个薄 codec**。
 
 IR 的语义照抄 Anthropic content block 模型——四种 Block（text/thinking/tool_use/tool_result）在同一消息中交织排列。这是设计选择：Anthropic 的 content block 模型表达能力最强，其他厂商的格式都可以无损映射到它上面。
 
@@ -144,7 +144,7 @@ def dispatch_event(ev: StreamEvent, v: StreamEventVisitor) -> None:
     ...
 ```
 
-`StreamEventVisitor` Protocol（`ir.py:264-274`）定义了 10 个方法，CLI 的 `RichStreamVisitor` 实现此接口；TUI v2（ADR-0019）已不再使用 visitor——事件经 `XClawAgentRunner` 回调直达 `TuiTranscript` 单一事实源。
+`StreamEventVisitor` Protocol（`ir.py:264-274`）定义了 10 个方法，CLI 的 `RichStreamVisitor` 实现此接口；TUI v2（ADR-0019）已不再使用 visitor——事件经 `VagueCodeAgentRunner` 回调直达 `TuiTranscript` 单一事实源。
 
 **StreamDisconnect**（`ir.py:258-259`）：流异常断开时抛出，触发重试逻辑。
 
@@ -247,7 +247,7 @@ class ModelBackend(Protocol):
     def stream(self, messages, tools=None, config=None) -> Iterator[StreamEvent]: ...
 ```
 
-这是 XClaw 与 LLM 后端的唯一接口。任何实现了这两个方法的类都可以作为 backend 使用。
+这是 vague-code 与 LLM 后端的唯一接口。任何实现了这两个方法的类都可以作为 backend 使用。
 
 ---
 

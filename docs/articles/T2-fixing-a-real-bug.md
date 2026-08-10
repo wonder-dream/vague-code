@@ -1,6 +1,6 @@
 # T2：修一个真实 Bug
 
-**谁需要读：** 想看 XClaw 如何完成一个完整的修 Bug 流程的开发者
+**谁需要读：** 想看 vague-code 如何完成一个完整的修 Bug 流程的开发者
 **前置阅读：** T1（第一个任务）
 **读完能做什么：** 观察 Agent 从搜索到验证的完整链路，理解不同权限模式的行为
 
@@ -10,7 +10,7 @@
 
 **目标项目：** `tests/_target_bug/`（一个简易库存管理系统）
 
-**Bug 位置**（`src/stats.py:22-24`）：
+**Bug 位置**（`vague_code/stats.py:22-24`）：
 
 ```python
 for p in products:
@@ -36,7 +36,7 @@ uv run pytest tests/test_catalog.py::test_category_breakdown -v
 ## 2. 启动 Agent 修 Bug
 
 ```bash
-python -m src.cli --max-turns 30 \
+python -m vague_code.cli --max-turns 30 \
   "修复 category_breakdown 中 stock 为 0 的产品被错误计入统计的 bug。
   文档说只统计 stock > 0 的产品，但代码中 pass 没有 continue" \
   tests/_target_bug
@@ -57,10 +57,10 @@ Agent 先搜索和阅读代码来定位问题：
 
 [Thinking] 我需要找到 category_breakdown 方法的实现，检查 stock==0 的处理逻辑...
 
-[Tool call] glob tests/_target_bug/src/*.py
+[Tool call] glob tests/_target_bug/vague_code/*.py
 [Tool result] stats.py, models.py, repo.py
 
-[Tool call] read_file tests/_target_bug/src/stats.py
+[Tool call] read_file tests/_target_bug/vague_code/stats.py
 [Tool result]  (完整展示 stats.py 内容，第 22-24 行即为 bug 位置)
 ```
 
@@ -79,7 +79,7 @@ Agent 先 glob 确认文件结构，再 read_file 读 stats.py 全文。找到 b
                                 new_str="if p.stock == 0:\n                continue")
 
 [Permission] Tool: patch → CONFIRM  (按 Y 放行)
-[Tool result] 已将 975 字符写入 src/stats.py
+[Tool result] 已将 975 字符写入 vague_code/stats.py
 ```
 
 如果是 normal 模式，你需要在 Permission 弹窗时按 Y 放行。这让你有机会审查 Agent 的修改意图。
@@ -111,7 +111,7 @@ test_inventory_summary PASSED
 
 ```bash
 cd tests/_target_bug
-git diff src/stats.py
+git diff vague_code/stats.py
 ```
 
 输出展示 `pass` → `continue` 的精确改动。
@@ -123,7 +123,7 @@ git diff src/stats.py
 ### safe 模式（只读）
 
 ```bash
-python -m src.cli --max-turns 10 \
+python -m vague_code.cli --max-turns 10 \
   "修复 category_breakdown 的 bug" \
   tests/_target_bug --permission-mode safe
 ```
@@ -137,7 +137,7 @@ Agent 只能读不能写。结果：它能分析出问题，但只能报告不�
 ### autoedit 模式
 
 ```bash
-python -m src.cli --max-turns 10 \
+python -m vague_code.cli --max-turns 10 \
   "修复 bug" tests/_target_bug \
   --permission-mode autoedit
 ```
@@ -147,7 +147,7 @@ python -m src.cli --max-turns 10 \
 ### auto 模式
 
 ```bash
-python -m src.cli --max-turns 10 \
+python -m vague_code.cli --max-turns 10 \
   "修复 bug" tests/_target_bug \
   --permission-mode auto
 ```
@@ -170,7 +170,7 @@ python -m src.cli --max-turns 10 \
 ### 给出模糊描述
 
 ```bash
-python -m src.cli --max-turns 8 "修一下 inventory bug" tests/_target_bug
+python -m vague_code.cli --max-turns 8 "修一下 inventory bug" tests/_target_bug
 ```
 
 Agent 的行为差异明显：反复 grep 搜索关键字段 → 尝试多种修改 → 跑测试失败 → 再尝试。`max_turns=8` 切断时，测试可能仍然失败——Agent 没找到正确的 bug 位置。
@@ -192,6 +192,6 @@ Agent 的行为差异明显：反复 grep 搜索关键字段 → 尝试多种修
 
 ## 下一篇
 
-→ **T3：扩展 XClaw**：添加新工具、新厂商、新任务。
+→ **T3：扩展 vague-code**：添加新工具、新厂商、新任务。
 
 **相关链接：** 07-permission-system.md、05-tool-system.md

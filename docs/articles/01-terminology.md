@@ -51,7 +51,7 @@
 ### Resource Scope（资源范围）
 
 - **一句话通俗解释：** 工具操作的"势力范围"——它读/写了什么文件。
-- **正式定义：** 三维度（scope_type × path × op_type）描述操作的影响范围，用于并发调度（`concurrency.py:25-30`）。例如 `read_file("src/main.py")` 的 scope 为 `(filesystem, src/main.py, read)`。
+- **正式定义：** 三维度（scope_type × path × op_type）描述操作的影响范围，用于并发调度（`concurrency.py:25-30`）。例如 `read_file("vague_code/main.py")` 的 scope 为 `(filesystem, vague_code/main.py, read)`。
 - **常见错误叫法：** Permission Scope——Resource Scope 是为并发调度设计的，不是权限。
 
 ### Conflict Serializability（冲突可串行化）
@@ -70,7 +70,7 @@
 
 - **一句话通俗解释：** 代码库的"目录索引"——不用 grep 反复搜，直接知道函数/类在哪。
 - **正式定义：** 基于 tree-sitter 的符号索引子系统（`repomap.py`）。`Agent.start()` 构建一次，以 `file:line: signature` 列表注入 system prompt（`max_map_tokens=1000` 硬上限），并注册 `code_search` 工具按需查询。热度按符号被引用次数排序（近似 Aider 图排序）。详见 ADR-0016。
-- **常见错误叫法：** Vector Index、Code Search DB——XClaw 用 tree-sitter 本地解析，不是向量检索。
+- **常见错误叫法：** Vector Index、Code Search DB——vague-code 用 tree-sitter 本地解析，不是向量检索。
 
 ---
 
@@ -110,7 +110,7 @@
 ### Prompt Caching
 
 - **一句话通俗解释：** 多次请求之间，前缀重复的部分只编码一次——省 token 省延迟。
-- **正式定义：** LLM 提供商基于底层 KV Cache 的跨请求缓存复用优化。服务端持久化请求前缀的 K/V 张量，新请求前缀匹配时跳过重复编码直接复用缓存。Anthropic 通过 `cache_control` 字段显式标记断点位置（`codecs/anthropic.py`），DeepSeek/OpenAI 自动检测连续请求的前缀匹配。XClaw 三段式 system prompt 将不变的 identity 段置于消息首部，最大化跨请求的缓存命中率（ADR-0007）。
+- **正式定义：** LLM 提供商基于底层 KV Cache 的跨请求缓存复用优化。服务端持久化请求前缀的 K/V 张量，新请求前缀匹配时跳过重复编码直接复用缓存。Anthropic 通过 `cache_control` 字段显式标记断点位置（`codecs/anthropic.py`），DeepSeek/OpenAI 自动检测连续请求的前缀匹配。vague-code 三段式 system prompt 将不变的 identity 段置于消息首部，最大化跨请求的缓存命中率（ADR-0007）。
 
 ---
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.agent.config import AgentConfig, CompressionConfig, SupervisionConfig, TransportConfig
-from src.agent.ir import (
+from vague_code.agent.config import AgentConfig, CompressionConfig, SupervisionConfig, TransportConfig
+from vague_code.agent.ir import (
     Block,
     Message,
     MessageEnd,
@@ -21,11 +21,11 @@ from src.agent.ir import (
     ToolSpec,
     ToolUseBlock,
 )
-from src.agent.loop import Agent
-from src.agent.permission import Decision
-from src.agent.tools import DEFAULT_TOOLS, Tool
-from src.agent.trajectory import Event, EventType, Trajectory
-from src.agent.backend import DeepSeekBackend
+from vague_code.agent.loop import Agent
+from vague_code.agent.permission import Decision
+from vague_code.agent.tools import DEFAULT_TOOLS, Tool
+from vague_code.agent.trajectory import Event, EventType, Trajectory
+from vague_code.agent.backend import DeepSeekBackend
 
 
 class FakeBackend:
@@ -130,7 +130,7 @@ def test_start_includes_system_message():
     msgs = traj.to_messages()
     assert len(msgs) >= 2
     assert msgs[0].role == "system"
-    assert "XClaw" in msgs[0].content[0].text
+    assert "vague-code" in msgs[0].content[0].text
     assert msgs[1].role == "user"
 
 
@@ -165,9 +165,9 @@ def test_guidance_injected_at_turn_start():
 
 
 def test_deny_feedback_propagates_to_tool_result():
-    from src.agent.ir import ToolUseBlock
-    from src.agent.permission import PermissionMode
-    from src.agent.trajectory import Trajectory
+    from vague_code.agent.ir import ToolUseBlock
+    from vague_code.agent.permission import PermissionMode
+    from vague_code.agent.trajectory import Trajectory
 
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5, permission_mode="normal")
@@ -553,7 +553,7 @@ def test_read_file_truncates_large_file(tmp_path):
     ws.mkdir()
     big_file = ws / "big.txt"
     big_file.write_text("A" * 2000, encoding="utf-8")
-    import src.agent.tools as tmod
+    import vague_code.agent.tools as tmod
     original_max = tmod.MAX_READ_BYTES
     try:
         tmod.MAX_READ_BYTES = 1000
@@ -1761,7 +1761,7 @@ def test_supervision_input_task_only_periodic(tmp_path):
 
 
 def test_extract_json_obj():
-    from src.agent.loop import _extract_json_obj
+    from vague_code.agent.loop import _extract_json_obj
     assert _extract_json_obj('{"assessment": "done"}') == {"assessment": "done"}
     assert _extract_json_obj('text {"a": 1} tail') == {"a": 1}
     assert _extract_json_obj('no json here') is None

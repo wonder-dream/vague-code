@@ -23,7 +23,7 @@ EDD 第三轮迭代：基线 43% 失败是撞 max_turns（25 轮），且大量 
 
 ### 1. 产品层
 
-**`src/agent/config.py`** — `SupervisionConfig` dataclass：
+**`vague_code/agent/config.py`** — `SupervisionConfig` dataclass：
 ```python
 @dataclass
 class SupervisionConfig:
@@ -36,7 +36,7 @@ class SupervisionConfig:
 ```
 `AgentConfig.supervision: SupervisionConfig = field(default_factory=SupervisionConfig)`
 
-**`src/agent/loop.py`**：
+**`vague_code/agent/loop.py`**：
 - 主循环条件 `max_turns` 保持（500 保险丝），新增三处钩子：
   - 周期监督：`turn % config.supervision.period == 0` → `_run_supervision(...)`，输出经 guidance 注入（复用 loop.py:269 `_drain_guidance` 通道，监督输出 push 进 guidance 队列）
   - 完成校验：主 agent `end_turn` 分支 → `_run_supervision(..., mode="final")`，`done` 则直接 emit `run_end reason="supervisor_done"` 并终止；非 done 则注入 guidance 打回
@@ -44,9 +44,9 @@ class SupervisionConfig:
 - `_run_supervision`：构造监督输入（见 Q4）→ `backend.complete` 单次调用 → 解析五值 JSON（复用 judge `_extract_json` 模式）→ emit `EventType.supervision`（新事件类型：输入转写 + 输出 JSON + 消耗 tokens）→ 返回 (assessment, guidance)
 - `run_end` reason 新值：`supervisor_done` / `stagnant`
 
-**`src/agent/ir.py`** — `EventType` 增 `supervision`
+**`vague_code/agent/ir.py`** — `EventType` 增 `supervision`
 
-**`src/agent/tools.py`** — bash 测试结果结构化：
+**`vague_code/agent/tools.py`** — bash 测试结果结构化：
 - `_bash_factory` 返回里对测试类命令（`pytest` 前缀）追加一行解析：从输出提取 `N passed / M failed / X error`（pytest 格式）或 fallback exit code 判 PASS/FAIL
 - 描述不变；结构化行格式：`[test] PASS (3 passed) | FAIL (1 failed)`——给模型明确信号
 

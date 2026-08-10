@@ -53,10 +53,10 @@ stale_snip → microcompact → structured_snip → auto_compact → truncation
 用事件 payload 中的结构化数据，模板生成摘要消息：
 
 ```
-[Turn 3-5: Fixed bug in src/stats.py]
-  read_file: src/stats.py
-  grep: "def calculate" → found in src/stats.py, src/utils.py
-  patch: src/stats.py L23 "pass" → "continue"
+[Turn 3-5: Fixed bug in vague_code/stats.py]
+  read_file: vague_code/stats.py
+  grep: "def calculate" → found in vague_code/stats.py, vague_code/utils.py
+  patch: vague_code/stats.py L23 "pass" → "continue"
   bash: pytest tests/test_stats.py → exit 0 (all pass)
 ```
 
@@ -99,11 +99,11 @@ if new_total > budget * cfg.structured_snip_threshold:  # 默认 0.65
 
 | 步骤 | 文件 | 操作 |
 |------|------|------|
-| 1 | `src/agent/config.py` | 改：`CompressionConfig` 加 `structured_snip_threshold: float = 0.65`、`structured_snip_keep_recent: int = 3` |
-| 2 | `src/agent/context_compress.py` | **新建** `structured_snip()` 函数 + `_detect_subtasks()` 辅助函数 |
-| 3 | `src/agent/context_compress.py` | 改：`compress_chain()` 签名 + `events` 参数，插在 microcompact 和 auto_compact 之间 |
-| 4 | `src/agent/context.py` | 改：re-export `structured_snip`（可选，保持公共入口一致） |
-| 5 | `src/agent/loop.py` | 改：`compress_chain()` 调用处传入 `traj.events` |
+| 1 | `vague_code/agent/config.py` | 改：`CompressionConfig` 加 `structured_snip_threshold: float = 0.65`、`structured_snip_keep_recent: int = 3` |
+| 2 | `vague_code/agent/context_compress.py` | **新建** `structured_snip()` 函数 + `_detect_subtasks()` 辅助函数 |
+| 3 | `vague_code/agent/context_compress.py` | 改：`compress_chain()` 签名 + `events` 参数，插在 microcompact 和 auto_compact 之间 |
+| 4 | `vague_code/agent/context.py` | 改：re-export `structured_snip`（可选，保持公共入口一致） |
+| 5 | `vague_code/agent/loop.py` | 改：`compress_chain()` 调用处传入 `traj.events` |
 | 6 | `tests/test_structured_snip.py` | **新建**：子任务检测 + 摘要输出 + 配对不变量 + 无事件降级 |
 
 ---
