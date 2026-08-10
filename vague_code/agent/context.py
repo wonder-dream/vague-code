@@ -28,11 +28,12 @@ class SystemPrompt:
         "默认使用中文回答。"
     )
 
-    def __init__(self, workdir: str | Path) -> None:
+    def __init__(self, workdir: str | Path, identity: str | None = None) -> None:
         self._workdir = Path(workdir).resolve()
+        self._identity = identity
 
     def build(self) -> str:
-        parts: list[str] = [self.AGENT_IDENTITY]
+        parts: list[str] = [self._identity or self.AGENT_IDENTITY]
         rules = load_rules(self._workdir)
         if rules:
             parts.append(
@@ -41,3 +42,11 @@ class SystemPrompt:
             )
         parts.append(f"\n工作目录根路径: {self._workdir}")
         return "\n".join(parts)
+
+
+def benchmark_identity() -> str:
+    """Benchmark 专用系统提示词（ADR-0040 反作弊条款）。"""
+    from importlib.resources import files
+
+    path = files("vague_code.agent.prompts") / "benchmark_agent_instructions.md"
+    return path.read_text(encoding="utf-8")

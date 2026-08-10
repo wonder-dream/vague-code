@@ -225,8 +225,8 @@ class Agent:
             pass
         return handle.trajectory
 
-    def start(self, task: str, workdir: str) -> RunHandle:
-        traj, messages, bound_tools = self._init_run(task, workdir)
+    def start(self, task: str, workdir: str, identity: str | None = None) -> RunHandle:
+        traj, messages, bound_tools = self._init_run(task, workdir, identity=identity)
         if messages is None:
             return RunHandle(iter([]), traj)
         gen = self._run_gen(traj, messages, [0], bound_tools)
@@ -395,6 +395,7 @@ class Agent:
 
     def _init_run(
         self, task: str, workdir: str, *, mode: str | None = None,
+        identity: str | None = None,
     ) -> tuple[Trajectory, list[Message] | None, dict[str, Callable[[dict], str]]]:
         """初始化一次运行/会话：traj + 首条消息 + 绑定工具（start 与 chat 首轮共用）。"""
         self._workdir = workdir
@@ -419,7 +420,7 @@ class Agent:
                 warnings.warn(f"Failed to build repo index: {e}", stacklevel=2)
                 self._repo_index = None
 
-        system_prompt = SystemPrompt(workdir).build()
+        system_prompt = SystemPrompt(workdir, identity=identity).build()
         if repo_map_text:
             system_prompt += "\n\n## 代码库符号地图\n" + repo_map_text
 

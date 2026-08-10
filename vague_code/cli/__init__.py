@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None) -> None:
     if argv and argv[0] == "init":
         _init_main(argv[1:])
         return
+    if argv and argv[0] == "benchmark":
+        _benchmark_main(argv[1:])
+        return
 
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
@@ -367,6 +370,81 @@ def _resolve_api_key(key_env: str) -> str | None:
         pass
     import os
     return os.environ.get(key_env)
+
+
+def _benchmark_main(argv: list[str]) -> None:
+    """`vague-code benchmark`：无交互评测入口（ADR-0040）。
+
+    单次执行：bypass 权限（不弹确认）、benchmark 专用反作弊提示词、
+    max_turns 预算兜底。退出码 0 = 正常结束（是否通过由 verifier 判定），
+    异常 = 1。
+    """
+    parser = argparse.ArgumentParser(
+        prog="vague-code benchmark",
+        description="Non-interactive benchmark entry for automated eval (ADR-0040)",
+    )
+    parser.add_argument("--project", required=True, help="Task workspace directory")
+    parser.add_argument("--message", required=True, help="Task instruction")
+    parser.add_argument("--max-turns", type=int, default=60,
+                        help="Hard cap on agent turns (budget)")
+    parser.add_argument("--timeout-s", type=float, default=120.0,
+                        help="Per-turn LLM call timeout (seconds)")
+    parser.add_argument("--model", default=None, help="Model name (default: config)")
+    parser.add_argument("--provider", default=None, help="Provider name")
+    parser.add_argument("--base-url", default=None, help="Override provider base URL")
+    parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key")
+    parser.add_argument("--db-path", default="runs/runs.db", help="Trajectory database path")
+    parser.add_argument("--export-jsonl", default=None,
+                        help="Export trajectory to JSONL file path")
+    parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map injection")
+    args = parser.parse_args(argv)
+
+    model, provider, file_cfg = _resolve_config(args.model, args.provider, args.project)
+    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
+    api_key = _resolve_api_key(key_env)
+    if not api_key:
+        print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
+        sys.exit(1)
+
+    config = AgentConfig(
+        model=model,
+        max_turns=args.max_turns,
+        db_path=args.db_path,
+        transport=TransportConfig(
+            stream=False,
+            timeout_s=args.timeout_s,
+        ),
+    )
+    config.permission_mode = "auto"  # 评测：写/读/网络全放行，确认类全 bypass
+    if args.no_repo_map:
+        config.repo_map.enabled = False
+
+    from vague_code.agent.permission import Decision
+
+    backend: ModelBackend = _build_backend(
+        provider, api_key, base_url, protocol, config.transport.timeout_s,
+    )
+    agent = Agent(config, backend)
+    agent._on_permission = lambda op, decision: Decision.ALLOW  # bypass 确认
+
+    from vague_code.agent.context import benchmark_identity
+
+    handle = agent.start(task=args.message, workdir=args.project, identity=benchmark_identity())
+    for _ in handle:
+        pass
+    traj = handle.trajectory
+
+    if args.export_jsonl:
+        export_path = Path(args.export_jsonl)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        traj.export_jsonl(str(export_path))
+
+    run_end = [e for e in traj.events if e.type == "run_end"]
+    reason = run_end[0].payload.get("reason", "?") if run_end else "?"
+    print(f"benchmark run {traj.run_id} finished: {reason}", file=sys.stderr)
+    # 仅 end_turn（agent 自主完成）算成功；预算/异常/未完成一律非零（供 harness 归因）
+    if reason != "end_turn":
+        sys.exit(1)
 
 
 def _init_main(argv: list[str]) -> None:
