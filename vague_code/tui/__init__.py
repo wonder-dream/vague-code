@@ -8,6 +8,8 @@ def main(
     workdir: str,
     config,
     backend,
+    provider: str = "deepseek",
 ) -> None:
-    app = VagueCodeApp(config=config, backend=backend, task=task, workdir=workdir)
+    app = VagueCodeApp(config=config, backend=backend, task=task, workdir=workdir,
+                       provider=provider)
     app.run()

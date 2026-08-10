@@ -312,8 +312,13 @@ class Agent:
         if self._chat_messages is None or self._chat_traj is None:
             raise ValueError("当前没有活动会话")
         from vague_code.agent.context_compress import auto_compact, stale_snip
-        from vague_code.agent.context_tokens import compute_budget, should_skip_thinking
+        from vague_code.agent.context_tokens import (
+            compute_budget,
+            set_tokenizer_for_model,
+            should_skip_thinking,
+        )
 
+        set_tokenizer_for_model(self.config.model)
         budget = compute_budget(self.config.model)
         cfg = self.config.compression
         skip_thinking = should_skip_thinking(self.config.model)
@@ -493,8 +498,14 @@ class Agent:
                 resp: ModelResponse | None = None
 
                 from vague_code.agent.context import compress_chain
-                from vague_code.agent.context_tokens import compute_budget, count_tokens, should_skip_thinking
+                from vague_code.agent.context_tokens import (
+                    compute_budget,
+                    count_tokens,
+                    set_tokenizer_for_model,
+                    should_skip_thinking,
+                )
 
+                set_tokenizer_for_model(self.config.model)
                 budget = compute_budget(self.config.model)
                 cfg = self.config.compression
                 skip_thinking = should_skip_thinking(self.config.model)

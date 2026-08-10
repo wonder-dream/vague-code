@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, asdict, field
 
-MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9._\-]+$")
+MODEL_ID_RE = re.compile(r"^[a-zA-Z0-9._\-/]+$")  # / 支持 OpenRouter 的 provider/model 模型名
 
 
 @dataclass

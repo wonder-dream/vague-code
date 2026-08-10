@@ -13,6 +13,17 @@ from vague_code.agent.ir import dispatch_event
 from vague_code.agent.loop import Agent
 from vague_code.cli.renderer import RichStreamVisitor
 
+_PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
+    "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
+    "openai": ("https://api.openai.com/v1", "OPENAI_API_KEY"),
+    "anthropic": ("https://api.deepseek.com/anthropic", "ANTHROPIC_API_KEY"),
+}
+
+
+def _provider_settings(provider: str, base_url: str | None, api_key_env: str | None) -> tuple[str, str]:
+    default_url, default_env = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["deepseek"])
+    return base_url or default_url, api_key_env or default_env
+
 
 def main(argv: list[str] | None = None) -> None:
     if argv is None:
@@ -55,8 +66,10 @@ def main(argv: list[str] | None = None) -> None:
                         help="Maximum delay between retries (seconds)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
                         help="Per-turn LLM call timeout (seconds)")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
+    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
                         help="Model provider (default: deepseek)")
+    parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
+    parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map symbol index")
     parser.add_argument("--repo-map-tokens", type=int, default=1000,
                         help="Max tokens for the injected repo map (default: 1000)")
@@ -70,10 +83,10 @@ def main(argv: list[str] | None = None) -> None:
         parser.error("task is required unless --resume is used")
 
     try:
-        api_key = _resolve_api_key(args.provider)
+        base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+        api_key = _resolve_api_key(key_env)
         if not api_key:
-            key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
-            print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
+            print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
             sys.exit(1)
 
         config = AgentConfig(
@@ -97,13 +110,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.provider == "anthropic":
             backend = create_anthropic_backend(  # type: ignore[assignment]
                 api_key=api_key,
-                base_url="https://api.deepseek.com/anthropic",
+                base_url=base_url,
                 timeout_s=config.transport.timeout_s,
             )
         else:
             backend = create_deepseek_backend(  # type: ignore[assignment]
                 api_key=api_key,
-                base_url="https://api.deepseek.com",
+                base_url=base_url,
                 timeout_s=config.transport.timeout_s,
             )
 
@@ -150,8 +163,10 @@ def _tui_main(argv: list[str]) -> None:
     parser.add_argument("--max-turns", type=int, default=None,
                         help=f"Maximum turns (default: {AgentConfig.max_turns})")
     parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
+    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
                         help="Model provider (default: deepseek)")
+    parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
+    parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
                         help="Per-turn LLM call timeout (seconds)")
     parser.add_argument("--retry-max-attempts", type=int, default=5,
@@ -165,10 +180,10 @@ def _tui_main(argv: list[str]) -> None:
 
     args = parser.parse_args(argv)
 
-    api_key = _resolve_api_key(args.provider)
+    base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+    api_key = _resolve_api_key(key_env)
     if not api_key:
-        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
-        print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
+        print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
         sys.exit(1)
 
     config = AgentConfig(
@@ -185,18 +200,19 @@ def _tui_main(argv: list[str]) -> None:
     if args.provider == "anthropic":
         backend = create_anthropic_backend(
             api_key=api_key,
-            base_url="https://api.deepseek.com/anthropic",
+            base_url=base_url,
             timeout_s=config.transport.timeout_s,
         )
     else:
         backend = create_deepseek_backend(  # type: ignore[assignment,arg-type]
             api_key=api_key,
-            base_url="https://api.deepseek.com",
+            base_url=base_url,
             timeout_s=config.transport.timeout_s,
         )
 
     from vague_code.tui import main as tui_main
-    tui_main(task=args.task, workdir=args.workdir, config=config, backend=backend)
+    tui_main(task=args.task, workdir=args.workdir, config=config, backend=backend,
+             provider=args.provider)
 
 
 def _chat_main(argv: list[str]) -> None:
@@ -212,8 +228,10 @@ def _chat_main(argv: list[str]) -> None:
     parser.add_argument("--max-turns", type=int, default=None,
                         help=f"Maximum turns (default: {AgentConfig.max_turns})")
     parser.add_argument("--db-path", default="runs/runs.db", help="SQLite database path")
-    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "anthropic"],
+    parser.add_argument("--provider", default="deepseek", choices=["deepseek", "openai", "anthropic"],
                         help="Model provider (default: deepseek)")
+    parser.add_argument("--base-url", default=None, help="Override the provider base URL (any OpenAI-compatible endpoint)")
+    parser.add_argument("--api-key-env", default=None, help="Env var name holding the API key (default: per provider)")
     parser.add_argument("--timeout-s", type=float, default=120.0,
                         help="Per-turn LLM call timeout (seconds)")
     parser.add_argument("--retry-max-attempts", type=int, default=5,
@@ -227,10 +245,10 @@ def _chat_main(argv: list[str]) -> None:
 
     args = parser.parse_args(argv)
 
-    api_key = _resolve_api_key(args.provider)
+    base_url, key_env = _provider_settings(args.provider, args.base_url, args.api_key_env)
+    api_key = _resolve_api_key(key_env)
     if not api_key:
-        key_name = "ANTHROPIC_API_KEY" if args.provider == "anthropic" else "DEEPSEEK_API_KEY"
-        print(f"Error: {key_name} not found. Set it in .env or environment.", file=sys.stderr)
+        print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
         sys.exit(1)
 
     config = AgentConfig(
@@ -247,13 +265,13 @@ def _chat_main(argv: list[str]) -> None:
     if args.provider == "anthropic":
         backend = create_anthropic_backend(  # type: ignore[assignment]
             api_key=api_key,
-            base_url="https://api.deepseek.com/anthropic",
+            base_url=base_url,
             timeout_s=config.transport.timeout_s,
         )
     else:
         backend = create_deepseek_backend(  # type: ignore[assignment,arg-type]
             api_key=api_key,
-            base_url="https://api.deepseek.com",
+            base_url=base_url,
             timeout_s=config.transport.timeout_s,
         )
 
@@ -318,14 +336,13 @@ def _chat_main(argv: list[str]) -> None:
         run_handle(agent.chat(text, args.workdir))
 
 
-def _resolve_api_key(provider: str) -> str | None:
+def _resolve_api_key(key_env: str) -> str | None:
     env_file = dotenv_values()
-    key_name = "ANTHROPIC_API_KEY" if provider == "anthropic" else "DEEPSEEK_API_KEY"
-    key = env_file.get(key_name)
+    key = env_file.get(key_env)
     if key:
         return key
     import os
-    return os.environ.get(key_name)
+    return os.environ.get(key_env)
 
 
 def _load_permission_rules(workdir: str) -> list[dict]:

@@ -16,9 +16,17 @@ CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-v4-pro": 64_000,
     "claude-opus-4-8": 200_000,
     "claude-sonnet-4-5": 200_000,
+    "gpt-4o": 128_000,
+    "gpt-4.1": 1_000_000,
+    "gpt-4.1-mini": 1_000_000,
+    "o3-mini": 200_000,
+    "o4-mini": 200_000,
 }
 
 _SENDS_THINKING_PREFIXES: tuple[str, ...] = ("claude-", "deepseek-")
+
+# GPT 系列使用 OpenAI cl100k 词表（gpt-* / o1-* / o3-* / o4-*）
+_GPT_PREFIXES: tuple[str, ...] = ("gpt-", "o1-", "o3-", "o4-")
 
 # Wire-level structural token overhead, measured against the real DeepSeek API
 # (trajectory 8c10e58e83dc: local count 111201 vs API input_tokens 121506).
@@ -38,26 +46,45 @@ def should_skip_thinking(model: str) -> bool:
     return True
 
 
-_ENC: object | None = None
+_DS_ENC: object | None = None
+_CL100K_ENC: object | None = None
+_MODEL_TOK: str = ""
+
+
+def set_tokenizer_for_model(model: str) -> None:
+    """按模型选择 tokenizer（GPT 系列用 cl100k，其余用 DeepSeek 官方词表）。
+
+    与全局 config.model 语义一致：TUI `/model` 切换后下一轮生效。
+    """
+    global _MODEL_TOK
+    _MODEL_TOK = model
 
 
 def _get_enc():
-    """首选 DeepSeek-V4 官方离线 tokenizer（deepseek_tokenizer，纯 Python 零依赖），
-    与 API 服务端同一套分词（实测偏差 <1%，对比 cl100k 的 ~14% 低估）。
-    导入失败时 fallback 到 tiktoken cl100k（claude 等非 DeepSeek 模型路径）。
+    """按当前模型返回对应 encoder：GPT 系列 → cl100k；其余 → DeepSeek-V4 官方
+    tokenizer（与 API 服务端同一套分词，实测偏差 <1%）。导入失败时 fallback
+    到 tiktoken cl100k。
     """
-    global _ENC
-    if _ENC is None:
+    global _DS_ENC, _CL100K_ENC
+    if _MODEL_TOK.startswith(_GPT_PREFIXES):
+        if _CL100K_ENC is None:
+            try:
+                import tiktoken
+                _CL100K_ENC = tiktoken.get_encoding("cl100k_base")
+            except Exception:
+                _CL100K_ENC = False
+        return _CL100K_ENC if _CL100K_ENC is not False else None
+    if _DS_ENC is None:
         try:
             from deepseek_tokenizer import ds_token
-            _ENC = ds_token
+            _DS_ENC = ds_token
         except Exception:
             try:
                 import tiktoken
-                _ENC = tiktoken.get_encoding("cl100k_base")
+                _DS_ENC = tiktoken.get_encoding("cl100k_base")
             except Exception:
-                _ENC = False
-    return _ENC if _ENC is not False else None
+                _DS_ENC = False
+    return _DS_ENC if _DS_ENC is not False else None
 
 
 def count_tokens(

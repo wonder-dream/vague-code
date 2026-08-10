@@ -73,7 +73,8 @@ def test_count_tokens_none_tool_ignored() -> None:
 def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
     import vague_code.agent.context_tokens as ct
 
-    monkeypatch.setattr(ct, "_ENC", False)
+    ct.set_tokenizer_for_model("")
+    monkeypatch.setattr(ct, "_DS_ENC", False)
     msgs = [Message(role="user", content="test message")]
     result = count_tokens(msgs)
     assert result > 0
@@ -82,14 +83,15 @@ def test_count_tokens_fallback_on_tiktoken_missing(monkeypatch) -> None:
 def test_fallback_less_precise_but_reasonable() -> None:
     import vague_code.agent.context_tokens as ct
 
-    saved = ct._ENC
-    ct._ENC = False
+    ct.set_tokenizer_for_model("")
+    saved = ct._DS_ENC
+    ct._DS_ENC = False
     try:
         msgs = [Message(role="user", content="abcdefgh" * 100)]
         result = count_tokens(msgs)
         assert result >= 100
     finally:
-        ct._ENC = saved
+        ct._DS_ENC = saved
 
 
 def test_count_tokens_includes_tool_blocks() -> None:
@@ -172,7 +174,8 @@ def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
     """deepseek_tokenizer 导入失败时回退 tiktoken，不崩溃。"""
     import vague_code.agent.context_tokens as ct
 
-    monkeypatch.setattr(ct, "_ENC", None)
+    ct.set_tokenizer_for_model("")
+    monkeypatch.setattr(ct, "_DS_ENC", None)
 
     import builtins
     real_import = builtins.__import__
@@ -187,6 +190,28 @@ def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
     assert enc is not None
     msgs = [Message(role="user", content="test message")]
     assert count_tokens(msgs) > 0
+
+
+def test_set_tokenizer_for_model_gpt_uses_cl100k() -> None:
+    """GPT 系列模型切换到 cl100k 词表（非 DeepSeek 词表）。"""
+    import vague_code.agent.context_tokens as ct
+
+    ct.set_tokenizer_for_model("gpt-4o")
+    try:
+        enc = ct._get_enc()
+        assert enc is not None
+        assert getattr(enc, "model_max_length", 0) != 1_048_576
+        assert getattr(enc, "name", "") == "cl100k_base"
+    finally:
+        ct.set_tokenizer_for_model("")
+
+
+def test_gpt_compute_budget() -> None:
+    """GPT 模型的上下文窗口预算（128K/1M），未知模型保持 64K 回退。"""
+    assert compute_budget("gpt-4o") == 128_000 * 0.9
+    assert compute_budget("gpt-4.1") == 1_000_000 * 0.9
+    assert compute_budget("o3-mini") == 200_000 * 0.9
+    assert compute_budget("some-future-model") == 64_000 * 0.9
 
 
 def test_deepseek_tokenizer_counts_chinese_compactly() -> None:

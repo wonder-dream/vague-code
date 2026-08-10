@@ -130,7 +130,7 @@ class TestCliArgumentParsing:
     def test_no_api_key(self, monkeypatch):
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda _: None)
         from vague_code.cli import _resolve_api_key
-        assert _resolve_api_key("deepseek") is None
+        assert _resolve_api_key("DEEPSEEK_API_KEY") is None
         # The main() should exit 1 with key message
         with pytest.raises(SystemExit) as exc:
             from vague_code.cli import main
@@ -483,3 +483,53 @@ class TestCliResume:
         from vague_code.cli import main
         main(["hi", str(tmp_path), "--no-repo-map"])
         assert ("write_file .*", "deny") in seen
+
+    def test_provider_openai_uses_openai_defaults(self, monkeypatch, capsys):
+        """--provider openai → base_url=api.openai.com/v1、key env=OPENAI_API_KEY。"""
+        captured: dict = {}
+
+        def _capture_backend(api_key, base_url, timeout_s):
+            captured["base_url"] = base_url
+            captured["api_key"] = api_key
+            return _FakeBackend([_text_response("hello")])
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+
+        from vague_code.cli import main
+        main(["hi", ".", "--provider", "openai"])
+        assert captured.get("base_url") == "https://api.openai.com/v1"
+        assert captured.get("api_key") == "sk-OPENAI_API_KEY"
+
+    def test_base_url_and_api_key_env_override(self, monkeypatch, capsys):
+        """--base-url/--api-key-env 覆盖 provider 默认（任意 OpenAI 兼容端点）。"""
+        captured: dict = {}
+
+        def _capture_backend(api_key, base_url, timeout_s):
+            captured["base_url"] = base_url
+            captured["api_key"] = api_key
+            return _FakeBackend([_text_response("hello")])
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+
+        from vague_code.cli import main
+        main(["hi", ".", "--base-url", "https://openrouter.ai/api/v1",
+              "--api-key-env", "OPENROUTER_API_KEY", "--model", "openai/gpt-4o"])
+        assert captured.get("base_url") == "https://openrouter.ai/api/v1"
+        assert captured.get("api_key") == "sk-OPENROUTER_API_KEY"
+
+    def test_provider_defaults_stable_for_deepseek(self, monkeypatch, capsys):
+        """默认 provider=deepseek 行为不变（base_url/key env 与旧版一致）。"""
+        captured: dict = {}
+
+        def _capture_backend(api_key, base_url, timeout_s):
+            captured["base_url"] = base_url
+            return _FakeBackend([_text_response("hello")])
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+
+        from vague_code.cli import main
+        main(["hi", "."])
+        assert captured.get("base_url") == "https://api.deepseek.com"

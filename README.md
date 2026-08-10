@@ -65,7 +65,23 @@ $env:DEEPSEEK_API_KEY = "sk-xxxxxx"
 set DEEPSEEK_API_KEY=sk-xxxxxx
 ```
 
-API Key 获取：DeepSeek 开放平台（https://platform.deepseek.com）创建；`--provider anthropic` 使用 Anthropic 风格配置（当前默认指向 DeepSeek 的 Anthropic 兼容端点，密钥同样在 DeepSeek 平台获取）。
+API Key 获取：DeepSeek 开放平台（https://platform.deepseek.com）创建；`--provider anthropic` 使用 Anthropic 风格配置（默认指向 DeepSeek 的 Anthropic 兼容端点，密钥同样在 DeepSeek 平台获取）。
+
+**使用 GPT 系列模型（OpenAI 官方）**
+
+```bash
+export OPENAI_API_KEY=sk-proj-xxxxxx
+vague-code --provider openai --model gpt-4o "Fix the bug in stats.py"
+vague-code tui --provider openai --model gpt-4o
+```
+
+任何 OpenAI 兼容端点均可通过 `--base-url` / `--api-key-env` 接入（OpenRouter、Moonshot 等）：
+
+```bash
+vague-code tui --base-url https://openrouter.ai/api/v1 --api-key-env OPENROUTER_API_KEY --model openai/gpt-4o
+```
+
+> 备注：`--provider` 三选一（deepseek/openai/anthropic），未指定 `--base-url`/`--api-key-env` 时按 provider 取默认端点与密钥环境变量；token 预算按模型自动匹配（GPT 系列用 OpenAI 词表，窗口含 gpt-4o 128K / gpt-4.1 1M / o3-mini 200K）。
 
 ---
 

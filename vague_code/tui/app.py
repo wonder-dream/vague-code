@@ -79,10 +79,12 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         backend,
         task: str = "",
         workdir: str = ".",
+        provider: str = "deepseek",
     ) -> None:
         super().__init__()
         self._config = config
         self._backend = backend
+        self._provider = provider
         self._agent_task = task
         self._workdir = workdir
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
@@ -359,11 +361,7 @@ class VagueCodeApp(VagueCodeViewMixin, App):
     # ── Topbar / welcome ─────────────────────────────────────────────────────
 
     def _topbar_text(self) -> str:
-        provider = str(
-            getattr(self._backend, "name", None)
-            or getattr(self._backend, "provider", None)
-            or "?"
-        )
+        provider = self._provider
         model = self._config.model
         mode = self._config.permission_mode
         cwd = Path(self._workdir).resolve().name or "."

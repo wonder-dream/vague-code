@@ -104,15 +104,32 @@ class SessionCommandHandler(CommandHandler):
 class ModelCommandHandler(CommandHandler):
     name = "model"
 
-    MODELS = (
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-        "deepseek-chat",
-        "deepseek-reasoner",
-    )
+    MODELS: dict[str, tuple[str, ...]] = {
+        "deepseek": (
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ),
+        "openai": (
+            "gpt-4o",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "o3-mini",
+            "o4-mini",
+        ),
+        "anthropic": (
+            "claude-sonnet-4-5",
+            "claude-opus-4-8",
+        ),
+    }
 
     def __init__(self, app) -> None:
         self._app = app
+
+    def _models(self) -> tuple[str, ...]:
+        provider = getattr(self._app, "_provider", "deepseek")
+        return self.MODELS.get(provider, self.MODELS["deepseek"])
 
     def handle(self, text: str) -> CommandResult:
         if not self._match(text, "/model"):
@@ -122,11 +139,11 @@ class ModelCommandHandler(CommandHandler):
         if model:
             return CommandResult(
                 handled=True,
-                action={"type": "model_changed", "provider": "deepseek", "model": model},
+                action={"type": "model_changed", "provider": getattr(self._app, "_provider", "deepseek"), "model": model},
             )
         items = [
-            TuiPickerItem(id=m, label=m, detail="deepseek")
-            for m in self.MODELS
+            TuiPickerItem(id=m, label=m, detail=getattr(self._app, "_provider", "deepseek"))
+            for m in self._models()
         ]
         return CommandResult(
             handled=True,
