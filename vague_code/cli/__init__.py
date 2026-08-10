@@ -7,17 +7,16 @@ from pathlib import Path
 from dotenv import dotenv_values
 from rich.console import Console
 
-from vague_code.agent.backend import (
-    ModelBackend,
-    create_anthropic_backend,
-    create_deepseek_backend,
-    create_responses_backend,
-)
+from vague_code.agent.backend import ModelBackend
 from vague_code.agent.config import AgentConfig, TransportConfig
 from vague_code.agent.ir import dispatch_event
 from vague_code.agent.loop import Agent
 from vague_code.cli.renderer import RichStreamVisitor
-from vague_code.config import load_config, write_init_template
+from vague_code.config import (
+    build_backend,
+    load_config,
+    write_init_template,
+)
 
 _PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "deepseek": ("https://api.deepseek.com", "DEEPSEEK_API_KEY"),
@@ -58,23 +57,7 @@ def _resolve_config(model: str | None, provider: str | None, workdir: str) -> tu
 
 
 def _build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float) -> ModelBackend:
-    if protocol == "anthropic":
-        return create_anthropic_backend(  # type: ignore[return-value]
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=timeout_s,
-        )
-    if protocol == "responses":
-        return create_responses_backend(  # type: ignore[return-value]
-            api_key=api_key,
-            base_url=base_url,
-            timeout_s=timeout_s,
-        )
-    return create_deepseek_backend(  # type: ignore[return-value]
-        api_key=api_key,
-        base_url=base_url,
-        timeout_s=timeout_s,
-    )
+    return build_backend(provider, api_key, base_url, protocol, timeout_s)  # type: ignore[return-value]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -229,9 +212,6 @@ def _tui_main(argv: list[str]) -> None:
     model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
     base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
-    if not api_key:
-        print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
-        sys.exit(1)
 
     config = AgentConfig(
         model=model,
@@ -244,13 +224,17 @@ def _tui_main(argv: list[str]) -> None:
     config.transport.retry_max_delay_s = args.retry_max_delay_s
     config.permission_mode = args.mode
 
-    backend: ModelBackend = _build_backend(
-        provider, api_key, base_url, protocol, config.transport.timeout_s,
-    )
+    if not api_key:
+        # 首次使用：无 key 也进入 TUI，由 SetupWizard 引导配置（ADR-0037）
+        backend: ModelBackend | None = None
+    else:
+        backend = _build_backend(
+            provider, api_key, base_url, protocol, config.transport.timeout_s,
+        )
 
     from vague_code.tui import main as tui_main
     tui_main(task=args.task, workdir=args.workdir, config=config, backend=backend,
-             provider=provider, file_config=file_cfg)
+             provider=provider, file_config=file_cfg, needs_setup=not api_key)
 
 
 def _chat_main(argv: list[str]) -> None:
@@ -367,10 +351,20 @@ def _chat_main(argv: list[str]) -> None:
 
 
 def _resolve_api_key(key_env: str) -> str | None:
+    """读取链：项目 .env → 全局 ~/.config/vague-code/.env → 环境变量（ADR-0037）。"""
+    from vague_code.config import _global_env_path
+
     env_file = dotenv_values()
     key = env_file.get(key_env)
     if key:
         return key
+    try:
+        global_env = dotenv_values(str(_global_env_path()))
+        key = global_env.get(key_env)
+        if key:
+            return key
+    except Exception:
+        pass
     import os
     return os.environ.get(key_env)
 

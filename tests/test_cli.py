@@ -155,7 +155,7 @@ class TestCliConfigPassing:
         def fake_backend(api_key, base_url, timeout_s):
             captured["timeout_s"] = timeout_s
             return _FakeBackend([_text_response("hi")])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", fake_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", fake_backend)
         monkeypatch.setattr("vague_code.cli.Console", lambda: None)
         monkeypatch.setattr("vague_code.cli.RichStreamVisitor", lambda *a, **kw: type("V", (), {})())
         monkeypatch.setattr("vague_code.cli.dispatch_event", lambda ev, v: None)
@@ -172,7 +172,7 @@ class TestCliConfigPassing:
         def fake_backend(api_key, base_url, timeout_s):
             captured["timeout_s"] = timeout_s
             return _FakeBackend([_text_response("hi")])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", fake_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", fake_backend)
         monkeypatch.setattr("vague_code.cli.Console", lambda: None)
         monkeypatch.setattr("vague_code.cli.RichStreamVisitor", lambda *a, **kw: type("V", (), {})())
         monkeypatch.setattr("vague_code.cli.dispatch_event", lambda ev, v: None)
@@ -189,7 +189,7 @@ class TestCliConfigPassing:
         def capture_backend(api_key, base_url, timeout_s):
             return _FakeBackend([_text_response("hi")])
 
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", capture_backend)
         monkeypatch.setattr("vague_code.cli.Console", lambda: None)
         monkeypatch.setattr("vague_code.cli.RichStreamVisitor", lambda *a, **kw: type("V", (), {})())
         monkeypatch.setattr("vague_code.cli.dispatch_event", lambda ev, v: None)
@@ -212,7 +212,7 @@ class TestCliConfigPassing:
 
         def fake_backend(api_key, base_url, timeout_s):
             return _FakeBackend([_text_response("hi")])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", fake_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", fake_backend)
         monkeypatch.setattr("vague_code.cli.Console", lambda: None)
         monkeypatch.setattr("time.sleep", lambda _: None)
 
@@ -240,7 +240,7 @@ class TestCliMockPipeline:
         monkeypatch.setattr(random, "uniform", lambda lo, hi: 0.0)
 
     def test_text_task_succeeds(self, monkeypatch, capsys):
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
         main(["say hi", ".", "--verbose"])
@@ -250,7 +250,7 @@ class TestCliMockPipeline:
 
     def test_export_jsonl_to_directory_errors(self, monkeypatch, capsys, tmp_path):
         """--export-jsonl pointing to an existing directory must give clear error."""
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("ok")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("ok")]))
 
         from vague_code.cli import main
         with pytest.raises(SystemExit) as exc:
@@ -260,7 +260,7 @@ class TestCliMockPipeline:
         assert "is a directory" in err
 
     def test_export_jsonl(self, monkeypatch, capsys, tmp_path):
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
         jsonl_path = tmp_path / "out.jsonl"
         from vague_code.cli import main
         main(["hi", ".", "--export-jsonl", str(jsonl_path)])
@@ -273,7 +273,7 @@ class TestCliMockPipeline:
         assert "Trajectory exported" in err
 
     def test_no_stream(self, monkeypatch, capsys):
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
         main(["hi", ".", "--no-stream", "--verbose"])
@@ -284,7 +284,7 @@ class TestCliMockPipeline:
 
     def test_normal_output_no_metadata(self, monkeypatch, capsys):
         """Without --verbose, the `Run X finished` line should NOT appear."""
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
         main(["hi", "."])
@@ -294,7 +294,7 @@ class TestCliMockPipeline:
         assert "finished, reason:" not in result.out
 
     def test_verbose_output(self, monkeypatch, capsys):
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
         main(["hi", ".", "--verbose"])
@@ -304,7 +304,7 @@ class TestCliMockPipeline:
 
     def test_retry_success(self, monkeypatch, capsys):
         backend = _FakeBackend([_rate_limit_error(), _text_response("ok")])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: backend)
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from vague_code.cli import main
@@ -317,7 +317,7 @@ class TestCliMockPipeline:
     def test_retry_notice_appears_in_output(self, monkeypatch, capsys, tmp_path):
         """L3-8: RetryNotice should appear as live text in CLI output."""
         backend = _FakeBackend([_rate_limit_error(), _text_response("ok")])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: backend)
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from vague_code.cli import main
@@ -328,7 +328,7 @@ class TestCliMockPipeline:
 
     def test_retry_disabled_fails_immediately(self, monkeypatch, capsys):
         backend = _FakeBackend([_rate_limit_error()])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: backend)
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from vague_code.cli import main
@@ -344,7 +344,7 @@ class TestCliMockPipeline:
         resp = httpx.Response(400, request=req)
         custom_err = BadRequestError("bad request", response=resp, body=None)
         backend = _FakeBackend([custom_err])
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: backend)
 
         from vague_code.cli import main
         main(["hi", ".", "--verbose"])
@@ -355,7 +355,7 @@ class TestCliMockPipeline:
     def test_retry_exhausted_shows_error(self, monkeypatch, capsys):
         errors = [_rate_limit_error() for _ in range(6)]  # 1 initial + 5 retries = 6
         backend = _FakeBackend(errors)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: backend)
         monkeypatch.setattr("time.sleep", lambda _: None)
 
         from vague_code.cli import main
@@ -399,7 +399,7 @@ class TestCliResume:
 
     def test_resume_pending_tools(self, monkeypatch, capsys, tmp_path):
         run_id, db_path = self._create_checkpoint_db(tmp_path)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend",
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend",
                             lambda *a, **kw: _FakeBackend([_text_response("done")]))
 
         from vague_code.cli import main
@@ -410,7 +410,7 @@ class TestCliResume:
 
     def test_resume_with_export_jsonl(self, monkeypatch, capsys, tmp_path):
         run_id, db_path = self._create_checkpoint_db(tmp_path)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend",
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend",
                             lambda *a, **kw: _FakeBackend([_text_response("done")]))
         jsonl_path = tmp_path / "resume.jsonl"
 
@@ -429,7 +429,7 @@ class TestCliResume:
         traj = agent.run("x", ".")
         run_id = traj.run_id
 
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([]))
 
         from vague_code.cli import main
         main(["--resume", run_id, "--db-path", db_path, "--verbose"])
@@ -439,7 +439,7 @@ class TestCliResume:
 
     def test_resume_nonexistent_run(self, monkeypatch, capsys, tmp_path):
         db_path = str(tmp_path / "t.db")
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", lambda *a, **kw: _FakeBackend([]))
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", lambda *a, **kw: _FakeBackend([]))
 
         from vague_code.cli import main
         with pytest.raises(SystemExit) as exc:
@@ -458,7 +458,7 @@ class TestCliResume:
                 _CapturedConfig.instances.append(self)
 
         monkeypatch.setattr("vague_code.cli.AgentConfig", _CapturedConfig)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend",
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend",
                             lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
@@ -477,7 +477,7 @@ class TestCliResume:
             "vague_code.agent.loop.Agent.add_permission_rule",
             lambda self, pattern, action="allow": seen.append((pattern, action)),
         )
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend",
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend",
                             lambda *a, **kw: _FakeBackend([_text_response("hello")]))
 
         from vague_code.cli import main
@@ -494,7 +494,7 @@ class TestCliResume:
             return _FakeBackend([_text_response("hello")])
 
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", _capture_backend)
 
         from vague_code.cli import main
         main(["hi", ".", "--provider", "openai"])
@@ -511,7 +511,7 @@ class TestCliResume:
             return _FakeBackend([_text_response("hello")])
 
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", _capture_backend)
 
         from vague_code.cli import main
         main(["hi", ".", "--base-url", "https://openrouter.ai/api/v1",
@@ -528,7 +528,7 @@ class TestCliResume:
             return _FakeBackend([_text_response("hello")])
 
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", _capture_backend)
 
         from vague_code.cli import main
         main(["hi", "."])
@@ -557,7 +557,7 @@ class TestCliResume:
             return _FakeBackend([_text_response("hello")])
 
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", _capture_backend)
 
         from vague_code.cli import main
         main(["hi", str(tmp_path), "--provider", "fox", "--no-repo-map"])
@@ -583,7 +583,7 @@ class TestCliResume:
             return _FakeBackend([_text_response("hello")])
 
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
-        monkeypatch.setattr("vague_code.cli.create_deepseek_backend", _capture_backend)
+        monkeypatch.setattr("vague_code.agent.backend.create_deepseek_backend", _capture_backend)
         monkeypatch.setattr("vague_code.cli.AgentConfig", AgentConfig)
 
         from vague_code.cli import main
@@ -598,6 +598,21 @@ class TestCliResume:
         result = capsys.readouterr()
         assert "Created" in result.out
         assert json.loads(Path(out).read_text(encoding="utf-8"))["defaultProvider"] == "deepseek"
+
+    def test_tui_missing_key_starts_setup(self, monkeypatch, capsys, tmp_path):
+        """ADR-0037：缺 key 时 `tui` 不退出，以 needs_setup 启动引导。"""
+        captured: dict = {}
+
+        def _fake_tui_main(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: None)
+        monkeypatch.setattr("vague_code.tui.main", _fake_tui_main)
+
+        from vague_code.cli import main
+        main(["tui", str(tmp_path)])
+        assert captured.get("needs_setup") is True
+        assert captured.get("backend") is None
 
     def test_responses_protocol_dispatches_responses_backend(self, monkeypatch, capsys, tmp_path):
         """protocol: responses 的 provider → ResponsesBackend（Codex 中转站）。"""
@@ -617,7 +632,7 @@ class TestCliResume:
         called: list = []
         monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
         monkeypatch.setattr(
-            "vague_code.cli.create_responses_backend",
+            "vague_code.agent.backend.create_responses_backend",
             lambda api_key, base_url, timeout_s: (called.append((api_key, base_url)), _FakeBackend([_text_response("hello")]))[1],
         )
 

@@ -4,6 +4,13 @@
 
 ### Added
 
+- **TUI 首次引导**（ADR-0037）：首次 `vague-code tui` 未配置 API key 时弹出 SetupWizard——选 provider（DeepSeek/OpenAI GPT/Anthropic/自定义中转）→ 填 key（自定义中转另填 baseUrl/模型名/协议）→ 【测试连接】真实验证 → 写入全局配置（`~/.config/vague-code/.env` + `config.json`）→ 直接使用；key 读取链扩展为 项目 .env → 全局 .env → 环境变量
+- **模型目录更新至 2026-08 现行**（官方核实）：DeepSeek 仅 `deepseek-v4-flash`/`v4-pro`（1M）；Anthropic 换 `claude-fable-5`/`opus-5`/`sonnet-5`/`haiku-4-5`，默认端点改官方 `api.anthropic.com`，AnthropicBackend 默认模型 `claude-fable-5`；删除已退场的 deepseek-chat/reasoner、claude 4.x
+
+## [Unreleased] — 2026-08-10
+
+### Added
+
 - **`/compact` 展示摘要**（ADR-0036，对齐 opencode）：`compact_chat()` 返回摘要文本，TUI 压缩完成后把 `[会话摘要]`（Pi 风格结构化摘要）作为对话消息展示在对话流中，不再只是一行 token 数字
 
 ## [Unreleased] — 2026-08-10

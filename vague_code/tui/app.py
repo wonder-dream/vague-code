@@ -81,12 +81,14 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         workdir: str = ".",
         provider: str = "deepseek",
         file_config: dict | None = None,
+        needs_setup: bool = False,
     ) -> None:
         super().__init__()
         self._config = config
         self._backend = backend
         self._provider = provider
         self._file_config = file_config or {}
+        self._needs_setup = needs_setup
         self._agent_task = task
         self._workdir = workdir
         self._rules_path = Path(workdir) / ".agent" / "permission-rules.json"
@@ -347,6 +349,50 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         if self._agent_task:
             self._submit_task(self._agent_task)
             self._agent_task = ""
+        if self._needs_setup:
+            self.call_after_refresh(self._open_setup_wizard)
+
+    def _open_setup_wizard(self) -> None:
+        from vague_code.tui.screens.setup import SetupWizard
+        self.push_screen(SetupWizard(self))
+
+    def _apply_setup(
+        self,
+        provider: str,
+        base_url: str,
+        key_env: str,
+        protocol: str,
+        model: str,
+        key: str,
+    ) -> None:
+        """引导完成：写全局配置 + 重建 backend（ADR-0037）。"""
+        from vague_code.config import (
+            DEFAULT_MODELS,
+            build_backend,
+            global_config_dir,
+            load_config,
+            merge_provider_config,
+            write_env_key,
+        )
+
+        cfg_dir = global_config_dir()
+        write_env_key(cfg_dir / ".env", key_env, key)
+        spec: dict = {"baseUrl": base_url, "apiKeyEnv": key_env}
+        if protocol != "openai":
+            spec["protocol"] = protocol
+        merge_provider_config(
+            cfg_dir / "vague-code.json", provider, spec,
+            default_model=model or DEFAULT_MODELS.get(provider, ""),
+        )
+        self._config.model = model or DEFAULT_MODELS.get(provider, self._config.model)
+        self._backend = build_backend(
+            provider, key, base_url, protocol, self._config.transport.timeout_s,
+        )
+        self._provider = provider
+        self._file_config = load_config(self._workdir)
+        self._needs_setup = False
+        self._refresh_topbar()
+        self._write_line("配置完成，开始使用吧！", kind=TuiEntryKind.SYSTEM)
 
     def _on_terminal_resized(self) -> None:
         from textual.css.query import NoMatches

@@ -35,6 +35,15 @@ def _global_config_path() -> Path:
     return Path.home() / ".config" / "vague-code" / CONFIG_FILENAME
 
 
+def _global_env_path() -> Path:
+    """全局 .env（ADR-0037）：首次引导把 API key 写这里。"""
+    return Path.home() / ".config" / "vague-code" / ".env"
+
+
+def global_config_dir() -> Path:
+    return Path.home() / ".config" / "vague-code"
+
+
 def _load_file(path: Path) -> dict | None:
     try:
         if not path.is_file():
@@ -109,3 +118,76 @@ def write_init_template(path: str | Path) -> Path:
         encoding="utf-8",
     )
     return out
+
+
+# ── 首次引导写入（ADR-0037）──────────────────────────────────────────────
+
+DEFAULT_MODELS: dict[str, str] = {
+    "deepseek": "deepseek-v4-flash",
+    "openai": "gpt-5.6-sol",
+    "anthropic": "claude-fable-5",
+}
+
+
+def write_env_key(env_path: str | Path, key_env: str, key: str) -> Path:
+    """把 API key 写入 .env（合并更新，不破坏已有其他键）。"""
+    out = Path(env_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    lines: list[str] = []
+    if out.is_file():
+        lines = out.read_text(encoding="utf-8").splitlines()
+    replaced = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(key_env + "="):
+            lines[i] = f"{key_env}={key}"
+            replaced = True
+            break
+    if not replaced:
+        lines.append(f"{key_env}={key}")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return out
+
+
+def merge_provider_config(
+    path: str | Path,
+    provider: str,
+    spec: dict,
+    *,
+    default_model: str = "",
+) -> Path:
+    """把 provider 配置合并进 vague-code.json（保留已有条目与内置默认）。"""
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    data: dict = {}
+    if out.is_file():
+        try:
+            loaded = json.loads(out.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, json.JSONDecodeError):
+            pass
+    providers = dict(data.get("providers", {}))
+    merged = {**BUILTIN_PROVIDERS.get(provider, {}), **spec}
+    providers[provider] = merged
+    data["providers"] = providers
+    if provider == "deepseek" or "defaultProvider" not in data:
+        data["defaultProvider"] = provider
+    if default_model:
+        data["defaultModel"] = default_model
+    out.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return out
+
+
+def build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float):
+    """按协议构造后端（从 cli 移入，供引导/CLI 共用，ADR-0037）。"""
+    from vague_code.agent.backend import (
+        create_anthropic_backend,
+        create_deepseek_backend,
+        create_responses_backend,
+    )
+
+    if protocol == "anthropic":
+        return create_anthropic_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
+    if protocol == "responses":
+        return create_responses_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
+    return create_deepseek_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
