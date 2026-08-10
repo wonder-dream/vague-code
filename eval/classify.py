@@ -55,6 +55,10 @@ def classify(r: TaskResult, injected: bool = False) -> str:
             return "no_diff"        # 伪完成：end_turn 声称完成但无产出
         if (r.stats.get("metrics") or {}).get("permission_denies", 0) > 0:
             return "permission_blocked"
+        if reason.startswith("verify:timeout"):
+            return "infra"          # verifier 超时 = 链路问题
+        if reason.startswith("verify:fail"):
+            return "f2p_fail"       # polyglot 容器 verifier 失败（实现/编译错）
         if reason.startswith("f2p:"):
             return "f2p_fail"       # 改错：有产出但 F2P 挂（非环境）
         if reason.startswith("p2p:"):

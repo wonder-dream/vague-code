@@ -96,7 +96,8 @@ def prepare_task(tasks_root: Path, task: dict) -> Path:
 
 
 def _cpp_verifier(task: dict) -> list[str]:
-    exe = task["exercise"].replace("-", "_")
+    # CMakeLists 的 target 名 = 目录名（保留连字符，如 all-your-base → build/all-your-base）
+    exe = task["exercise"]
     return ["sh", "-c",
             f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 "
             f"&& cmake --build build >/dev/null 2>&1 && ./build/{exe}"]

@@ -74,6 +74,13 @@ def test_no_verdict_is_infra() -> None:
     assert classify(_r(None)) == "infra"
 
 
+def test_verify_fail_mapped_to_f2p() -> None:
+    """polyglot 容器 verifier 失败（ADR-0040）：实现/编译错 → f2p_fail；超时 → infra。"""
+    assert classify(_r(False, reason="verify:fail(exit 127)")) == "f2p_fail"
+    assert classify(_r(False, reason="verify:fail(exit 2)")) == "f2p_fail"
+    assert classify(_r(False, reason="verify:timeout")) == "infra"
+
+
 def test_stagnant_class() -> None:
     assert classify(_r(False, run_end="stagnant")) == "stagnant"
     # 停滞优先于 timeout 判断

@@ -89,13 +89,13 @@ def test_verify_cpp_builds_and_runs(tmp_path, monkeypatch) -> None:
         return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
 
     monkeypatch.setattr(pg, "_docker", fake_docker)
-    task = {"instance_id": "cpp/hello-world", "language": "cpp",
-            "exercise": "hello-world", "source_dir": str(tmp_path)}
+    task = {"instance_id": "cpp/all-your-base", "language": "cpp",
+            "exercise": "all-your-base", "source_dir": str(tmp_path)}
     ok, reason, _ = verify_in_container(task, tmp_path)
     assert ok is True
     joined = " ".join(captured)
     assert "cmake" in joined
-    assert "./build/hello_world" in joined  # 连字符转下划线
+    assert "./build/all-your-base" in joined  # target 名 = 目录名（连字符保留）
 
 
 def test_restore_tests_overwrites_agent_modified_tests(tmp_path) -> None:
