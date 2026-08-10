@@ -17,6 +17,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify tag matches pyproject version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PYPROJECT_VERSION="$(grep -oP '^version = "\K[^"]+' pyproject.toml)"
+          if [ "$TAG_VERSION" != "$PYPROJECT_VERSION" ]; then
+            echo "Tag v$TAG_VERSION does not match pyproject version $PYPROJECT_VERSION" >&2
+            echo "Refusing to publish the wrong version (prevents 400 File already exists)." >&2
+            exit 1
+          fi
+          echo "Tag v$TAG_VERSION == pyproject $PYPROJECT_VERSION"
+
       - name: Test
         run: uv run pytest tests/ -q --tb=short --ignore=tests/_target_bug
 
