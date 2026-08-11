@@ -54,6 +54,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "ruff>=0.15.22",
     "datasets>=3.0.0",  # eval/select_verified_tasks.py（SWE-bench Lite 重选）
+    "tiktoken>=0.8.0",  # GPT tokenizer 路径测试（生产默认安装不含，属 [gpt] extra）
 ]
 
 [tool.mypy]
