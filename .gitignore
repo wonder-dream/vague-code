@@ -37,3 +37,12 @@ eval/audit_report.html
 eval/results.md
 src/tui/views/__pycache__/
 src/tui/commands/__pycache__/
+
+# 字节码（历史遗留跟踪清理）
+__pycache__/
+*.pyc
+
+# 评测中间报告（正式结果在 runs/eval/result.json 证据链，可 --regen 重建）
+polyglot_*.md
+!polyglot_final_v2.md
+tmp_vr_reset/
