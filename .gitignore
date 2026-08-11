@@ -44,5 +44,5 @@ __pycache__/
 
 # 评测中间报告（正式结果在 runs/eval/result.json 证据链，可 --regen 重建）
 polyglot_*.md
-!polyglot_final_v2.md
+!polyglot_final_v3.md
 tmp_vr_reset/

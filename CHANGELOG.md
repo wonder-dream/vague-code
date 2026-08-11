@@ -4,7 +4,7 @@
 
 ### Added
 
-- **评测体系重构：Aider Polyglot + Docker 容器化**（ADR-0040，参考 FirstCoder 测评审计报告方法论）：`vague-code benchmark` 无交互评测入口（bypass 权限 + 反作弊提示词 + 预算）；互斥失败分类学（env_broken/infra/f2p_p2p 分账）；双指标口径 pass@1/e2e/pass^k/pass@k（Aider 口径）+ 非官方榜声明；证据链三件套 config/lock/result + `--resume-fail` 定向恢复；cost/token 分位；CI eval smoke；WSL2 dockerd + vague-eval 镜像（6 语言工具链）；**实测 225 题 pass@1 = 96%（$11.56）**——go/python 100%、java 100%、js 98%、rust 96.7%、cpp 73%
+- **评测体系重构：Aider Polyglot + Docker 容器化**（ADR-0040，参考 FirstCoder 测评审计报告方法论）：`vague-code benchmark` 无交互评测入口（bypass 权限 + 反作弊提示词 + 预算）；互斥失败分类学（env_broken/infra/f2p_p2p 分账）；双指标口径 pass@1/e2e/pass^k/pass@k（Aider 口径）+ 非官方榜声明；证据链三件套 config/lock/result + `--resume-fail` 定向恢复；cost/token 分位；CI eval smoke；WSL2 dockerd + vague-eval 镜像（6 语言工具链）；**实测 225 题 pass@1 = 99.11%（222/224，$12.7）**——cpp/go/java/python 100%、js 98%、rust 96.7%；复杂数字题标记数据集缺陷（官方答案同样编译失败）剔除分母
 
 ### Changed
 
