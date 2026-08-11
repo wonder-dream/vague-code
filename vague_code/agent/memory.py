@@ -68,7 +68,11 @@ class MemoryStore:
         if not terms:
             return []
         like_clauses = " OR ".join("content LIKE ? ESCAPE '\\'" for _ in terms)
-        params = [f"%{t.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%" for t in terms]
+        # Python 3.11 兼容：f-string 内不允许反斜杠（PEP 701 是 3.12 语法）
+        params = [
+            "%" + t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            for t in terms
+        ]
         try:
             rows = self.conn.execute(
                 f"SELECT content, kind, confidence, created_at "

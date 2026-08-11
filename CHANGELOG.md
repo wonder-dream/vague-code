@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.14] — 2026-08-11
+
+### Fixed
+
+- **memory.py f-string 反斜杠（3.12 特有语法 PEP 701）**：requires-python 降 3.11 后 CI ruff 抓出——3.11 解释器会在导入时 SyntaxError；改为字符串拼接（ruff py310/311 目标全过，3.11 真正兼容）
+- **两个 TUI flaky 测试 CI Linux 根治**：setup_wizard 轮询加 widget 就绪探针（screen 切换后 compose 未 mount 的 NoMatches）、permission 测试改 dialog.dismiss(Decision.ALLOW) 直驱（绕过按键/焦点时序）
+
 ## [0.1.13] — 2026-08-11
 
 ### Changed
