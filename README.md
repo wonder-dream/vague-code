@@ -9,17 +9,22 @@
 ## 30 秒上手（DeepSeek 默认）
 
 ```bash
-# 1. 安装（Python ≥ 3.12，支持 Windows / Linux）
-pip install vague-code
+# 1. 安装 uv（一次性；已装可跳过）
+pip install uv
 
-# 2. 创建 API Key 配置文件（在当前工作目录）
+# 2. 用 uv 安装 vague-code
+#    Python < 3.11 时 uv 会自动下载独立 CPython，无需手动装解释器
+#    （已装 Python ≥ 3.11 也可以直接 pip install vague-code）
+uv tool install vague-code
+
+# 3. 创建 API Key 配置文件（在当前工作目录）
 #    在 DeepSeek 开放平台 https://platform.deepseek.com 创建 Key
 echo "DEEPSEEK_API_KEY=sk-你的key" > .env
 
-# 3. 运行（CLI 模式）
+# 4. 运行（CLI 模式）
 vague-code "Fix the bug in stats.py"
 
-# 4. 或全屏交互界面（TUI 模式）
+# 5. 或全屏交互界面（TUI 模式）
 vague-code tui "Fix the bug in stats.py"
 ```
 
@@ -406,11 +411,11 @@ vague-code/
 
 | 层 | 选型 |
 |------|---------|
-| 语言 | Python 3.12 |
+| 语言 | Python ≥ 3.11 |
 | LLM API | DeepSeek / OpenAI（GPT 系列）/ Anthropic / 任意 OpenAI 兼容端点 |
 | 记忆存储 | SQLite |
 | 代码索引 | tree-sitter 0.26 + tree-sitter-python |
-| 代码质量 | ruff + mypy + pytest（780+ tests） |
+| 代码质量 | ruff + mypy + pytest（830+ tests） |
 | CLI | argparse + Rich |
 | TUI | Textual 8 |
 | 依赖管理 | uv |

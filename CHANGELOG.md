@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.13] — 2026-08-11
+
+### Changed
+
+- **README 安装方式改 uv 优先**：`uv tool install vague-code`（Python <3.11 时 uv 自动下载解释器，解决用户机器装不上问题），`pip install` 降为备选；技术栈表 Python ≥3.11；classifier 补 3.11；测试数更新 830+
+
 ## [0.1.12] — 2026-08-11
 
 ### Changed
