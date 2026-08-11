@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.15] — 2026-08-11
+
+### Changed
+
+- **tiktoken 移到可选 extra `[gpt]`**：修复 3.11 机器 `pip install vague-code` 依赖解析失败（tiktoken→regex 在某些环境无匹配分发）；deepseek 默认路径用 deepseek_tokenizer 完全不依赖 tiktoken，GPT 用户装 `vague-code[gpt]` 获得精确 token 计数（缺失时自动降级近似计数，已有容错与测试）
+
 ## [0.1.14] — 2026-08-11
 
 ### Fixed

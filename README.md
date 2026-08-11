@@ -15,6 +15,7 @@ pip install uv
 # 2. 用 uv 安装 vague-code
 #    Python < 3.11 时 uv 会自动下载独立 CPython，无需手动装解释器
 #    （已装 Python ≥ 3.11 也可以直接 pip install vague-code）
+#    GPT 系列模型需要精确 token 计数：uv tool install "vague-code[gpt]"
 uv tool install vague-code
 
 # 3. 创建 API Key 配置文件（在当前工作目录）

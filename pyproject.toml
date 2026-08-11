@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vague-code"
-version = "0.1.14"
+version = "0.1.15"
 description = "Lightweight local Coding Agent CLI with agent runtime, tool system, context compression, and eval harness"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -33,10 +33,15 @@ dependencies = [
     "python-dotenv>=1.1.0",
     "rich>=15.0.0",
     "textual>=8.0.0",
-    "tiktoken>=0.8.0",
     "tree-sitter==0.26.0",
     "tree-sitter-python==0.25.0",
 ]
+
+[project.optional-dependencies]
+# GPT 系列模型的精确 token 计数（o200k/cl100k 词表）。tiktoken 依赖 regex，
+# 某些环境（老 pip/新 Python）解析失败——作为可选 extra，默认安装不受影响
+# （deepseek 默认路径用 deepseek_tokenizer，GPT 路径缺失时自动降级近似计数）。
+gpt = ["tiktoken>=0.8.0"]
 
 [project.scripts]
 vague-code = "vague_code.cli:main"
