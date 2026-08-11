@@ -29,13 +29,25 @@ _LANG_VERIFIER: dict[str, list[str]] = {
     "python": ["python3", "-m", "pytest", "-q"],
     "go": ["go", "test", "./..."],
     "rust": ["cargo", "test", "--quiet"],
-    "javascript": ["sh", "-c", "npm install --silent --no-audit --no-fund >/dev/null 2>&1 && npm test --silent"],
     # Gradle 不读 HTTP_PROXY 环境变量（审查报告 4.6 明列的坑）→ JVM 系统属性透传代理
     "java": ["sh", "-c",
              "export GRADLE_OPTS=\"-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7897 "
              "-Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7897\" "
              "&& ./gradlew --console=plain test >/dev/null 2>&1"],
 }
+
+
+def _javascript_verifier(task: dict) -> list[str]:
+    """js verifier：只跑题目 spec。
+
+    `npm test`（jest ./*）会匹配 agent 自建的调试 spec（_debug.spec.js 等）→ 误判失败
+    （实测 complex-numbers 由此挂 1 个）；只跑 <exercise>.spec.js 同时杜绝 agent
+    添加 spec 影响结果。
+    """
+    spec = f"{task['exercise']}.spec.js"
+    return ["sh", "-c",
+            f"npm install --silent --no-audit --no-fund >/dev/null 2>&1 && "
+            f"npx jest {spec} --silent"]
 
 _IMAGE = "vague-eval"
 _WSL_DISTRO = "Ubuntu-22.04"
@@ -185,6 +197,8 @@ def verify_in_container(task: dict, workdir: Path) -> tuple[bool | None, str, st
     _clean_build_artifacts(workdir)
     if task["language"] == "cpp":
         cmd = _cpp_verifier(task)
+    elif task["language"] == "javascript":
+        cmd = _javascript_verifier(task)
     else:
         cmd = _LANG_VERIFIER[task["language"]]
     wsl_workdir = _to_wsl_path(workdir)

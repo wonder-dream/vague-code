@@ -92,6 +92,26 @@ def test_verify_python_pass_and_fail(tmp_path, monkeypatch) -> None:
     assert ok is False and reason == "verify:fail(exit 1)"
 
 
+def test_js_verifier_runs_only_exercise_spec(tmp_path, monkeypatch) -> None:
+    """js verifier 只跑题目 spec（agent 自建调试 spec 不得进测试集，实测误判修复）。"""
+    from eval import polyglot as pg
+
+    captured: list[str] = []
+
+    def fake_docker(args, timeout_s=900):
+        captured.append(" ".join(args))
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(pg, "_docker", fake_docker)
+    task = {"instance_id": "javascript/hello-world", "language": "javascript",
+            "exercise": "hello-world", "source_dir": str(tmp_path)}
+    ok, reason, _ = verify_in_container(task, tmp_path)
+    assert ok is True
+    joined = " ".join(captured)
+    assert "npx jest hello-world.spec.js" in joined
+    assert "npm test" not in joined
+
+
 def test_verify_cpp_builds_and_runs(tmp_path, monkeypatch) -> None:
     from eval import polyglot as pg
 
