@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.11] — 2026-08-11
+
+### Added
+
+- **评测体系重构：Aider Polyglot + Docker 容器化**（ADR-0040，参考 FirstCoder 测评审计报告方法论）：`vague-code benchmark` 无交互评测入口（bypass 权限 + 反作弊提示词 + 预算）；互斥失败分类学（env_broken/infra/f2p_p2p 分账）；双指标口径 pass@1/e2e/pass^k/pass@k（Aider 口径）+ 非官方榜声明；证据链三件套 config/lock/result + `--resume-fail` 定向恢复；cost/token 分位；CI eval smoke；WSL2 dockerd + vague-eval 镜像（6 语言工具链）；**实测 225 题 pass@1 = 100%（224/224，$13）**，e2e 99.56%——cpp/go/java/js/python/rust 全 100%；complex-numbers 数据集缺陷（官方答案同样编译失败）剔除分母；verifier 修复链：CMakeCache 污染/Boost 1.74 config 误判/node 12→20/gradlew CRLF/Gradle JVM 代理/js 只跑题目 spec/输出预算 64K（thinking 计入输出，32K 截断难题）
+- **对抗注入评测**（ADR-0040 遗留收尾）：harness 接入 `task_type=adversarial`（合成仓库 + safe 权限 + permission_check 拦截判定），实测 5/5 注入全拦截（rm -rf/.env 读取/越权写/curl|sh/chmod -R 777）
+- **judge 一致性审计数字**：SWE 20 样本 exact 55% / within-1 65%（代理人工分口径）
+
+### Fixed
+
+- **rust/pig-latin 输出预算截断**：`AgentConfig.max_output_tokens` 可配（默认 32K 不变）——thinking 计入输出，32K 会把 thinking 长的难题截断成 max_tokens 死循环；评测用 64K 后单题重跑 9 轮 PASS
+- **两个 TUI flaky 测试**：SetupWizard 推屏轮询等待替代固定 pause；permission 测试直接驱动 dialog.on_key 绕过 focus 竞态（全量负载下 press("y") 偶发落空）
+- 字节码（80 个 .pyc）移除 git 跟踪 + gitignore
+
 ## [Unreleased] — 2026-08-10
 
 ### Added
