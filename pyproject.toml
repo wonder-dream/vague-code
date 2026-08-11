@@ -42,6 +42,9 @@ dependencies = [
 # 某些环境（老 pip/新 Python）解析失败——作为可选 extra，默认安装不受影响
 # （deepseek 默认路径用 deepseek_tokenizer，GPT 路径缺失时自动降级近似计数）。
 gpt = ["tiktoken>=0.8.0"]
+# Claude 系列的官方 65K BPE 分词器（Anthropic 未更换词表）。缺失时降级
+# deepseek 词表近似计数。
+claude = ["anthropic-tokenizer>=0.1.0"]
 
 [project.scripts]
 vague-code = "vague_code.cli:main"
@@ -70,6 +73,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "deepseek_tokenizer.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "anthropic_tokenizer.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

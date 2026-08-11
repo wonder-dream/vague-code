@@ -72,30 +72,39 @@ def should_skip_thinking(model: str) -> bool:
 
 _DS_ENC: object | None = None
 _CL100K_ENC: object | None = None
+_CLAUDE_ENC: object | None = None
 _MODEL_TOK: str = ""
 
 
 def set_tokenizer_for_model(model: str) -> None:
-    """按模型选择 tokenizer（GPT 系列用 cl100k，其余用 DeepSeek 官方词表）。
-
-    与全局 config.model 语义一致：TUI `/model` 切换后下一轮生效。
+    """按模型选择 tokenizer（GPT 系列用 cl100k/o200k，Claude 用官方 65K BPE，
+    其余用 DeepSeek 官方词表）。
     """
     global _MODEL_TOK
     _MODEL_TOK = model
 
 
 def _get_enc():
-    """按当前模型返回对应 encoder：GPT 系列按词表映射（o200k/cl100k），其余
-    用 DeepSeek-V4 官方 tokenizer（与 API 服务端同一套分词，实测偏差 <1%）。
-    导入失败时 fallback 到 tiktoken o200k_base。
+    """按当前模型返回对应 encoder：GPT 系列按词表映射（o200k/cl100k），
+    Claude 系列用官方 65K BPE（anthropic-tokenizer），其余用 DeepSeek-V4
+    官方 tokenizer（与 API 服务端同一套分词，实测偏差 <1%）。
+    导入失败时逐级 fallback：Claude → DeepSeek → tiktoken。
     """
-    global _DS_ENC, _CL100K_ENC
+    global _DS_ENC, _CL100K_ENC, _CLAUDE_ENC
     if _MODEL_TOK.startswith(_GPT_O200K_PREFIXES):
         return _get_tiktoken("o200k_base")
     if _MODEL_TOK.startswith(_GPT_CL100K_PREFIXES):
         return _get_tiktoken("cl100k_base")
     if _MODEL_TOK.startswith("gpt-"):
         return _get_tiktoken("o200k_base")  # 未知新 GPT 系列 → 现代词表
+    if _MODEL_TOK.startswith("claude-"):
+        if _CLAUDE_ENC is None:
+            try:
+                from anthropic_tokenizer import count_tokens, encode
+                _CLAUDE_ENC = (count_tokens, encode)
+            except Exception:
+                _CLAUDE_ENC = False
+        return _CLAUDE_ENC if _CLAUDE_ENC is not False else None
     if _DS_ENC is None:
         try:
             from deepseek_tokenizer import ds_token
@@ -115,15 +124,61 @@ def _get_tiktoken(name: str):
         return None
 
 
+def _count_precise_claude(
+    messages: list,
+    tools: list[ToolSpec] | None,
+    enc,
+    skip_thinking: bool = False,
+) -> int:
+    """Claude 专用计数：anthropic-tokenizer 按字节/BPE 计文本 token。
+
+    官方 65K 词表（Anthropic 未更换词表，claude-1~4 系同一 BPE）；
+    未 API 实测对齐（本中转 usage 不可信），基于公开词表事实。
+    注意：anthropic-tokenizer 无消息结构计数，这里按与 deepseek 相同的
+    wire 开销近似（消息包装 + 工具结构）。
+    """
+    total = 0
+    for msg in messages:
+        content = msg.content if hasattr(msg, "content") else msg
+        blocks = content if isinstance(content, list) else []
+        has_tool_result = any(isinstance(b, ToolResultBlock) for b in blocks)
+        total += _WIRE_ENVELOPE_TOKENS
+        if has_tool_result:
+            total += _WIRE_TOOL_RESULT_EXTRA
+        for block in blocks:
+            if isinstance(block, TextBlock):
+                total += enc[0](block.text)
+            elif isinstance(block, ThinkingBlock):
+                if not skip_thinking:
+                    total += enc[0](block.text)
+            elif isinstance(block, ToolUseBlock):
+                total += enc[0](block.name)
+                total += enc[0](json.dumps(block.input, ensure_ascii=False))
+                total += _WIRE_TOOL_CALL_STRUCT
+            elif isinstance(block, ToolResultBlock):
+                total += enc[0](block.content)
+    if tools:
+        for t in tools:
+            if t is None:
+                continue
+            spec = t.spec if hasattr(t, "spec") else t
+            total += enc[0](str(getattr(spec, "name", "")))
+            total += enc[0](str(getattr(spec, "description", "")))
+            total += enc[0](json.dumps(getattr(spec, "parameters", {}), ensure_ascii=False))
+    return total
+
+
 def count_tokens(
     messages: list,
     tools: list[ToolSpec] | None = None,
     skip_thinking: bool = False,
 ) -> int:
     enc = _get_enc()
-    if enc is not None:
-        return _count_precise(messages, tools, enc, skip_thinking)
-    return _count_rough(messages, tools, skip_thinking)
+    if enc is None:
+        return _count_rough(messages, tools, skip_thinking)
+    if _MODEL_TOK.startswith("claude-") and isinstance(enc, tuple):
+        return _count_precise_claude(messages, tools, enc, skip_thinking)
+    return _count_precise(messages, tools, enc, skip_thinking)
 
 
 def _count_precise(

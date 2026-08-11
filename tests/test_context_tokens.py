@@ -241,3 +241,32 @@ def test_deepseek_tokenizer_counts_chinese_compactly() -> None:
     byte_estimate = len(text.encode("utf-8")) // 4
     # DeepSeek tokenizer 对中文约 0.6 token/字，应显著低于字节/4 估算
     assert ds_tokens < byte_estimate
+
+
+def test_claude_uses_anthropic_tokenizer_when_installed(monkeypatch) -> None:
+    """Claude 系列模型优先用 anthropic-tokenizer（65K 官方词表）。"""
+    import vague_code.agent.context_tokens as ct
+
+    calls: list[str] = []
+
+    def fake_count(text: str) -> int:
+        calls.append("count")
+        return len(text) // 4 + 1
+
+    fake_enc = (fake_count, lambda text: [0] * 5)
+    monkeypatch.setattr(ct, "_CLAUDE_ENC", fake_enc)
+    ct.set_tokenizer_for_model("claude-fable-5")
+    msgs = [Message(role="user", content="hello world")]
+    result = count_tokens(msgs)
+    assert calls.count("count") == 1, "claude 文本应走 anthropic-tokenizer 计数"
+    assert result > 0
+
+
+def test_claude_falls_back_when_tokenizer_missing(monkeypatch) -> None:
+    """anthropic-tokenizer 缺失 → Claude 降级 deepseek 词表近似计数。"""
+    import vague_code.agent.context_tokens as ct
+
+    monkeypatch.setattr(ct, "_CLAUDE_ENC", False)
+    ct.set_tokenizer_for_model("claude-fable-5")
+    msgs = [Message(role="user", content="hello")]
+    assert count_tokens(msgs) > 0
