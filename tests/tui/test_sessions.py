@@ -171,7 +171,6 @@ async def test_title_summary_generated_on_first_turn(monkeypatch) -> None:
 
 
 async def test_permission_requests_serialize_across_sessions(monkeypatch) -> None:
-    from textual.events import Key
     from vague_code.agent.permission import Operation
 
     calls: list[str] = []
@@ -180,9 +179,9 @@ async def test_permission_requests_serialize_across_sessions(monkeypatch) -> Non
     second_entered = threading.Event()
 
     def _approve() -> None:
-        """直接驱动对话框决策逻辑（press("y") 依赖 focus 就绪，竞态偶发落空）。"""
+        """直接 dismiss 决策（绕过按键/焦点时序；on_key 内部同样是 dismiss）。"""
         dialog = app.screen
-        dialog.on_key(Key(key="y", character="y"))
+        dialog.dismiss(Decision.ALLOW)
 
     def wrapped_chat(self, task: str, workdir: str):
         run_id = f"run-{len(calls) + 1}"
