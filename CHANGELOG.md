@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.16] — 2026-08-11
+
+### Added
+
+- **Claude 专用分词器**（`[claude]` extra）：`anthropic-tokenizer`（官方 65K BPE——Anthropic 从未更换词表）用于 claude-* 模型精确计数；缺失时降级 deepseek 词表近似。注：中转站 usage 实测不可信（messages 恒 1、count_tokens 中文失真），未 API 对齐验证，基于公开词表事实；实测脚本已备（待官方 key）
+
 ## [0.1.15] — 2026-08-11
 
 ### Changed
