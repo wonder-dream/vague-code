@@ -1,5 +1,11 @@
 # 0016: 评估体系补强 — 真验收 / 轨迹指标 / LLM-as-Judge / 失败分类
 
+> **状态：已退役（2026-08-11）**——评测设计已由 `0040-eval-redesign.md` 取代
+> （Aider Polyglot + Docker 容器化 + 双指标口径 + 证据链，参考 FirstCoder 测评审计报告
+> `docs/BENCHMARK_AUDIT_REPORT.zh-CN.md`）。本计划产出的 SWE-bench runner
+> （harness/env/verify/metrics/judge/rubric）仍在 `eval/` 中可运行，但任务集与指标口径
+> 以 0040 为准。以下为历史内容。
+
 按 EDD（Evaluation-Driven Development）接回开发闭环：`harness.py:155` 全标 True 意味着过去所有"改动变好还是变坏"的判断都建立在假数据上。本计划分 **P0 → P0.5 → P1 → P2** 四阶段：先让基准可信（真验收 + 任务筛查 + pass^k），再加组件级确定性轨迹指标，再上 LLM 定性评分，最后失败分类形成决策闭环。
 
 **原则：确定性指标全进 `eval.cli` 自动流水线，LLM judge 独立离线 CLI。P0 出真数据前，假 83% pass rate 数字不对外宣传。**

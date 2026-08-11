@@ -1,24 +1,30 @@
 # 评测框架 (eval/)
 
-EDD（Evaluation-Driven Development）评测体系，按 **P0 真验收 → P0.5 轨迹指标 → P1 LLM-as-Judge → P2 失败分类** 分层（详见 `docs/plans/0016-eval-methods.md`）。
+EDD（Evaluation-Driven Development）评测体系，两套 runner：
 
-**原则：确定性指标全进流水线自动跑，LLM judge 独立离线 CLI（改提示词只重评分，不重跑 Agent）。**
+1. **SWE-bench 自建 runner**（`harness.py` + `verify.py` + `env.py`，P0 真验收 → P0.5 轨迹指标 → P1 LLM-as-Judge → P2 失败分类，详见 `docs/plans/0016-eval-methods.md`）
+2. **Aider Polyglot runner**（`polyglot.py`，ADR-0040）：Exercism 风格"读代码+保持接口+实现+测试通过"，6 语言 225 题，verifier 在 Docker 容器（vague-eval 镜像）内执行，agent 在宿主跑
+
+**原则：确定性指标全进流水线自动跑，LLM judge 独立离线 CLI（改提示词只重评分，不重跑 Agent）；任何对外宣称的数字必须能从 `runs/eval/run_*/` 证据链（config/lock/result + README）重建或仲裁（ADR-0040）。**
 
 ## 模块
 
 | 模块 | 阶段 | 职责 |
 |------|------|------|
-| `harness.py` | P0 | 驱动 Agent，每 run 独立 db（`runs/eval/<instance>__<cell>.db`），接 verify + metrics |
+| `harness.py` | P0 | SWE runner：驱动 Agent，每 run 独立 db，接 verify + metrics |
 | `env.py` | P0 | 每 repo uv venv 缓存（`eval/.venvs/<repo>__<commit>/`），`REPO_SETUP` 策展 install 规格 |
-| `verify.py` | P0 | 验收执行器：状态隔离 / sanity gate 双检 / 防钻空子 / F2P-P2P 判定 |
+| `verify.py` | P0 | SWE 验收执行器：状态隔离 / sanity gate 双检 / 防钻空子 / F2P-P2P 判定 |
+| `polyglot.py` | ADR-0040 | **Polyglot runner**：任务加载器（6 语言）/ 容器 verifier（vague-eval 镜像）/ 防作弊测试恢复 / 依赖缓存挂载；实测 225 题 pass@1=96%（deepseek-v4-flash，$11.56） |
+| `docker/Dockerfile` | ADR-0040 | vague-eval 镜像：python3.10+pytest / node 20 / go / rust / openjdk-17 / g+++cmake |
+| `evidence.py` | ADR-0040 | 证据链三件套：config.json（运行配置）/ lock.json（任务 sha256+依赖指纹+版本）/ result.json（逐题明细） |
+| `classify.py` | ADR-0040 | 互斥失败分类学：success/f2p_fail/p2p_fail/no_diff/gaming_tests/timeout/env_broken/infra/…（基础设施与模型能力分账） |
+| `reporter.py` | ADR-0040 | 报告：双指标口径 pass@1（有判分题）+ e2e（全题）+ pass^k + pass@k（Aider 口径）+ 分类分账 + cost/token 分位 + 非官方榜声明 |
 | `audit_tasks.py` | P0-5 | 任务质量筛查（SWE-bench Verified 方法），产出 `audit_results.md` |
 | `audit_ui.py` | P0-5 | 生成 HTML 打分页面（`eval/audit_report.html`，官方标注预填） |
 | `select_verified_tasks.py` | P0 | 从 SWE-bench Lite 选官方保留题重建任务集 |
-| `reporter.py` | P0-6 | pass^k 可靠性列 + 轨迹指标列 |
 | `metrics.py` | P0.5 | 确定性轨迹指标（read-before-edit / 冗余 / 验证循环 / 轨迹匹配分级） |
 | `judge.py` | P1 | LLM-as-Judge（离线），锚定 rubric + JSON 解析 + 人工一致性审计 |
 | `rubric.py` | P1 | 锚定 rubric（每维度 1/3/5 分示例） |
-| `classify.py` | P2 | 八类失败分类 + 失败模式分布图 |
 
 ## 环境策展现状（REPO_SETUP）
 
@@ -52,7 +58,19 @@ python -m eval.classify   # 见 classify.write_chart(results, out)
 python -m eval.judge --runs runs/eval --judge-model deepseek-v4-flash --out eval/judge_results.jsonl
 python -m eval.judge --runs runs/eval --audit 20                 # 抽 20 条人工审计样本（一半 verified=False）
 python -m eval.judge --consistency eval/judge_audit_samples.json  # 计算 judge vs 人工一致性
+
+# Aider Polyglot（ADR-0040）：数据集中 6 语言 225 题，容器 verifier
+python -m eval.polyglot --dataset <polyglot-benchmark 路径> --repeat 1 --max-turns 40 --out polyglot_final_v2.md
+python -m eval.polyglot --dataset <路径> --instances python --fake   # 子集/冒烟（前缀过滤）
 ```
+
+## Polyglot 容器评测（ADR-0040）
+
+- **镜像**：`docker build --network host --build-arg HTTP_PROXY=... --build-arg HTTPS_PROXY=... -t vague-eval -f eval/docker/Dockerfile .`（本机经 WSL2 dockerd 运行；容器内 apt/npm/gradle 下载走 Windows 代理 7897）
+- **链路**：agent 在宿主跑（benchmark 反作弊提示词）→ verify 前从数据集恢复源测试（防 agent 改测试作弊）→ 容器内跑语言 verifier（python: pytest / go: go test / rust: cargo test / js: npm install+npm test / java: gradlew test（JVM 代理属性）/ cpp: cmake build+run）→ exit 0 = verified
+- **依赖缓存**：js 挂载 `/root/npm-cache`、java 挂载 `/root/gradle-cache`（WSL 侧持久目录），避免每题重装
+- **已知坑（实测）**：gradlew 会被 Windows git autocrlf 转 CRLF（shebang 失效，prepare_task 已修）；Gradle 不读 HTTP_PROXY（JVM 系统属性）；cpp CMake target 名 = 目录名（挂载点用 exercise 名）；node 12 跑不了 jest 29（镜像已升 node 20）
+- **指标**：pass@1 = 有判分题通过率（模型能力口径）；e2e = 全题含异常按 0；报告含分类分账 + cost/token 分位 + 非官方榜声明
 
 ## 参数（`eval.cli`）
 
