@@ -52,6 +52,12 @@ class ComposerTextArea(TextArea):
     class Submitted(Message):
         pass
 
+    class Blurred(Message):
+        """焦点离开输入框（Focus 事件不冒泡，主动上报——/ 浮层收起的依据）。"""
+
+    class Focused(Message):
+        """焦点回到输入框（/ 浮层按当前文本恢复）。"""
+
     async def _on_key(self, event: events.Key) -> None:
         if event.key == "enter":
             event.stop()
@@ -64,6 +70,12 @@ class ComposerTextArea(TextArea):
             self.insert("\n")
             return
         await super()._on_key(event)
+
+    def _on_blur(self, event) -> None:
+        self.post_message(self.Blurred())
+
+    def _on_focus(self, event) -> None:
+        self.post_message(self.Focused())
 
 
 def _plain_static(content: RenderableType = "", *args, **kwargs) -> Static:

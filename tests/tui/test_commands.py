@@ -363,6 +363,34 @@ async def test_suggest_scrolls_window_keeps_selection_visible() -> None:
         assert suggest._visible_window() == (0, 6)
 
 
+async def test_suggest_hides_when_focus_leaves_input() -> None:
+    """焦点切走输入框 → 命令浮层收起（否则永远覆盖输入栏）。"""
+    from vague_code.tui.widgets.command_suggest import CommandSuggest
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#input")
+        suggest = app.query_one("#command-suggest", CommandSuggest)
+
+        input_widget.load_text("/")
+        await pilot.pause(0.1)
+        assert suggest.is_visible()
+
+        # 焦点移到侧边栏（先展开使其可聚焦）→ 浮层收起
+        app.action_toggle_sidebar()
+        await pilot.pause(0.1)
+        sidebar = app.query_one("#sidebar")
+        sidebar.focus()
+        await pilot.pause(0.1)
+        assert not suggest.is_visible()
+
+        # 焦点回到输入框 → 浮层恢复
+        input_widget.focus()
+        await pilot.pause(0.1)
+        assert suggest.is_visible()
+
+
 # ── thinking fold ────────────────────────────────────────────────────────────
 
 async def test_thinking_folds_long_content_and_toggles() -> None:

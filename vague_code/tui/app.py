@@ -868,8 +868,30 @@ class VagueCodeApp(VagueCodeViewMixin, App):
 
     def on_text_area_changed(self, event) -> None:
         """输入变化 → 更新 / 命令候选浮层。"""
-        if getattr(event, "text_area", None) is not self.query_one("#input", ComposerTextArea):
+        if getattr(event.text_area, "id", None) is not self.query_one("#input", ComposerTextArea).id:
             return
+        suggest = self.query_one("#command-suggest", CommandSuggest)
+        suggest.show_for(self.query_one("#input").text)
+
+    def on_focus(self, event) -> None:
+        """焦点切走输入框 → 收起命令浮层（否则永远覆盖输入栏）。"""
+        if getattr(event, "control", None) is None:
+            return
+        if getattr(event.control, "id", None) != "input":
+            suggest = self.query_one("#command-suggest", CommandSuggest)
+            if suggest.is_visible():
+                suggest.show_for("")
+
+    def on_composer_text_area_blurred(self, event) -> None:
+        """输入框失焦 → 收起命令浮层（Focus 不冒泡，widget 主动上报）。"""
+        event.stop()
+        suggest = self.query_one("#command-suggest", CommandSuggest)
+        if suggest.is_visible():
+            suggest.show_for("")
+
+    def on_composer_text_area_focused(self, event) -> None:
+        """输入框重新聚焦 → 按当前文本恢复命令浮层。"""
+        event.stop()
         suggest = self.query_one("#command-suggest", CommandSuggest)
         suggest.show_for(self.query_one("#input").text)
 
