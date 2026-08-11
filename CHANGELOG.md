@@ -4,6 +4,16 @@
 
 ### Added
 
+- **评测体系重构：Aider Polyglot + Docker 容器化**（ADR-0040，参考 FirstCoder 测评审计报告方法论）：`vague-code benchmark` 无交互评测入口（bypass 权限 + 反作弊提示词 + 预算）；互斥失败分类学（env_broken/infra/f2p_p2p 分账）；双指标口径 pass@1/e2e/pass^k/pass@k（Aider 口径）+ 非官方榜声明；证据链三件套 config/lock/result + `--resume-fail` 定向恢复；cost/token 分位；CI eval smoke；WSL2 dockerd + vague-eval 镜像（6 语言工具链）；**实测 225 题 pass@1 = 96%（$11.56）**——go/python 100%、java 100%、js 98%、rust 96.7%、cpp 73%
+
+### Changed
+
+- **会话级模型隔离 + 跨 provider 切换**（ADR-0039，见下）
+
+## [Unreleased] — 2026-08-10
+
+### Added
+
 - **会话级模型隔离 + 跨 provider 切换**（ADR-0039）：每个会话独立持有 provider/model/backend，会话 A deepseek / 会话 B openai 并行互不干扰；`/model` 切换只作用于当前会话，topbar 跟随当前会话显示；无参 `/model` picker 列出全部 provider 的模型（detail 标注服务商）；跨 provider 切换时目标无 API key → 弹 SetupWizard（预选目标 provider/模型，Esc/取消按钮可回退原模型，零改动）；wizard 完成同时写全局配置并切换当前会话；`Agent` 会话内换 backend 保留对话上下文；修复原隐患——跨 provider 改模型不再出现"模型名与端点不匹配"
 
 ### Changed
