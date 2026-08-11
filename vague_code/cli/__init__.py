@@ -116,6 +116,8 @@ def main(argv: list[str] | None = None) -> None:
                         help="Max tokens for the injected repo map (default: 1000)")
     parser.add_argument("--mode", default="normal", choices=["safe", "normal", "autoedit", "auto"],
                         help="Permission mode (default: normal; auto lets the agent edit unattended)")
+    parser.add_argument("--effort", default=None, choices=["low", "high"],
+                        help="Reasoning effort (deepseek/openai; low 省 token 少思考，high 深推理)")
     parser.add_argument("--verbose", action="store_true", help="Show model info")
 
     args = parser.parse_args(argv)
@@ -147,6 +149,7 @@ def main(argv: list[str] | None = None) -> None:
         config.repo_map.enabled = not args.no_repo_map
         config.repo_map.max_map_tokens = args.repo_map_tokens
         config.permission_mode = args.mode
+        config.reasoning_effort = args.effort
 
         backend: ModelBackend = _build_backend(
             provider, api_key, base_url, protocol, config.transport.timeout_s,
@@ -209,6 +212,8 @@ def _tui_main(argv: list[str]) -> None:
                         help="Maximum delay between retries (seconds)")
     parser.add_argument("--mode", default="normal", choices=["safe", "normal", "autoedit", "auto"],
                         help="Permission mode (default: normal; auto lets the agent edit unattended)")
+    parser.add_argument("--effort", default=None, choices=["low", "high"],
+                        help="Reasoning effort (deepseek/openai; low 省 token 少思考，high 深推理)")
 
     args = parser.parse_args(argv)
 
@@ -226,6 +231,7 @@ def _tui_main(argv: list[str]) -> None:
     config.transport.retry_base_s = args.retry_base_s
     config.transport.retry_max_delay_s = args.retry_max_delay_s
     config.permission_mode = args.mode
+    config.reasoning_effort = args.effort
 
     if not api_key:
         # 首次使用：无 key 也进入 TUI，由 SetupWizard 引导配置（ADR-0037）
@@ -397,6 +403,8 @@ def _benchmark_main(argv: list[str]) -> None:
     parser.add_argument("--export-jsonl", default=None,
                         help="Export trajectory to JSONL file path")
     parser.add_argument("--no-repo-map", action="store_true", help="Disable repo map injection")
+    parser.add_argument("--effort", default=None, choices=["low", "high"],
+                        help="Reasoning effort (deepseek/openai)")
     args = parser.parse_args(argv)
 
     model, provider, file_cfg = _resolve_config(args.model, args.provider, args.project)
@@ -416,6 +424,7 @@ def _benchmark_main(argv: list[str]) -> None:
         ),
     )
     config.permission_mode = "auto"  # 评测：写/读/网络全放行，确认类全 bypass
+    config.reasoning_effort = args.effort
     if args.no_repo_map:
         config.repo_map.enabled = False
 

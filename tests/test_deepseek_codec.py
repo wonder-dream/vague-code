@@ -156,6 +156,16 @@ def test_encode_config_passthrough():
     assert body["model"] == "deepseek-chat"
 
 
+def test_encode_reasoning_effort_passthrough():
+    """reasoning_effort 白名单放行（实测 deepseek-v4-flash 支持，low 省 token 16 倍）。"""
+    messages = [Message(role="user", content="Hi")]
+    body = encode_request(messages, config={"model": "deepseek-v4-flash", "reasoning_effort": "low"})
+    assert body["reasoning_effort"] == "low"
+    # 未知键仍被丢弃
+    body2 = encode_request(messages, config={"model": "deepseek-v4-flash", "nope": 1})
+    assert "nope" not in body2
+
+
 # ── IR validation (B1) ──────────────────────────────────────────────
 
 

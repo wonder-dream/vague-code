@@ -37,7 +37,7 @@ from vague_code.agent.ir import (
     ToolUseStart,
 )
 
-ALLOWED_CONFIG_KEYS = frozenset({"temperature", "max_output_tokens", "top_p", "stream", "model", "instructions", "store"})
+ALLOWED_CONFIG_KEYS = frozenset({"temperature", "max_output_tokens", "top_p", "stream", "model", "instructions", "store", "reasoning_effort"})
 
 
 def encode_request(

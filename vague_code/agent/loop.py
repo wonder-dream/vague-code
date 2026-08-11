@@ -499,6 +499,8 @@ class Agent:
                     "stream": self.config.transport.stream,
                     "max_tokens": self.config.max_output_tokens,
                 }
+                if self.config.reasoning_effort:
+                    call_config["reasoning_effort"] = self.config.reasoning_effort
 
                 retry_index = 0
                 resp: ModelResponse | None = None

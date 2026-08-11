@@ -104,6 +104,7 @@ class AgentConfig:
     repo_map: RepoMapConfig = field(default_factory=RepoMapConfig)
     supervision: SupervisionConfig = field(default_factory=SupervisionConfig)
     max_output_tokens: int = 32768  # 每轮输出预算（含 thinking）；评测可调大（ADR-0040）
+    reasoning_effort: str | None = None  # "low"/"high"（deepseek/openai）；None=模型默认
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:
@@ -113,6 +114,9 @@ class AgentConfig:
             warnings.warn(f"max_turns={self.max_turns} is unusually high, consider a lower value")
         if self.max_output_tokens < 1024:
             raise ValueError(f"max_output_tokens must be >= 1024, got {self.max_output_tokens}")
+        if self.reasoning_effort not in (None, "low", "high"):
+            raise ValueError(
+                f"reasoning_effort must be 'low'/'high'/None, got {self.reasoning_effort!r}")
         stripped = self.model.strip()
         if not stripped:
             raise ValueError("model must not be empty")
