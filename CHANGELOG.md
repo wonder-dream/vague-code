@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.12] — 2026-08-11
+
+### Changed
+
+- **Python 版本下限 3.12 → 3.11**：修复 `pip install vague-code` 在 Python 3.11 机器上失败（全部版本被 Requires-Python >=3.12 过滤）；代码语法与运行时 API 已验证 3.11 兼容（唯一 3.12 限制项 StrEnum 在 3.11 可用），全部依赖下限 ≤3.10
+
 ## [0.1.11] — 2026-08-11
 
 ### Added

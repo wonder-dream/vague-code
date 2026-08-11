@@ -4,10 +4,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vague-code"
-version = "0.1.11"
+version = "0.1.12"
 description = "Lightweight local Coding Agent CLI with agent runtime, tool system, context compression, and eval harness"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [
     { name = "vague-dream" },
