@@ -287,6 +287,9 @@ def run_polyglot_eval(
                 permission_mode="auto",
                 memory=MemoryConfig(enabled=False),
                 db_path=str(root / f"{instance.replace('/', '__')}__r{rep}.db"),
+                # 输出预算 64K（thinking 计入输出）：默认 32K 会把 thinking 长的
+                # 难题截断成 max_tokens（实测 rust/pig-latin 3 轮死于此）
+                max_output_tokens=65536,
             )
             config.repo_map.enabled = False  # 单文件题目，符号地图无收益
             from vague_code.agent.permission import Decision

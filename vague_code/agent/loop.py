@@ -494,7 +494,11 @@ class Agent:
                 traj.emit(EventType.turn_start, turn=turn)
                 self._fire_state_change("turn_start", {"turn": turn})
 
-                call_config = {"model": self.config.model, "stream": self.config.transport.stream}
+                call_config = {
+                    "model": self.config.model,
+                    "stream": self.config.transport.stream,
+                    "max_tokens": self.config.max_output_tokens,
+                }
 
                 retry_index = 0
                 resp: ModelResponse | None = None

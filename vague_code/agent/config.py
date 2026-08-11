@@ -103,6 +103,7 @@ class AgentConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     repo_map: RepoMapConfig = field(default_factory=RepoMapConfig)
     supervision: SupervisionConfig = field(default_factory=SupervisionConfig)
+    max_output_tokens: int = 32768  # 每轮输出预算（含 thinking）；评测可调大（ADR-0040）
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:
@@ -110,6 +111,8 @@ class AgentConfig:
         if self.max_turns > 500:
             import warnings
             warnings.warn(f"max_turns={self.max_turns} is unusually high, consider a lower value")
+        if self.max_output_tokens < 1024:
+            raise ValueError(f"max_output_tokens must be >= 1024, got {self.max_output_tokens}")
         stripped = self.model.strip()
         if not stripped:
             raise ValueError("model must not be empty")

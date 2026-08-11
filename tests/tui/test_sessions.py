@@ -171,6 +171,7 @@ async def test_title_summary_generated_on_first_turn(monkeypatch) -> None:
 
 
 async def test_permission_requests_serialize_across_sessions(monkeypatch) -> None:
+    from textual.events import Key
     from vague_code.agent.permission import Operation
 
     calls: list[str] = []
@@ -178,14 +179,19 @@ async def test_permission_requests_serialize_across_sessions(monkeypatch) -> Non
     first_entered = threading.Event()
     second_entered = threading.Event()
 
+    def _approve() -> None:
+        """直接驱动对话框决策逻辑（press("y") 依赖 focus 就绪，竞态偶发落空）。"""
+        dialog = app.screen
+        dialog.on_key(Key(key="y", character="y"))
+
     def wrapped_chat(self, task: str, workdir: str):
         run_id = f"run-{len(calls) + 1}"
         calls.append(task)
         if len(calls) == 1:
             first_entered.set()
-            second_entered.wait(5.0)
+            second_entered.wait(10.0)
         else:
-            first_entered.wait(5.0)
+            first_entered.wait(10.0)
             second_entered.set()
             first_entered.clear()
         op = Operation("write_file", {"path": "a.py", "content": "x"})
@@ -201,23 +207,23 @@ async def test_permission_requests_serialize_across_sessions(monkeypatch) -> Non
         app._handle_slash("/new")
         await pilot.pause(0.3)
         app._submit_task("second")
-        for _ in range(40):
+        for _ in range(100):
             if isinstance(app.screen, PermissionDialog):
                 break
             await pilot.pause(0.1)
         assert isinstance(app.screen, PermissionDialog)
-        await pilot.press("y")
-        for _ in range(40):
+        _approve()
+        for _ in range(100):
             if len(decisions) >= 1:
                 break
             await pilot.pause(0.1)
-        for _ in range(40):
+        for _ in range(100):
             if isinstance(app.screen, PermissionDialog):
                 break
             await pilot.pause(0.1)
         assert isinstance(app.screen, PermissionDialog)
-        await pilot.press("y")
-        for _ in range(40):
+        _approve()
+        for _ in range(100):
             if len(decisions) >= 2:
                 break
             await pilot.pause(0.1)

@@ -20,10 +20,14 @@ def _make_app(tmp_path, **kwargs):
 
 async def test_setup_wizard_opens_when_needs_setup(tmp_path, monkeypatch) -> None:
     """needs_setup=True → on_mount 后弹出 SetupWizard。"""
+    from vague_code.tui.screens.setup import SetupWizard
+
     app = _make_app(tmp_path, needs_setup=True)
     async with app.run_test() as pilot:
-        await pilot.pause(0.2)
-        from vague_code.tui.screens.setup import SetupWizard
+        for _ in range(50):
+            if isinstance(app.screen, SetupWizard):
+                break
+            await pilot.pause(0.1)
         assert isinstance(app.screen, SetupWizard)
 
 
@@ -37,9 +41,17 @@ async def test_setup_wizard_not_opened_when_configured(tmp_path) -> None:
 
 async def test_setup_wizard_select_provider_and_collect(tmp_path) -> None:
     """选择 provider 后输入区同步；内置只收集 key，自定义收集全套。"""
+    from vague_code.tui.screens.setup import SetupWizard
+
     app = _make_app(tmp_path, needs_setup=True)
     async with app.run_test() as pilot:
-        await pilot.pause(0.2)
+        # needs_setup 经 call_after_refresh 异步推屏——轮询等待而非固定 pause（flaky 修复）
+        for _ in range(100):
+            if isinstance(app.screen, SetupWizard):
+                break
+            await pilot.pause(0.1)
+        assert isinstance(app.screen, SetupWizard)
+        await pilot.pause(0.05)  # 推屏后 compose 收尾缓冲（全量负载下偶发未就绪）
         wizard = app.screen
         # 默认 deepseek：baseUrl/keyEnv/model 输入隐藏
         assert wizard.query_one("#setup-baseurl").display is False
