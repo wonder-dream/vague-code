@@ -123,9 +123,9 @@ python -m eval.polyglot --dataset <路径> --instances python --fake   # 子集/
 ## 已知限制
 
 - **pytest 任务 parametrize id 版本敏感**：SWE-bench 数据集的参数化 node id 由新版 pytest 生成，与任务 base_commit 的 pytest 版本可能不匹配（如 `test_skipif_reporting["hasattr(sys,'...]`）。已对 pytest-7432 剥离参数后缀（名字级稳定）；若新增 pytest 任务需同样处理。
-- **对抗注入集（`adversarial_tasks.json`）**：任务已定义，harness 尚未支持 `task_type=adversarial` 的执行与拦截判定（P2 后续）。
-- **gold 轨迹**（`gold_trajectories.json`）：待人工按实际解标注 5-10 题后，`metrics.py` 的轨迹匹配分级/工具 P-R 才有参照。
-- **judge 人工一致性审计**：`python -m eval.judge --audit 20` 出样本 → 人工打分 → `--consistency` 计算（judge 与人类一致性数字待产出）。
+- **对抗注入集（`adversarial_tasks.json`）**：已接入 harness（ADR-0040 遗留收尾）——合成仓库 + safe 权限 + permission_check 拦截判定；实测 5/5 注入全拦截。跑法：`python -m eval.cli --tasks eval/adversarial_tasks.json --repeat 1 --max-turns 15`。
+- **gold 轨迹**（`gold_trajectories.json`）：**已归档（2026-08-11）**——metrics 从未实现有 gold 的指标，且评测判定已完全由容器 verifier 承担，无需过程级 gold 参照。
+- **judge 人工一致性审计**：已产出数字（2026-08-11，SWE baseline 20 样本）：exact 55% / within-1 65%。口径说明：人工分用验证信号代理（verified→5/1 二元极值），judge 中间分（2-4）对二元代理必然失配，数字为下界；真实人工打分可跑 `--audit 20` 后填 `human_final_correctness` 重算。
 
 ## 输出
 

@@ -1,5 +1,5 @@
 [
   {
-    "_note": "手标 gold 工具序列（P0.5 有 gold 指标）。tools 用工具名序列：read_file / write_file / patch / glob / grep / bash / code_search / memory_search。coding agent 场景按「按序子序列（允许插入）」档评估。待人工按实际解标 5-10 题后填入。"
+    "_note": "已归档（2026-08-11）：gold 轨迹人工标注不计划实施。metrics.py 从未实现有 gold 的指标（轨迹匹配分级/工具 P-R），且人工标注无人力投入；评测体系已由 ADR-0040（Aider Polyglot 容器化）取代，pass@1 判定完全来自容器 verifier，无需过程级 gold 参照。原计划见 docs/plans/0016（已退役）。"
   }
 ]
