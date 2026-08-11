@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.17] — 2026-08-11
+
+### Added
+
+- **`--effort low/high` 推理努力参数**：实测 deepseek-v4-flash 支持 `reasoning_effort`（low 零思考 vs high 深思考，input tokens 差 16 倍——省成本利器）；AgentConfig 校验 + 透传，deepseek/openai codec 白名单放行；CLI main/tui/chat/benchmark 四处入口；anthropic 无 effort 概念保持默认
+
+### Fixed
+
+- **`/` 命令浮层焦点 bug**：Focus/Blur 事件不冒泡，输入框失焦后浮层永远覆盖输入栏——ComposerTextArea 主动上报 Blurred/Focused，失焦收起、聚焦按文本恢复
+- **`/` 命令浮层滚动窗口**：9 个命令超出可视行时窗口跟随选中项滚动（选中始终可见），替代原裁剪
+
 ## [0.1.16] — 2026-08-11
 
 ### Added
