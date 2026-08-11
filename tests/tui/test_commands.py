@@ -318,6 +318,51 @@ async def test_suggest_popup_on_slash() -> None:
         assert not suggest.is_visible()
 
 
+async def test_suggest_scrolls_window_keeps_selection_visible() -> None:
+    """ADR-0038 修复：9 个命令超出可视行时滚动窗口，选中项始终可见。"""
+    from vague_code.tui.widgets.command_suggest import CommandSuggest
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#input")
+        suggest = app.query_one("#command-suggest", CommandSuggest)
+
+        input_widget.load_text("/")
+        await pilot.pause(0.1)
+        assert len(suggest._items) == 9
+
+        # 初始：窗口从第 0 项开始
+        start, end = suggest._visible_window()
+        assert (start, end) == (0, 6)
+
+        # 向下移到第 7 项（index 7，超出首屏）→ 窗口滚动，选中项在窗口内
+        for _ in range(7):
+            suggest.move(1)
+        assert suggest.selected_index == 7
+        start, end = suggest._visible_window()
+        assert start == 2 and end == 8, f"窗口应滚动到 [2,8)，实际 [{start},{end})"
+        assert start <= suggest.selected_index < end
+
+        # 渲染的行数不超可视行，且选中行高亮
+        visible_rows = [r for r in suggest._rows if r.display]
+        assert len(visible_rows) == 6
+        highlighted = [r for r in visible_rows if "suggest-selected" in r.classes]
+        assert len(highlighted) == 1
+
+        # 移到最底部（index 8）窗口停在末尾
+        suggest.move(1)
+        assert suggest.selected_index == 8
+        start, end = suggest._visible_window()
+        assert (start, end) == (3, 9)
+
+        # 上移回 index 0 → 窗口回顶部
+        for _ in range(8):
+            suggest.move(-1)
+        assert suggest.selected_index == 0
+        assert suggest._visible_window() == (0, 6)
+
+
 # ── thinking fold ────────────────────────────────────────────────────────────
 
 async def test_thinking_folds_long_content_and_toggles() -> None:
