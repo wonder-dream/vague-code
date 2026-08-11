@@ -54,6 +54,19 @@ def test_prepare_task_excludes_answer_and_docs(tmp_path) -> None:
     assert not (dest / ".docs").exists(), "题目描述已被放入 prompt，不重复落盘"
 
 
+def test_prepare_task_fixes_gradlew_crlf(tmp_path) -> None:
+    """CRLF shebang 修复：Windows autocrlf 转出的 gradlew 必须还原 LF（127 not found）。"""
+    root = _make_dataset(tmp_path)
+    java = root / "java" / "exercises" / "practice" / "hello"
+    java.mkdir(parents=True)
+    (java / "gradlew").write_bytes(b"#!/bin/sh\r\n# comment\r\necho hi\r\n")
+    task = next(t for t in load_polyglot_tasks(root) if t["language"] == "java")
+    dest = prepare_task(tmp_path / "runs", task)
+    data = (dest / "gradlew").read_bytes()
+    assert b"\r\n" not in data
+    assert data.startswith(b"#!/bin/sh\n")
+
+
 def test_verify_python_pass_and_fail(tmp_path, monkeypatch) -> None:
     from eval import polyglot as pg
 

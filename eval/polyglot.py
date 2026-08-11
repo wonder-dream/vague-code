@@ -30,7 +30,11 @@ _LANG_VERIFIER: dict[str, list[str]] = {
     "go": ["go", "test", "./..."],
     "rust": ["cargo", "test", "--quiet"],
     "javascript": ["sh", "-c", "npm install --silent --no-audit --no-fund >/dev/null 2>&1 && npm test --silent"],
-    "java": ["sh", "-c", "./gradlew --console=plain test >/dev/null 2>&1"],
+    # Gradle 不读 HTTP_PROXY 环境变量（审查报告 4.6 明列的坑）→ JVM 系统属性透传代理
+    "java": ["sh", "-c",
+             "export GRADLE_OPTS=\"-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=7897 "
+             "-Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=7897\" "
+             "&& ./gradlew --console=plain test >/dev/null 2>&1"],
 }
 
 _IMAGE = "vague-eval"
@@ -88,11 +92,24 @@ def prepare_task(tasks_root: Path, task: dict) -> Path:
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(task["source_dir"], dest)
-    for name in (".meta", ".docs", ".approaches", "gradle", ".github"):
+    # 删答案/题目源（.meta/.docs/.approaches）；保留 gradle wrapper（构建必需）
+    for name in (".meta", ".docs", ".approaches", ".github"):
         p = dest / name
         if p.exists():
             shutil.rmtree(p)
+    # Windows git autocrlf 会把 gradlew 转成 CRLF → shebang 失效（127 not found）
+    _fix_shebang_line_endings(dest)
     return dest
+
+
+def _fix_shebang_line_endings(task_dir: Path) -> None:
+    """把 Unix 脚本（gradlew 等）行尾转回 LF，修复 CRLF shebang 不可执行。"""
+    for name in ("gradlew",):
+        p = task_dir / name
+        if p.is_file():
+            data = p.read_bytes()
+            if b"\r\n" in data:
+                p.write_bytes(data.replace(b"\r\n", b"\n"))
 
 
 def _cpp_verifier(task: dict) -> list[str]:
@@ -145,11 +162,18 @@ def verify_in_container(task: dict, workdir: Path) -> tuple[bool, str, str]:
         cmd = _LANG_VERIFIER[task["language"]]
     wsl_workdir = _to_wsl_path(workdir)
     mount_dir = task["exercise"]
+    # 语言依赖缓存挂载（WSL 侧持久目录）：npm/gradle 下载一次后命中缓存，避免每题重装
+    extra_mounts: list[str] = []
+    if task["language"] == "javascript":
+        extra_mounts = ["-v", "/root/npm-cache:/root/.npm"]
+    elif task["language"] == "java":
+        extra_mounts = ["-v", "/root/gradle-cache:/root/.gradle"]
     try:
         proc = _docker([
             "run", "--rm", "--network", "host",
             "-e", "HTTP_PROXY=http://127.0.0.1:7897",
             "-e", "HTTPS_PROXY=http://127.0.0.1:7897",
+            *extra_mounts,
             "-v", f"{wsl_workdir}:/{mount_dir}",
             "-w", f"/{mount_dir}",
             _IMAGE, *cmd,

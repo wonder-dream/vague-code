@@ -6,11 +6,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip \
-    nodejs npm \
     golang-go \
     openjdk-17-jdk-headless \
     g++ cmake make \
     curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node 20 LTS（ubuntu 源 node 12 太老，jest 29 需 >=14）
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m pip install --no-cache-dir -q pytest
