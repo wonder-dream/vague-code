@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     golang-go \
     openjdk-17-jdk-headless \
     g++ cmake make \
+    libboost-dev libboost-date-time-dev \
     curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 

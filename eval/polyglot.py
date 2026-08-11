@@ -115,9 +115,19 @@ def _fix_shebang_line_endings(task_dir: Path) -> None:
 def _cpp_verifier(task: dict) -> list[str]:
     # CMakeLists 的 target 名 = 目录名（保留连字符，如 all-your-base → build/all-your-base）
     exe = task["exercise"]
+    # Boost_NO_BOOST_CMAKE：ubuntu 22.04 Boost 1.74 的 config mode 对 header-only
+    # date_time 组件误判缺失（实测 gigasecond/meetup），老 FindBoost 模块路径正常
     return ["sh", "-c",
-            f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 "
+            f"cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBoost_NO_BOOST_CMAKE=ON "
+            f">/dev/null 2>&1 "
             f"&& cmake --build build >/dev/null 2>&1 && ./build/{exe}"]
+
+
+# 数据集缺陷（判死题）：官方参考答案同样无法通过 verifier，任何 agent 都不可能过
+# 键 = instance_id，值 = 原因（报告时展示；从能力分母剔除，语义同 env_broken）
+_DATASET_DEFECTS: dict[str, str] = {
+    "cpp/complex-numbers": "测试文件 static require_approx_equal 未使用撞 -Werror（官方 example 同样编译失败）",
+}
 
 
 # 各语言测试文件定位（从数据集源目录恢复，防 agent 改测试作弊，对齐 SWE 版 P0-3）
@@ -150,12 +160,29 @@ def _restore_tests(task: dict, workdir: Path) -> None:
                 shutil.copy2(src, dest)
 
 
-def verify_in_container(task: dict, workdir: Path) -> tuple[bool, str, str]:
+def _clean_build_artifacts(task_dir: Path) -> None:
+    """清除 agent 在宿主生成的构建残留。
+
+    agent 在 Windows 宿主可能自己跑过 cmake，build/CMakeCache.txt 记录的是
+    Windows 路径（如 D:/developer/mingw64/...），容器挂载后 cmake 拒绝重新
+    生成 → 误判构建失败。实测 7 个 cpp 失败中 6 个由此造成。
+    """
+    build = task_dir / "build"
+    if build.exists():
+        shutil.rmtree(build)
+
+
+def verify_in_container(task: dict, workdir: Path) -> tuple[bool | None, str, str]:
     """容器内跑 verifier：返回 (verified, verdict_reason, 输出尾部)。
 
     挂载点 = exercise 名目录（cpp CMakeLists 用目录名当目标名，/workspace 会失效）。
+    数据集缺陷题直接标记（None, dataset_defect），不进能力分母。
     """
+    defect = _DATASET_DEFECTS.get(task["instance_id"])
+    if defect:
+        return None, "dataset_defect", defect
     _restore_tests(task, workdir)
+    _clean_build_artifacts(workdir)
     if task["language"] == "cpp":
         cmd = _cpp_verifier(task)
     else:

@@ -46,6 +46,9 @@ def classify(r: TaskResult, injected: bool = False) -> str:
             return "env_broken"     # 环境坏：确定性剔除，不进能力分母
         return "infra"              # checkout/venv/网络/reward 缺失等一切基础设施错误
 
+    if r.verdict_reason == "dataset_defect":
+        return "env_broken"         # 数据集缺陷：官方答案同样过不了，判死题剔除
+
     if end in ("max_turns", "pending", "empty_tool_use"):
         return "timeout"            # 超时：预算耗尽（可能有 diff 也可能没有）
 

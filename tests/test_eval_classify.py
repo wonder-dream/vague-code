@@ -81,6 +81,11 @@ def test_verify_fail_mapped_to_f2p() -> None:
     assert classify(_r(False, reason="verify:timeout")) == "infra"
 
 
+def test_dataset_defect_classified_as_env_broken() -> None:
+    """数据集缺陷（官方答案同样过不了）→ env_broken 剔除，不进能力分母（ADR-0040）。"""
+    assert classify(_r(None, reason="dataset_defect")) == "env_broken"
+
+
 def test_stagnant_class() -> None:
     assert classify(_r(False, run_end="stagnant")) == "stagnant"
     # 停滞优先于 timeout 判断

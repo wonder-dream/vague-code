@@ -108,7 +108,26 @@ def test_verify_cpp_builds_and_runs(tmp_path, monkeypatch) -> None:
     assert ok is True
     joined = " ".join(captured)
     assert "cmake" in joined
+    assert "-DBoost_NO_BOOST_CMAKE=ON" in joined  # Boost 1.74 config mode 对 date_time 误判的绕过
     assert "./build/all-your-base" in joined  # target 名 = 目录名（连字符保留）
+
+
+def test_dataset_defect_skips_verifier(tmp_path, monkeypatch) -> None:
+    """数据集缺陷题：不跑容器直接标 (None, dataset_defect)。"""
+    from eval import polyglot as pg
+
+    called = []
+
+    def fake_docker(args, timeout_s=900):
+        called.append(args)
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr(pg, "_docker", fake_docker)
+    task = {"instance_id": "cpp/complex-numbers", "language": "cpp",
+            "exercise": "complex-numbers", "source_dir": str(tmp_path)}
+    ok, reason, tail = verify_in_container(task, tmp_path)
+    assert ok is None and reason == "dataset_defect"
+    assert not called, "缺陷题不得触发容器调用"
 
 
 def test_restore_tests_overwrites_agent_modified_tests(tmp_path) -> None:
