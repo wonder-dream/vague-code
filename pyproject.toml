@@ -27,6 +27,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=0.117.0",
+    "ddgs>=9.14.4",
     "deepseek-tokenizer>=0.3.0",
     "openai>=2.46.0",
     "pydantic>=2.13.4",
