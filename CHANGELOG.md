@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.18] — 2026-08-12
+
+### Added
+
+- **自定义 User-Agent 支持（中转站 UA 放行）**：provider 配置加 `userAgent` 字段（如 `"claude-cli/1.0.66"`）→ `AnthropicBackend.default_headers` 覆盖 SDK 默认 UA，可直连只放行 `claude-cli/` UA 的中转站；CLI/TUI/eval 全入口透传，未配置保持 SDK 默认
+
+### Fixed
+
+- **`/` 命令浮层 Enter 不自动填充**：去掉 `_suggest_enter` 的 `text == cmd` 全等守卫——输入部分前缀 + ↑/↓ 选中后按回车即可无参命令直接执行 / 有参命令填入「命令+空格」
+
 ## [0.1.17] — 2026-08-11
 
 ### Added
