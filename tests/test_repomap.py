@@ -196,18 +196,18 @@ def test_refresh_specific_paths(tmp_path: Path) -> None:
     assert {s.name for s in idx._symbols} == {"foo", "bar2"}
 
 
-# ── make_code_search_handler / code_search tool ───────────────────────────
+# ── code_search 工具（class-based，ADR-0004 重构）─────────────────────────
 
 def test_code_search_handler_end_to_end(tmp_path: Path) -> None:
-    from vague_code.agent.tools import make_code_search_handler
+    from vague_code.agent.tools.code_search import CodeSearchTool
 
     _write(tmp_path, "stats.py", SRC)
     idx = _make_index(tmp_path)
-    handler = make_code_search_handler(idx)
+    tool = CodeSearchTool(str(tmp_path), idx)
 
-    out = handler({"query": "calculate"})
+    out = tool({"query": "calculate"}).output
     assert "stats.py:11: def calculate" in out
 
-    assert "未找到" in handler({"query": "nonexistent_symbol_xyz"})
-    assert "需要提供搜索查询" in handler({"query": ""})
-    assert "未找到" in handler({"query": "("})  # invalid regex handled
+    assert "未找到" in tool({"query": "nonexistent_symbol_xyz"}).output
+    assert "需要提供搜索查询" in tool({"query": ""}).output
+    assert "未找到" in tool({"query": "("}).output  # invalid regex handled

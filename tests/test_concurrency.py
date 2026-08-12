@@ -1,20 +1,49 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable
 
 from vague_code.agent.concurrency import (
     OpType,
     ResourceScope,
     ScopeType,
-    _extract_scope,
     _normalize_path,
     _pattern_prefix,
+    _scope_for,
     _scopes_conflict,
     execute_concurrent,
     schedule,
 )
 from vague_code.agent.ir import ToolUseBlock
+from vague_code.agent.tools.base import ToolResult
+
+
+def _tools(workdir: str) -> dict:
+    """真实注册表绑定实例（scope 提取用，不执行工具）。"""
+    from vague_code.agent.tools import DEFAULT_TOOLS, bind_tools
+    return bind_tools(DEFAULT_TOOLS, workdir)
+
+
+def _tools_with_code_search(workdir: str) -> dict:
+    from vague_code.agent.tools.code_search import CodeSearchTool
+    tools = _tools(workdir)
+    tools["code_search"] = CodeSearchTool(workdir, None)
+    return tools
+
+
+class _FakeTool:
+    """最小 fake 工具：可调用返回 ToolResult + 资源声明。"""
+
+    name = "fake"
+
+    def __init__(self, content: str = "ok", op_type: OpType = OpType.READ):
+        self._content = content
+        self._op_type = op_type
+
+    def __call__(self, input: dict) -> ToolResult:
+        return ToolResult(output=self._content)
+
+    def resource_scope(self, input: dict) -> ResourceScope:
+        return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=self._op_type)
 
 
 # ── _pattern_prefix ─────────────────────────────────────────────────────────
@@ -39,7 +68,7 @@ def test_pattern_prefix_root_wildcard() -> None:
 
 def test_scope_read_file() -> None:
     call = ToolUseBlock(id="c1", name="read_file", input={"path": "a.py"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.READ
     assert s.scope_type == ScopeType.EXACT
     assert s.path == "a.py"
@@ -47,7 +76,7 @@ def test_scope_read_file() -> None:
 
 def test_scope_write_file_new(tmp_path: Path) -> None:
     call = ToolUseBlock(id="c1", name="write_file", input={"path": "new.txt", "content": "hello"})
-    s = _extract_scope(call, str(tmp_path))
+    s = _scope_for(call, _tools_with_code_search(str(tmp_path)))
     assert s.op_type == OpType.STRUCTURAL_WRITE
     assert s.scope_type == ScopeType.EXACT
     assert s.path == "new.txt"
@@ -57,21 +86,21 @@ def test_scope_write_file_existing(tmp_path: Path) -> None:
     existing = tmp_path / "exist.txt"
     existing.write_text("x", encoding="utf-8")
     call = ToolUseBlock(id="c1", name="write_file", input={"path": "exist.txt", "content": "y"})
-    s = _extract_scope(call, str(tmp_path))
+    s = _scope_for(call, _tools_with_code_search(str(tmp_path)))
     assert s.op_type == OpType.WRITE
     assert s.scope_type == ScopeType.EXACT
 
 
 def test_scope_patch() -> None:
     call = ToolUseBlock(id="c1", name="patch", input={"path": "a.py", "old_str": "x", "new_str": "y"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.WRITE
     assert s.scope_type == ScopeType.EXACT
 
 
 def test_scope_glob() -> None:
     call = ToolUseBlock(id="c1", name="glob", input={"pattern": "tests/**/*.py"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.READ
     assert s.scope_type == ScopeType.PREFIX
     assert s.path == "tests"
@@ -79,7 +108,7 @@ def test_scope_glob() -> None:
 
 def test_scope_grep() -> None:
     call = ToolUseBlock(id="c1", name="grep", input={"path": "src/", "pattern": "TODO"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.READ
     assert s.scope_type == ScopeType.PREFIX
     assert s.path == "src/"
@@ -87,14 +116,14 @@ def test_scope_grep() -> None:
 
 def test_scope_bash() -> None:
     call = ToolUseBlock(id="c1", name="bash", input={"command": "ls"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.WRITE
     assert s.scope_type == ScopeType.WORKSPACE
 
 
 def test_scope_code_search() -> None:
     call = ToolUseBlock(id="c1", name="code_search", input={"query": "calculate"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.READ
     assert s.scope_type == ScopeType.EXACT
     assert s.path == ""
@@ -102,23 +131,23 @@ def test_scope_code_search() -> None:
 
 def test_scope_code_search_with_path() -> None:
     call = ToolUseBlock(id="c1", name="code_search", input={"query": "foo", "path": "src/"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.READ
     assert s.scope_type == ScopeType.EXACT
     assert s.path == "src/"
 
 
 def test_code_search_reads_do_not_conflict() -> None:
-    a = _extract_scope(
-        ToolUseBlock(id="c1", name="code_search", input={"query": "foo"}), "/ws")
-    b = _extract_scope(
-        ToolUseBlock(id="c1", name="code_search", input={"query": "bar"}), "/ws")
+    a = _scope_for(
+        ToolUseBlock(id="c1", name="code_search", input={"query": "foo"}), _tools_with_code_search("/ws"))
+    b = _scope_for(
+        ToolUseBlock(id="c1", name="code_search", input={"query": "bar"}), _tools_with_code_search("/ws"))
     assert not _scopes_conflict(a, b)
 
 
 def test_scope_unknown_tool() -> None:
     call = ToolUseBlock(id="c1", name="unknown", input={})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.op_type == OpType.WRITE
     assert s.scope_type == ScopeType.WORKSPACE
 
@@ -180,7 +209,7 @@ def test_schedule_all_reads_concurrent() -> None:
         ToolUseBlock(id="c1", name="read_file", input={"path": "a.py"}),
         ToolUseBlock(id="c2", name="read_file", input={"path": "b.py"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) == 1
     assert len(groups[0]) == 2
 
@@ -190,7 +219,7 @@ def test_schedule_read_write_same_file_serial() -> None:
         ToolUseBlock(id="c1", name="read_file", input={"path": "a.py"}),
         ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "x"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) >= 2  # can't be in same group
 
 
@@ -199,7 +228,7 @@ def test_schedule_bash_isolated() -> None:
         ToolUseBlock(id="c1", name="read_file", input={"path": "a.py"}),
         ToolUseBlock(id="c2", name="bash", input={"command": "ls"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) == 2
 
 
@@ -209,7 +238,7 @@ def test_schedule_mixed_three() -> None:
         ToolUseBlock(id="c2", name="write_file", input={"path": "b.py", "content": "x"}),
         ToolUseBlock(id="c3", name="bash", input={"command": "ls"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     # c1(read a) + c2(write b) can be concurrent → group 1; c3(bash) isolated → group 2
     assert len(groups) == 2
     assert len(groups[0]) == 2
@@ -220,7 +249,7 @@ def test_schedule_two_writes_same_file() -> None:
         ToolUseBlock(id="c1", name="write_file", input={"path": "a.py", "content": "x"}),
         ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "y"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) >= 2  # same path write → conflict → separate groups
 
 
@@ -228,14 +257,14 @@ def test_schedule_two_writes_same_file() -> None:
 
 def test_scope_glob_root_pattern_is_workspace() -> None:
     call = ToolUseBlock(id="c1", name="glob", input={"pattern": "**/*.py"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.scope_type == ScopeType.WORKSPACE
     assert s.op_type == OpType.READ
 
 
 def test_scope_grep_no_path_is_workspace() -> None:
     call = ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"})
-    s = _extract_scope(call, "/ws")
+    s = _scope_for(call, _tools_with_code_search("/ws"))
     assert s.scope_type == ScopeType.WORKSPACE
     assert s.op_type == OpType.READ
 
@@ -245,7 +274,7 @@ def test_schedule_root_glob_conflicts_with_write() -> None:
         ToolUseBlock(id="c1", name="glob", input={"pattern": "**/*.py"}),
         ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "x"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) == 2
 
 
@@ -254,7 +283,7 @@ def test_schedule_full_grep_conflicts_with_write() -> None:
         ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"}),
         ToolUseBlock(id="c2", name="write_file", input={"path": "a.py", "content": "x"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) == 2
 
 
@@ -263,7 +292,7 @@ def test_schedule_two_full_greps_still_concurrent() -> None:
         ToolUseBlock(id="c1", name="grep", input={"pattern": "TODO"}),
         ToolUseBlock(id="c2", name="grep", input={"pattern": "FIXME"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     assert len(groups) == 1
 
 
@@ -283,7 +312,7 @@ def test_schedule_case_insensitive_conflict_on_windows() -> None:
         ToolUseBlock(id="c1", name="read_file", input={"path": "SRC/A.PY"}),
         ToolUseBlock(id="c2", name="write_file", input={"path": "src/a.py", "content": "x"}),
     ]
-    groups = schedule(calls, "/ws")
+    groups = schedule(calls, _tools("/ws"))
     if os.name == "nt":
         assert len(groups) == 2
     else:
@@ -297,12 +326,13 @@ def test_execute_timeout_returns_promptly(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("vague_code.agent.concurrency._CONCURRENT_TIMEOUT", 0.1)
     calls = [ToolUseBlock(id="c1", name="bash", input={"command": "sleep"})]
 
-    def slow_handler(_: dict) -> str:
-        time.sleep(2)
-        return "late"
+    class _SlowTool(_FakeTool):
+        def __call__(self, input: dict) -> ToolResult:
+            time.sleep(2)
+            return ToolResult(output="late")
 
     t0 = time.monotonic()
-    results = execute_concurrent(calls, {"bash": slow_handler}, str(tmp_path))
+    results = execute_concurrent(calls, {"bash": _SlowTool()})
     elapsed = time.monotonic() - t0
     assert len(results) == 1
     assert results[0].is_error
@@ -312,19 +342,13 @@ def test_execute_timeout_returns_promptly(tmp_path, monkeypatch) -> None:
 
 # ── execute_concurrent ──────────────────────────────────────────────────────
 
-def _fake_handler(content: str = "ok"):
-    def handler(input: dict) -> str:
-        return content
-    return handler
-
-
 def test_execute_results_order() -> None:
     calls = [
         ToolUseBlock(id="c1", name="read_file", input={"path": "a.py"}),
         ToolUseBlock(id="c2", name="read_file", input={"path": "b.py"}),
     ]
-    handlers = {"read_file": _fake_handler("result c1")}
-    results = execute_concurrent(calls, handlers, "/ws")
+    tools = {"read_file": _FakeTool("result c1")}
+    results = execute_concurrent(calls, tools)
     assert len(results) == 2
     assert results[0].tool_use_id == "c1"
     assert results[1].tool_use_id == "c2"
@@ -332,7 +356,7 @@ def test_execute_results_order() -> None:
 
 def test_execute_unknown_tool() -> None:
     call = ToolUseBlock(id="c1", name="nonexistent", input={})
-    results = execute_concurrent([call], {}, "/ws")
+    results = execute_concurrent([call], {})
     assert len(results) == 1
     assert results[0].is_error
     assert "未知工具" in results[0].content
@@ -340,9 +364,12 @@ def test_execute_unknown_tool() -> None:
 
 def test_execute_handler_raises_exception() -> None:
     calls = [ToolUseBlock(id="c1", name="read_file", input={"path": "x"})]
-    def exploding_handler(_: dict) -> str:
-        raise ValueError("handler boom")
-    results = execute_concurrent(calls, {"read_file": exploding_handler}, "/ws")
+
+    class _ExplodingTool(_FakeTool):
+        def __call__(self, input: dict) -> ToolResult:
+            raise ValueError("handler boom")
+
+    results = execute_concurrent(calls, {"read_file": _ExplodingTool()})
     assert len(results) == 1
     assert results[0].is_error
     assert "ValueError" in results[0].content
@@ -355,15 +382,13 @@ def test_execute_failure_propagation() -> None:
         ToolUseBlock(id="c1", name="read_file", input={"path": "will_fail"}),
         ToolUseBlock(id="c2", name="bash", input={"command": "echo ok"}),
     ]
-    def ok_handler(input: dict) -> str:
-        return "ok"
-    def failing_handler(input: dict) -> str:
-        raise RuntimeError("intentional fail")
-    handlers: dict[str, Callable[[dict], str]] = {
-        "read_file": failing_handler,
-        "bash": ok_handler,
-    }
-    results = execute_concurrent(calls, handlers, "/ws")
+
+    class _FailingTool(_FakeTool):
+        def __call__(self, input: dict) -> ToolResult:
+            raise RuntimeError("intentional fail")
+
+    tools = {"read_file": _FailingTool(), "bash": _FakeTool("ok", OpType.WRITE)}
+    results = execute_concurrent(calls, tools)
     assert len(results) == 2
     assert results[0].is_error
     assert "RuntimeError" in results[0].content
@@ -377,5 +402,5 @@ def test_execute_concurrent_faster_than_serial(tmp_path: Path) -> None:
     calls = [
         ToolUseBlock(id="c1", name="bash", input={"command": "sleep"}),  # will be WORKSPACE → serial
     ]
-    results = execute_concurrent(calls, {}, str(tmp_path))
+    results = execute_concurrent(calls, {})
     assert len(results) == 1

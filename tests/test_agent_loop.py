@@ -23,7 +23,7 @@ from vague_code.agent.ir import (
 )
 from vague_code.agent.loop import Agent
 from vague_code.agent.permission import Decision
-from vague_code.agent.tools import DEFAULT_TOOLS, Tool
+from vague_code.agent.tools import DEFAULT_TOOLS
 from vague_code.agent.trajectory import Event, EventType, Trajectory
 from vague_code.agent.backend import DeepSeekBackend
 
@@ -492,14 +492,20 @@ def test_empty_tools_registry():
 
 
 def test_bind_failure_emits_tool_bind_error():
-    def _broken_factory(workdir: str) -> None:
-        raise RuntimeError("bind failed")
+    from vague_code.agent.tools.base import Tool
 
-    broken_spec = ToolSpec(
-        name="broken", description="broken", parameters={"type": "object", "properties": {}}
-    )
-    broken_tool = Tool(spec=broken_spec, factory=_broken_factory)  # type: ignore[arg-type]
-    agent = Agent(AgentConfig(max_turns=5), FakeBackend([]), tools={"broken": broken_tool})
+    class _BrokenTool(Tool):
+        name = "broken"
+        description = "broken"
+        parameters = {"type": "object", "properties": {}}
+
+        def __init__(self, workdir: str):
+            raise RuntimeError("bind failed")
+
+        def run(self, input: dict) -> str:
+            return ""
+
+    agent = Agent(AgentConfig(max_turns=5), FakeBackend([]), tools={"broken": _BrokenTool})
     traj = agent.run("x", ".")
     assert any(e.type == EventType.error for e in traj.events)
     error = [e for e in traj.events if e.type == EventType.error][0]
@@ -522,9 +528,18 @@ def test_empty_tool_use_emits_error():
 
 
 def test_tool_registry_key_name_mismatch_raises():
-    spec = ToolSpec(name="correct_name", description="x", parameters={"type": "object", "properties": {}})
+    from vague_code.agent.tools.base import Tool
+
+    class _FakeTool(Tool):
+        name = "correct_name"
+        description = "x"
+        parameters = {"type": "object", "properties": {}}
+
+        def run(self, input: dict) -> str:
+            return ""
+
     with pytest.raises(ValueError, match="Registry key.*does not match"):
-        Agent(AgentConfig(), FakeBackend([]), tools={"wrong_key": Tool(spec=spec, factory=lambda wd: lambda inp: "")})
+        Agent(AgentConfig(), FakeBackend([]), tools={"wrong_key": _FakeTool})
 
 
 # ── T6: path traversal ─────────────────────────────────────────────────
@@ -554,17 +569,11 @@ def test_read_file_truncates_large_file(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     big_file = ws / "big.txt"
-    big_file.write_text("A" * 2000, encoding="utf-8")
-    import vague_code.agent.tools as tmod
-    original_max = tmod.MAX_READ_BYTES
-    try:
-        tmod.MAX_READ_BYTES = 1000
-        handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
-        result = handler({"path": "big.txt"})
-        assert len(result) > 1000
-        assert "截断" in result
-    finally:
-        tmod.MAX_READ_BYTES = original_max
+    big_file.write_text("A" * 60_000, encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    result = handler({"path": "big.txt"})
+    assert result.metadata["truncated"] is True
+    assert len(result.output) < 60_000
 
 
 def test_read_file_strips_utf8_bom(tmp_path):
@@ -573,8 +582,8 @@ def test_read_file_strips_utf8_bom(tmp_path):
     (ws / "bom.txt").write_bytes(b'\xef\xbb\xbf{"key": "value"}')
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "bom.txt"})
-    assert result.startswith('{"key"')
-    assert "\ufeff" not in result
+    assert result.output.startswith('{"key"')
+    assert "\ufeff" not in result.output
 
 
 def test_read_file_null_path_diagnostic(tmp_path):
