@@ -54,8 +54,9 @@ async def test_setup_wizard_select_provider_and_collect(tmp_path) -> None:
 
     app = _make_app(tmp_path, needs_setup=True)
     async with app.run_test() as pilot:
-        # needs_setup 经 call_after_refresh 异步推屏——轮询到 widget 就绪（flaky 修复）
-        for _ in range(100):
+        # needs_setup 经 call_after_refresh 异步推屏——轮询到 widget 就绪
+        # （CI 高负载下推屏可超过 10s，预算 20s）
+        for _ in range(200):
             if isinstance(app.screen, SetupWizard):
                 try:
                     app.screen.query_one("#setup-baseurl")

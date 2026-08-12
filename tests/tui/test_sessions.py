@@ -653,8 +653,11 @@ def test_session_state_model_fields_default_empty() -> None:
     assert a.provider == "openai"
 
 
-async def test_model_switch_affects_only_current_session() -> None:
+async def test_model_switch_affects_only_current_session(monkeypatch) -> None:
     """ADR-0039：/model 同 provider 直切只作用于当前会话，其他会话不受影响。"""
+    import vague_code.cli as cli_mod
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: "sk-" + env)
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
