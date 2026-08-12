@@ -10,7 +10,7 @@
 
 工具是 Agent 的"手"和"眼"——它通过工具与外部世界交互。Agent 不能直接操作文件系统或执行命令，一切操作都经过工具的封装。
 
-核心设计：`Tool` dataclass = ToolSpec + factory（`tools.py:20-26`）。ToolSpec 定义了工具的 JSON Schema（名称、参数、返回值），factory 是一个闭包生成器——传入工作目录，返回 handler 函数。
+核心设计：`Tool` ABC（class-based，`tools/base.py`）。元数据类变量（name/description/parameters JSON Schema/permission/op_type/scope_type）+ 模板方法 handle()（参数提取 → 路径安全 → run → 统一截断 → 结构化 ToolResult）。
 
 `bind(workdir)` 工厂模式是关键抽象：工具定义与工作目录解耦，同一个工具定义可以在不同工作目录下绑定不同的 handler 实例。注册约束：`registry key == tool.spec.name`（`loop.py:182-183` 校验），保证命名一致。
 
@@ -34,32 +34,29 @@ ADR-0004 的设计动机：注册即用，零插件开销。添加新工具 = �
 
 ---
 
-## 3. Tool dataclass + bind 工厂模式
+## 3. Tool 抽象层（class-based，ADR-0004 重构）
 
 ```python
-@dataclass
-class Tool:
-    spec: ToolSpec          # 工具的定义（Schema）
-    factory: Callable[[str], Callable[[dict], str]]  # workdir → handler
+class Tool(ABC):
+    name / description / parameters: ClassVar   # 声明式元数据（spec() 生成 JSON Schema）
+    permission: ClassVar[str]                   # read/write/bash_safe/bash_dangerous/network
+    op_type / scope_type: ClassVar              # 并发资源元数据
+    max_lines / max_bytes: ClassVar             # 统一截断上限（默认 2000 行 / 50KB）
 
-    def bind(self, workdir: str) -> Callable[[dict], str]:
-        return self.factory(workdir)
+    def handle(self, input) -> ToolResult       # 模板方法：run → truncate → ToolResult
+    def run(self, input) -> str                 # 子类核心逻辑
+    def extract(...) / resolve_path(...)        # 参数校验 / 路径安全基类
+    def permission_class(self, input) -> str    # Bash 覆写（safe/dangerous 动态判定）
+    def resource_scope(self, input) -> ResourceScope  # WriteFile 覆写（新文件=SW）
 ```
 
-`Tool` 是一个双层结构：第一层是规格（spec），定义 LLM 看到什么；第二层是工厂（factory），定义运行时做什么。`bind(workdir)` 把工作目录注入工厂，生成一个绑定具体路径的 handler。
+`Tool` 元数据声明 + 模板方法：参数提取、路径安全、统一截断（`tools/truncate.py`，2000 行/50KB 双限不截半行）是横切关注点，基类提供；子类 `run()` 只写核心逻辑。**权限分类与并发 scope 由工具元数据提供**——permission.py / concurrency.py 不再按工具名硬编码分支。
 
-**DEFAULT_TOOLS 注册表**（`tools.py:341-348`）：
+**结构化输出**：`ToolResult{output, metadata}`——output 模型可见；metadata 带截断统计（truncated/truncated_by/字节数），进 tool_result 事件与 Block.meta。
 
-```python
-DEFAULT_TOOLS: dict[str, Tool] = {
-    "read_file": Tool(spec=READ_FILE_SPEC, factory=_read_file_factory),
-    "write_file": Tool(spec=WRITE_FILE_SPEC, factory=_write_file_factory),
-    "glob": Tool(spec=GLOB_SPEC, factory=_glob_factory),
-    "patch": Tool(spec=PATCH_SPEC, factory=_patch_factory),
-    "grep": Tool(spec=GREP_SPEC, factory=_grep_factory),
-    "bash": Tool(spec=BASH_SPEC, factory=_bash_factory),
-}
-```
+**两态错误契约**（对齐 Codex RespondToModel|Fatal）：`ToolInputError/ToolPathError/ToolNotFoundError(含 Did you mean? 建议)/ToolExistsError/ToolExecutionError` 的 message 是给模型的修正指引；其余异常 = 致命。
+
+**DEFAULT_TOOLS 注册表**（`tools/__init__.py`）：`dict[str, type[Tool]]`，`bind_tools(registry, workdir)` 实例化。
 
 `code_search` 不在 DEFAULT_TOOLS 中——它是动态注入的：
 - `code_search`（`loop.py` 动态注册）：仅在 repo index 构建成功时注册（`repo_map.enabled=True` 且工作区有可解析符号）
@@ -76,7 +73,7 @@ DEFAULT_TOOLS: dict[str, Tool] = {
 
 - **路径解析链：** `user_path → root / path → Path.resolve()` → `is_relative_to(root)` —— 先拼接到工作目录，再 resolve 掉 `..`，最后检查是否仍在工作目录内。任何绕过尝试都会触发 `PermissionError`。
 - **安全：** null 字节检测（`\x00` in path_str → `ValueError`）
-- **截断：** `MAX_READ_BYTES = 10MB`（`tools.py:13`），超出则返回前 10MB + `[... 输出截断于 {n} 字节...]`
+- **截断：** 统一截断层（`tools/truncate.py`），2000 行 / 50KB 双限（对齐业界参数），不截半行，截断统计入 ToolResult.metadata
 - **编码：** `utf-8-sig` 兼容 BOM 头
 - **错误类型：** `ValueError`（空路径/null）→ `PermissionError`（路径穿越）→ `FileNotFoundError`（不存在）
 
@@ -128,7 +125,7 @@ DEFAULT_TOOLS: dict[str, Tool] = {
 
 - Windows 前缀：`chcp 65001 >nul &` 保证 UTF-8 编码（`tools.py:226-227`）
 - 30 秒超时 → `subprocess.Popen.kill()` + Windows `taskkill /F /T /PID`（递归杀死进程树）
-- stdout/stderr 各自 50KB 截断（`tools.py:255-258`）
+- 输出由统一截断层整体截断（2000 行 / 50KB）
 - cwd 参数：允许在子目录执行
 - 返回格式：`退出码: N\n标准输出:\n{...}\n标准错误输出:\n{...}`
 - 错误类型：`ValueError`（空命令）→ `RuntimeError`（超时，附 partial output）
@@ -180,11 +177,11 @@ bash 工具本身不限制命令执行，但通过权限系统做二次分类：
 | 截断点 | 限制 | 位置 |
 |--------|------|------|
 | 单工具输出 | 50KB | `loop.py:558-565` |
-| read_file | 10MB | `tools.py:46-54` |
-| grep 单文件 | 5MB | `tools.py:16` |
-| grep 文件数 | 500 | `tools.py:17` |
-| grep 结果数 | 500 | `tools.py:18` |
-| glob 结果数 | 1000 | `tools.py:15` |
+| read_file | 50KB | `tools/fs.py` |
+| grep 单文件 | 5MB | `tools/fs.py` |
+| grep 文件数 | 500 | `tools/fs.py` |
+| grep 结果数 | 500 | `tools/fs.py` |
+| glob 结果数 | 1000 | `tools/fs.py` |
 
 ---
 
@@ -259,21 +256,20 @@ for call, scope in zip(calls, scopes):
 
 ---
 
-## 7. 添加新工具：5 步攻略
+## 7. 添加新工具：4 步攻略
 
 | 步骤 | 操作 | 代码位置示例 |
 |------|------|-------------|
-| 1 | 定义 Handler 函数 `_xxx_factory(workdir) → handler(input) → str` | `tools.py:29-57`（参考 read_file） |
-| 2 | 定义 ToolSpec（name、description、parameters JSON Schema） | `tools.py:262-272`（参考 READ_FILE_SPEC） |
-| 3 | 构造 Tool 实例 `Tool(spec=xxx_SPEC, factory=_xxx_factory)` | `tools.py:342-343` |
-| 4 | 注册到 `DEFAULT_TOOLS` | `tools.py:341-348` |
-| 5 | 更新 scope 提取器 `_extract_scope()` | `concurrency.py:54-85` |
+| 1 | 定义 Tool 子类：元数据类变量（name/description/parameters/permission/op_type/scope_type）+ `run()` | `tools/fs.py`（参考 ReadFileTool） |
+| 2 | 覆写 `permission_class()` / `resource_scope()`（默认元数据不满足时） | BashTool / WriteFileTool |
+| 3 | 注册到 `DEFAULT_TOOLS`（`dict[str, type[Tool]]`） | `tools/__init__.py` |
+| 4 | 参数提取用基类 `extract()`、路径安全用 `resolve_path()`；错误抛 ToolError 子类 | `tools/base.py` |
 
 **设计约束：**
-- 输入始终为 `dict`：JSON Schema 校验在 LLM 侧，handler 信任类型
-- 输出始终为 `str`：超过 50K 自动被 `_truncate_tool_content()` 截断
-- 异常必须在 handler 内部捕获并返回友好消息——不抛异常到 Agent
-- 路径安全"先 resolve 后相对性 check"模式在所有文件操作中重复
+- 输入始终为 `dict`：基类 `extract()` 统一校验（None/空/类型）；错误抛 ToolError 子类（message 给模型修正指引）
+- 输出始终为 `ToolResult{output, metadata}`：output 经统一截断层（2000 行 / 50KB，`tools/truncate.py`），截断统计入 metadata
+- 未捕获异常 = 致命错误（loop 层 `{Type}: {msg}` 转 is_error 回喂）——工具内不要吞异常返回字符串
+- 路径安全 `resolve_path()` 基类统一（空字节 + 穿越防护），无需每个工具重复
 
 ---
 

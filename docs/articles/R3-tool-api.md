@@ -119,27 +119,34 @@
 
 ---
 
-## 9. Tool dataclass
+## 9. Tool 抽象层（class-based，ADR-0004 重构）
 
-**代码位置：** `tools.py:20-26`
+**代码位置：** `tools/base.py`
 
 ```python
-@dataclass
-class Tool:
-    spec: ToolSpec
-    factory: Callable[[str], Callable[[dict], str]]
+class Tool(ABC):
+    name: ClassVar[str]                       # 工具名（注册表 key 必须一致）
+    description: ClassVar[str]
+    parameters: ClassVar[dict]                # JSON Schema
+    permission: ClassVar[str]                 # read/write/bash_safe/bash_dangerous/network
+    op_type / scope_type: ClassVar            # 并发资源元数据
+    max_lines / max_bytes: ClassVar           # 统一截断上限（默认 2000 行/50KB）
 
-    def bind(self, workdir: str) -> Callable[[dict], str]:
-        return self.factory(workdir)
+    def handle(self, input) -> ToolResult     # 模板方法：run → truncate → ToolResult
+    def run(self, input) -> str               # 子类核心逻辑
+    def extract(self, input, key, *, required=True) -> str   # 参数校验基类
+    def resolve_path(self, path_str) -> Path  # 路径安全基类（空字节/穿越防护）
+    def permission_class(self, input) -> str  # 权限分类（Bash 覆写动态判定）
+    def resource_scope(self, input) -> ResourceScope  # 并发 scope（WriteFile 覆写）
 ```
 
-| 属性 | 说明 |
+| 成员 | 说明 |
 |------|------|
-| `Tool.spec` | `ToolSpec` 实例（name + description + parameters） |
-| `Tool.factory` | `Callable[[str], Callable[[dict], str]]` — workdir → handler |
-| `Tool.bind(workdir)` | 返回绑定工作目录的 handler 函数 |
+| `ToolResult{output, metadata}` | 结构化输出：output 模型可见；metadata 带截断统计 |
+| `ToolError` 层次 | 两态错误：ToolInputError/ToolPathError/ToolNotFoundError（Did you mean? 建议）/ToolExistsError/ToolExecutionError（message=修正指引），其余异常=致命 |
+| `bind(workdir)` / `bind_tools()` | 类方法绑定工作目录返回实例；注册表批量实例化 |
 
-**DEFAULT_TOOLS 注册表**（`tools.py:341-348`）：`dict[str, Tool]`，key 必须等于 `tool.spec.name`。`code_search` 不在 DEFAULT_TOOLS 中，由 `loop.py` 动态注入（repo index 成功时）。
+**DEFAULT_TOOLS 注册表**（`tools/__init__.py`）：`dict[str, type[Tool]]`，key 必须等于 `tool.name`。`code_search` 不在 DEFAULT_TOOLS 中，由 `loop.py` 动态注入（repo index 成功时）。
 
 ---
 

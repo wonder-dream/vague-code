@@ -344,7 +344,7 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 | 模块 | 文件 | 描述 |
 |------|------|------|
 | **Agent Loop** | `vague_code/agent/loop.py` | ReAct 循环：LLM → tool_use → tool_result → LLM，含 retry/checkpoint/resume |
-| **Tool System** | `vague_code/agent/tools.py` | 7 个工具（read/write/patch/glob/grep/bash/code_search），JSON Schema 校验，50K 截断 |
+| **Tool System** | `vague_code/agent/tools/` | 7 个工具（read/write/patch/glob/grep/bash/code_search），class-based 元数据声明，统一截断（2000 行/50KB）+ 结构化结果 |
 | **Concurrency** | `vague_code/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
 | **Context Engineering** | `vague_code/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
 | **Permission System** | `vague_code/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 30+ 类危险命令正则 |
@@ -380,7 +380,7 @@ python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # pass^k 
 vague-code/
 ├── vague_code/agent/                 # Agent 核心包
 │   ├── loop.py                # ReAct 主循环
-│   ├── tools.py               # 6 个基础工具 + code_search spec
+│   ├── tools/                 # class-based 工具层（base/fs/bash/truncate/code_search）
 │   ├── concurrency.py         # 冲突可串行化并发
 │   ├── context_compress.py    # 五层压缩流水线
 │   ├── context.py             # 系统提示构建

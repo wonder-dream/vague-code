@@ -134,7 +134,7 @@ CLI              Agent              Context            Backend          Codec
 | 文件 | 职责 | 核心类/函数 | 核心功能 |
 |------|------|------------|---------|
 | `agent/loop.py` | ReAct 主循环 | `Agent` / `_StreamAggregator` / `RunHandle` | Agent 生命周期、循环控制、检查点、恢复 |
-| `agent/tools.py` | 6 个基础工具 + code_search spec | `Tool` / `DEFAULT_TOOLS` / 6 个 factory 函数 / `CODE_SEARCH_SPEC` | 工具定义 + 工厂模式 + JSON Schema |
+| `agent/tools/` | 工具抽象层（ADR-0004） | `base.py: Tool` ABC / `fs.py` / `bash_tool.py` / `truncate.py` / `code_search.py` | class-based 工具：元数据声明（权限/并发）+ 模板方法 + 统一截断 + 结构化结果 |
 | `agent/concurrency.py` | 冲突可串行化并发 | `schedule()` / `execute_concurrent()` / `ResourceScope` | scope 提取、冲突检测、分组调度、失败传播 |
 | `agent/context.py` | 系统提示构建 + 压缩入口 | `SystemPrompt` / `compress_chain()` | 三段式 system prompt、公共压缩入口 |
 | `agent/context_compress.py` | 五层压缩流水线 | `stale_snip()` / `microcompact()` / `structured_snip()` / `auto_compact()` / `truncate()` | 分层压缩纯函数 + 可观测报告 |

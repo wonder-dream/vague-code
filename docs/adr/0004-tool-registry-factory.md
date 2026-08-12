@@ -3,49 +3,67 @@ status: accepted
 date: 2026-07-21
 ---
 
-# 工具系统采用可注入注册表 + bind(workdir) 工厂模式
+# 工具系统采用可注入注册表 + class-based 抽象层
 
-工具不内嵌于 Agent Runtime（loop.py），独立为 `vague_code/agent/tools.py` 模块。工具抽象为 `Tool` dataclass：`spec: ToolSpec`（JSON Schema 声明）+ `factory: (workdir) → (input) → str`（绑定工作目录后产出无状态 handler）。Agent 通过构造函数注入工具注册表 `dict[str, Tool]`（默认 `DEFAULT_TOOLS`），与 backend 注入同一手法——Agent 核心只见抽象，不见具体工具实现。
+## 背景
 
-`bind(workdir)` 在 `run()` 启动时执行一次（workdir 在一次 run 内不变），产出的 handler 闭包捕获 workdir，此后工具调用签名统一为 `handler(input: dict) -> str`，不含环境参数。
+工具不内嵌于 Agent Runtime（loop.py），独立为 `vague_code/agent/tools/` 包。Agent 通过构造函数注入工具注册表（默认 `DEFAULT_TOOLS`），与 backend 注入同一手法——Agent 核心只见抽象，不见具体工具实现。
 
-## Considered Options
+> **决策更新（2026-08-12，ADR-0004 重构）：** `Tool` 由 dataclass（spec + factory 闭包）重构为 **class-based 抽象层**：元数据声明（permission / op_type / scope_type）+ 模板方法（参数提取 → 路径安全 → run → 统一截断 → 结构化结果）。权限分类与并发 scope 提取从 permission.py / concurrency.py 的**按工具名硬编码分支**迁入工具定义（元数据内聚）。
 
-- **工具定义内嵌 loop.py（被否决）**：Agent Runtime 与 Tool System 耦合；加工具必须改 loop 本体；`if name == "read_file"` 分支随工具数量膨胀；权限/并发阶段需要的资源元数据无挂载点。
-- **handler 签名 `(input, workdir)` 每次透传（被否决）**：workdir 在一次 run 内不变，逐次传递是噪声；且 handler 有状态泄露风险（调用方可以传不同的 workdir），放弃签名简洁性换取虚无的灵活性。
-- **工厂 bind 一次、handler 纯 input（选定）**：绑定时机与 run 生命周期对齐；handler 签名最简；workdir 一致性由构造保证。
+## 架构（v2，对齐业界调研）
 
-## 注册表设计
+参考实现：opencode（Tool.Def + InvalidArgumentsError + ExecuteResult 结构化）、Codex（FunctionCallError{RespondToModel|Fatal} 两态错误）、PI（truncate.ts 统一截断 + prepareArguments）、Claude Code（PermissionEvaluator 横切）。
 
 ```python
-@dataclass
-class Tool:
-    spec: ToolSpec
-    factory: Callable[[str], Callable[[dict], str]]  # workdir → (input → content)
+class Tool(ABC):
+    name / description / parameters: ClassVar      # JSON Schema 声明（spec() 生成）
+    permission: ClassVar[str]                      # read/write/bash_safe/bash_dangerous/network
+    op_type / scope_type: ClassVar                 # 并发资源元数据（concurrency 消费）
+    max_lines / max_bytes: ClassVar                # 统一截断上限（默认 2000 行 / 50KB）
 
-    def bind(self, workdir: str) -> Callable[[dict], str]:
-        return self.factory(workdir)
-
-
-DEFAULT_TOOLS: dict[str, Tool] = {"read_file": Tool(spec=..., factory=_read_file_factory)}
+    def handle(self, input) -> ToolResult          # 模板方法：run → truncate → ToolResult
+    def run(self, input) -> str                    # 子类实现核心逻辑
+    def extract(...) / resolve_path(...)           # 参数校验 / 路径安全基类
+    def permission_class(self, input) -> str       # 默认类变量；Bash 覆写（safe/dangerous 动态）
+    def resource_scope(self, input) -> ResourceScope  # 默认元数据；WriteFile 覆写（新文件=SW）
 ```
 
-注入校验：`__init__` 检查每个 `key == tool.spec.name`，不一致即 `ValueError`。
+### 错误契约（两态）
 
-## 异常处理决策
+| 态 | 类型 | 语义 |
+|---|---|---|
+| 回喂模型 | `ToolInputError(ValueError)` / `ToolPathError(PermissionError)` / `ToolNotFoundError(FileNotFoundError)`（含 Did you mean? 建议）/ `ToolExistsError(FileExistsError)` / `ToolExecutionError(RuntimeError)` | message 是给模型的修正指引（对齐 opencode InvalidArgumentsError prose） |
+| 致命 | 其余异常 | loop 层 `{Type}: {msg}` 转 is_error 回喂，语义不变 |
 
-| 时机 | 场景 | 处理 | 事件 |
-|------|------|------|------|
-| 注册表注入 | key != spec.name | `ValueError`（构造期崩溃，fail-fast） | 无 |
-| bind 期 | factory 抛异常 | catch → emit + terminate | `error(kind="tool_bind_error")` → `run_end(reason="tool_bind_error")` |
-| handler 执行期 | 工具逻辑抛异常 | catch → `ToolResultBlock(is_error=True)` 回喂 | `tool_result(is_error=True)` |
-| handler 协议违规 | 模型声明 tool_use 但发空批次 | catch → emit + terminate | `error(kind="empty_tool_use")` → `run_end(reason="empty_tool_use")` |
-| handler 返回值 | handler 返回非 str | 不做强转；persist 序列化时暴露 | 归于 persist 失败路径 |
-| 空注册表 | 用户注入 `tools={}` | 模型收到 `tools=[]`，不会主动调工具；若仍发 tool_use → 未知工具路径 | `tool_result(is_error=True)` |
+多继承内置异常 → 错误类型语义化 + 既有 `pytest.raises(内置)` 兼容。
+
+### 结构化输出
+
+`ToolResult{output: str, metadata: dict}`（对齐 opencode ExecuteResult）：output 模型可见；metadata 携带截断统计（truncated / truncated_by / output_lines / output_bytes / total_bytes），tool_result 事件与 ToolResultBlock.meta 附带，供 TUI 渲染与评测消费。
+
+### 统一截断
+
+`tools/truncate.py`（对齐 PI truncate.ts）：行 + 字节双限先到先胜、不截半行、结构化统计。默认 **2000 行 / 50KB**（业界验证参数；read_file 上限由 10MB 对齐为 50KB——行为变更）。
+
+### 权限 / 并发元数据消费
+
+- `permission.evaluate(mode, permission_class, operation, rules)`：按分类查策略表，删工具名分支；`code_search` 权限分类 = read（**修复**旧实现默认走 write 策略的缺陷）；Operation 仅服务持久化规则匹配
+- `concurrency._scope_for(call, tools)`：调用 `tool.resource_scope(input)`，删 `_extract_scope` 工具名分支；未知工具回退 WORKSPACE+WRITE
+
+## 注册表
+
+`DEFAULT_TOOLS: dict[str, type[Tool]]`（6 基础工具）；`bind_tools(registry, workdir)` 实例化（key == name 校验，fail-fast）。动态工具 `CodeSearchTool(repo_index)` 由 loop 在 repo index 成功时实例化注入。
+
+## Considered Options（v1 决策保留）
+
+- **工具定义内嵌 loop.py（否决）**：加工具必须改 loop 本体；权限/并发元数据无挂载点。
+- **handler 签名 `(input, workdir)` 每次透传（否决）**：workdir 一次 run 内不变；bind 一次、handler 纯 input 签名最简。
+- **factory 闭包（v1，已淘汰）**：路径校验/参数提取/截断每工具手写重复 5 处；权限/scope 按工具名三处硬编码分支（permission.py / concurrency.py / tools.py）——割裂是重构动机。
 
 ## Consequences
 
-- 新增工具 = 新增一个 `Tool` 实例并注册到 `DEFAULT_TOOLS`，Agent 核心零改动；
-- 权限系统的资源 scope 元数据、并发调度的 R/W 语义字段后续挂在 `Tool` 上，结构已留挂点；
-- `run_end` reason 集合扩展：`end_turn` / `max_turns` / `max_tokens` / `content_filter` / `unknown` / `llm_error` / `llm_timeout` / `tool_bind_error` / `empty_tool_use`；
-- 测试可注入 FakeTool 验证注册表机制，无需文件系统副作用。
+- 新增工具 = 定义子类 + 注册，Agent 核心零改动；权限/并发元数据随工具声明，一处修改全链路生效
+- 模型可见行为变更：read_file 上限 10MB→50KB；错误 message 带修正指引 + Did you mean? 建议
+- 输出 metadata 不进 codec（模型不可见），仅事件/Block 层
+- 测试：工具行为测试 + 元数据一致性测试（test_tool_metadata.py 防回归到硬编码分支）
