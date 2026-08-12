@@ -89,7 +89,7 @@ def test_benchmark_runs_single_turn_and_exports(tmp_path, monkeypatch) -> None:
     """benchmark 单次执行：end_turn 正常结束（exit 0）+ 轨迹导出 JSONL。"""
     _patch_env(monkeypatch)
 
-    def fake_build(provider, api_key, base_url, protocol, timeout_s):
+    def fake_build(provider, api_key, base_url, protocol, timeout_s, user_agent=None):
         return _FakeBackend([_text_response("done")])
 
     monkeypatch.setattr("vague_code.cli._build_backend", fake_build)
@@ -132,7 +132,7 @@ def test_benchmark_failed_run_exits_nonzero(tmp_path, monkeypatch) -> None:
     """run_end 非 end_turn（max_turns 预算耗尽）→ 退出码 1（供评测 harness 归因）。"""
     _patch_env(monkeypatch)
 
-    def fake_build(provider, api_key, base_url, protocol, timeout_s):
+    def fake_build(provider, api_key, base_url, protocol, timeout_s, user_agent=None):
         # 首轮返回 tool_use：turn+1 >= max_turns(1) → run_end reason=max_turns
         return _FakeBackend([_text_response_with_tool()])
 

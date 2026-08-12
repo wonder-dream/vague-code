@@ -276,7 +276,7 @@ def run_polyglot_eval(
                 from vague_code.cli import _provider_settings, _resolve_api_key
                 from vague_code.config import build_backend
                 provider = "deepseek"
-                base_url, key_env, protocol = _provider_settings(provider, None, None, {})
+                base_url, key_env, protocol, _user_agent = _provider_settings(provider, None, None, {})
                 api_key = _resolve_api_key(key_env)
                 if not api_key:
                     raise SystemExit(f"{key_env} not found; set in .env or environment")

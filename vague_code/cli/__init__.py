@@ -32,8 +32,8 @@ def _provider_settings(
     base_url: str | None,
     api_key_env: str | None,
     config: dict | None = None,
-) -> tuple[str, str, str]:
-    """返回 (base_url, key_env, protocol)。自定义 provider 查配置文件，内置走默认表。"""
+) -> tuple[str, str, str, str | None]:
+    """返回 (base_url, key_env, protocol, user_agent)。自定义 provider 查配置文件，内置走默认表。"""
     spec = None
     if config:
         spec = config.get("providers", {}).get(provider)
@@ -42,10 +42,11 @@ def _provider_settings(
             base_url or str(spec.get("baseUrl") or ""),
             api_key_env or str(spec.get("apiKeyEnv") or ""),
             str(spec.get("protocol") or "openai"),
+            str(spec["userAgent"]) if spec.get("userAgent") else None,
         )
     default_url, default_env = _PROVIDER_DEFAULTS.get(provider, _PROVIDER_DEFAULTS["deepseek"])
     protocol = "anthropic" if provider == "anthropic" else "openai"
-    return base_url or default_url, api_key_env or default_env, protocol
+    return base_url or default_url, api_key_env or default_env, protocol, None
 
 
 def _resolve_config(model: str | None, provider: str | None, workdir: str) -> tuple[str, str, dict]:
@@ -56,8 +57,15 @@ def _resolve_config(model: str | None, provider: str | None, workdir: str) -> tu
     return model, provider, cfg
 
 
-def _build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float) -> ModelBackend:
-    return build_backend(provider, api_key, base_url, protocol, timeout_s)  # type: ignore[return-value]
+def _build_backend(
+    provider: str,
+    api_key: str,
+    base_url: str,
+    protocol: str,
+    timeout_s: float,
+    user_agent: str | None = None,
+) -> ModelBackend:
+    return build_backend(provider, api_key, base_url, protocol, timeout_s, user_agent=user_agent)  # type: ignore[return-value]
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -127,7 +135,7 @@ def main(argv: list[str] | None = None) -> None:
 
     try:
         model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
-        base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
+        base_url, key_env, protocol, user_agent = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
         api_key = _resolve_api_key(key_env)
         if not api_key:
             print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
@@ -152,7 +160,7 @@ def main(argv: list[str] | None = None) -> None:
         config.reasoning_effort = args.effort
 
         backend: ModelBackend = _build_backend(
-            provider, api_key, base_url, protocol, config.transport.timeout_s,
+            provider, api_key, base_url, protocol, config.transport.timeout_s, user_agent=user_agent,
         )
 
         agent = Agent(config, backend)
@@ -218,7 +226,7 @@ def _tui_main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
-    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
+    base_url, key_env, protocol, user_agent = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
 
     config = AgentConfig(
@@ -238,7 +246,7 @@ def _tui_main(argv: list[str]) -> None:
         backend: ModelBackend | None = None
     else:
         backend = _build_backend(
-            provider, api_key, base_url, protocol, config.transport.timeout_s,
+            provider, api_key, base_url, protocol, config.transport.timeout_s, user_agent=user_agent,
         )
 
     from vague_code.tui import main as tui_main
@@ -277,7 +285,7 @@ def _chat_main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     model, provider, file_cfg = _resolve_config(args.model, args.provider, args.workdir)
-    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
+    base_url, key_env, protocol, user_agent = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
     if not api_key:
         print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
@@ -295,7 +303,7 @@ def _chat_main(argv: list[str]) -> None:
     config.permission_mode = args.mode
 
     backend: ModelBackend = _build_backend(
-        provider, api_key, base_url, protocol, config.transport.timeout_s,
+        provider, api_key, base_url, protocol, config.transport.timeout_s, user_agent=user_agent,
     )
 
     agent = Agent(config, backend)
@@ -408,7 +416,7 @@ def _benchmark_main(argv: list[str]) -> None:
     args = parser.parse_args(argv)
 
     model, provider, file_cfg = _resolve_config(args.model, args.provider, args.project)
-    base_url, key_env, protocol = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
+    base_url, key_env, protocol, user_agent = _provider_settings(provider, args.base_url, args.api_key_env, file_cfg)
     api_key = _resolve_api_key(key_env)
     if not api_key:
         print(f"Error: {key_env} not found. Set it in .env or environment.", file=sys.stderr)
@@ -431,7 +439,7 @@ def _benchmark_main(argv: list[str]) -> None:
     from vague_code.agent.permission import Decision
 
     backend: ModelBackend = _build_backend(
-        provider, api_key, base_url, protocol, config.transport.timeout_s,
+        provider, api_key, base_url, protocol, config.transport.timeout_s, user_agent=user_agent,
     )
     agent = Agent(config, backend)
     agent._on_permission = lambda op, decision: Decision.ALLOW  # bypass 确认

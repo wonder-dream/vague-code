@@ -155,10 +155,18 @@ def create_responses_backend(
 
 
 class AnthropicBackend:
-    def __init__(self, api_key: str, base_url: str | None = None, timeout_s: float = 120.0):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str | None = None,
+        timeout_s: float = 120.0,
+        user_agent: str | None = None,
+    ):
         kwargs: dict = {"api_key": api_key, "timeout": timeout_s}
         if base_url:
             kwargs["base_url"] = base_url
+        if user_agent:
+            kwargs["default_headers"] = {"User-Agent": user_agent}
         self._client = anthropic.Anthropic(**kwargs)
 
     def complete(
@@ -199,5 +207,6 @@ def create_anthropic_backend(
     api_key: str,
     base_url: str | None = None,
     timeout_s: float = 120.0,
+    user_agent: str | None = None,
 ) -> AnthropicBackend:
-    return AnthropicBackend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
+    return AnthropicBackend(api_key=api_key, base_url=base_url, timeout_s=timeout_s, user_agent=user_agent)

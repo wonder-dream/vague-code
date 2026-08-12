@@ -695,7 +695,7 @@ async def test_cross_provider_switch_with_key_direct(monkeypatch) -> None:
     monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: "sk-" + env)
     created: list[str] = []
 
-    def fake_build(provider, api_key, base_url, protocol, timeout_s):
+    def fake_build(provider, api_key, base_url, protocol, timeout_s, user_agent=None):
         created.append(provider)
         return type("NewBackend", (), {"name": "new"})()
 

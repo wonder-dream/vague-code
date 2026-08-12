@@ -639,3 +639,66 @@ class TestCliResume:
         from vague_code.cli import main
         main(["hi", str(tmp_path), "--no-repo-map"])
         assert called and called[0][1] == "https://code.newcli.com/codex/v1"
+
+    def test_anthropic_provider_user_agent_passthrough(self, monkeypatch, capsys, tmp_path):
+        """providers.<name>.userAgent 配置 → create_anthropic_backend 收到 user_agent（中转站 UA 放行）。"""
+        (tmp_path / "vague-code.json").write_text(
+            json.dumps({
+                "defaultProvider": "fox",
+                "providers": {
+                    "fox": {
+                        "baseUrl": "https://code.newcli.com/claude",
+                        "apiKeyEnv": "RELAY_KEY",
+                        "protocol": "anthropic",
+                        "userAgent": "claude-cli/1.0.66",
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        called: list = []
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr(
+            "vague_code.agent.backend.create_anthropic_backend",
+            lambda api_key, base_url, timeout_s, user_agent=None: (called.append((base_url, user_agent)), _FakeBackend([_text_response("hello")]))[1],
+        )
+
+        from vague_code.cli import main
+        main(["hi", str(tmp_path), "--no-repo-map"])
+        assert called and called[0] == ("https://code.newcli.com/claude", "claude-cli/1.0.66")
+
+    def test_anthropic_provider_no_user_agent_defaults_none(self, monkeypatch, capsys, tmp_path):
+        """未配置 userAgent → create_anthropic_backend 收到 None（SDK 默认 UA）。"""
+        (tmp_path / "vague-code.json").write_text(
+            json.dumps({
+                "defaultProvider": "anthropic",
+                "providers": {
+                    "anthropic": {
+                        "baseUrl": "https://api.anthropic.com",
+                        "apiKeyEnv": "ANTHROPIC_API_KEY",
+                        "protocol": "anthropic",
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+        called: list = []
+        monkeypatch.setattr("vague_code.cli._resolve_api_key", lambda env: "sk-" + env)
+        monkeypatch.setattr(
+            "vague_code.agent.backend.create_anthropic_backend",
+            lambda api_key, base_url, timeout_s, user_agent=None: (called.append(user_agent), _FakeBackend([_text_response("hello")]))[1],
+        )
+
+        from vague_code.cli import main
+        main(["hi", str(tmp_path), "--no-repo-map"])
+        assert called == [None]
+
+    def test_anthropic_backend_sets_user_agent_header(self):
+        """AnthropicBackend(user_agent=...) → SDK client default_headers 含自定义 UA（覆盖默认）。"""
+        from vague_code.agent.backend import AnthropicBackend
+
+        backend = AnthropicBackend(api_key="x", base_url="https://code.newcli.com/claude", user_agent="claude-cli/1.0.66")
+        assert backend._client.default_headers.get("User-Agent") == "claude-cli/1.0.66"
+
+        plain = AnthropicBackend(api_key="x")
+        assert "claude-cli" not in plain._client.default_headers.get("User-Agent", "")

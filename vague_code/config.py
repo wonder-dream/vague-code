@@ -210,8 +210,18 @@ def merge_provider_config(
     return out
 
 
-def build_backend(provider: str, api_key: str, base_url: str, protocol: str, timeout_s: float):
-    """按协议构造后端（从 cli 移入，供引导/CLI 共用，ADR-0037）。"""
+def build_backend(
+    provider: str,
+    api_key: str,
+    base_url: str,
+    protocol: str,
+    timeout_s: float,
+    user_agent: str | None = None,
+):
+    """按协议构造后端（从 cli 移入，供引导/CLI 共用，ADR-0037）。
+
+    user_agent：自定义 User-Agent（中转站放行策略需要时设置，如 claude-cli/）。
+    """
     from vague_code.agent.backend import (
         create_anthropic_backend,
         create_deepseek_backend,
@@ -219,7 +229,9 @@ def build_backend(provider: str, api_key: str, base_url: str, protocol: str, tim
     )
 
     if protocol == "anthropic":
-        return create_anthropic_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
+        return create_anthropic_backend(
+            api_key=api_key, base_url=base_url, timeout_s=timeout_s, user_agent=user_agent
+        )
     if protocol == "responses":
         return create_responses_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
     return create_deepseek_backend(api_key=api_key, base_url=base_url, timeout_s=timeout_s)
