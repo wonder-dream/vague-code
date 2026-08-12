@@ -201,7 +201,6 @@ concurrent_tools=True 且 tool_uses > 1 → execute_concurrent()
 | glob | READ | PREFIX | pattern 目录前缀 |
 | grep | READ | PREFIX | `input["path"]` |
 | bash | WRITE | WORKSPACE | — |
-| memory_search | READ | WORKSPACE | — |
 | code_search | READ | EXACT | `input["path"]`（可选过滤） |
 
 **2. 冲突检测**（`concurrency.py:90-104`）：

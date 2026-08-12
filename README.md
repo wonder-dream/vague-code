@@ -321,9 +321,9 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 │  Agent Runtime (ReAct Loop + Retry + Checkpoint/Resume)             │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
 │  │ Tool System │ │ Context  │ │Security  │ │ Memory System      │  │
-│  │ 7 核心工具  │ │五层压缩  │ │4 种模式  │ │SQLite 统一记忆库   │  │
-│  │ 并发调度    │ │KV Cache  │ │审计日志  │ │episodic 按需检索   │  │
-│  │ 冲突可串行化│ │分层注入  │ │纯函数决策│ │增量蒸馏            │  │
+│  │ 7 核心工具  │ │五层压缩  │ │4 种模式  │ │文件式记忆          │  │
+│  │ 并发调度    │ │KV Cache  │ │审计日志  │ │.agent/memory.md    │  │
+│  │ 冲突可串行化│ │分层注入  │ │纯函数决策│ │注入限长+LLM 蒸馏   │  │
 │  └─────────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
 │                          │                                          │
 │  Model Abstraction ──────┴─── Codecs (OpenAI / Anthropic) ─────→   │
@@ -348,7 +348,7 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 | **Concurrency** | `vague_code/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
 | **Context Engineering** | `vague_code/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
 | **Permission System** | `vague_code/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 30+ 类危险命令正则 |
-| **Memory System** | `vague_code/agent/memory.py` | SQLite 统一记忆库 + episodic 检索注入 + auto-compact 蒸馏 |
+| **Memory System** | `vague_code/agent/memory_file.py` | 文件式记忆：`.agent/memory.md` 项目隔离 + 注入限长 + LLM 蒸馏 |
 | **Repo Map** | `vague_code/agent/repomap.py` | tree-sitter 符号索引，code_search 工具 + 符号地图注入 |
 | **Model Abstraction** | `vague_code/agent/codecs/` | 自定义 IR → OpenAI(DeepSeek/GPT)/Anthropic codec，统一流式事件 |
 | **Trajectory** | `vague_code/agent/trajectory.py` | Event-sourced JSONL → SQLite 事件流，to_messages() 导出 |
@@ -387,8 +387,7 @@ vague-code/
 │   ├── context_tokens.py      # Token 计数 + 预算（按模型选词表/窗口）
 │   ├── context_rules.py       # 规则文件层级加载
 │   ├── permission.py          # 权限系统
-│   ├── memory.py              # 记忆系统
-│   ├── memory_tool.py         # memory_search 工具
+│   ├── memory_file.py         # 文件式记忆（.agent/memory.md 蒸馏 + 注入）
 │   ├── repomap.py             # tree-sitter 符号索引（code_search + 地图注入）
 │   ├── config.py              # AgentConfig 配置
 │   ├── ir.py                  # 自定义 IR dataclass
@@ -414,7 +413,7 @@ vague-code/
 |------|---------|
 | 语言 | Python ≥ 3.11 |
 | LLM API | DeepSeek / OpenAI（GPT 系列）/ Anthropic / 任意 OpenAI 兼容端点 |
-| 记忆存储 | SQLite |
+| 记忆存储 | Markdown 文件（`.agent/memory.md`，按项目隔离） |
 | 代码索引 | tree-sitter 0.26 + tree-sitter-python |
 | 代码质量 | ruff + mypy + pytest（830+ tests） |
 | CLI | argparse + Rich |

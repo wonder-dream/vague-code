@@ -94,18 +94,11 @@
 
 ---
 
-## 7. memory_search
+## 7. memory（记忆注入，非工具）
 
-**代码位置：** `memory_tool.py:5-32`
+**代码位置：** `memory_file.py` + `loop.py`
 
-| 属性 | 值 |
-|------|-----|
-| name | `"memory_search"` |
-| 必填参数 | `query: string` |
-| 返回值 | `--- 记忆（置信度: {n}）---\n{content}`，双换行分隔多条 |
-| 错误类型 | 无查询→`"未提供查询内容"`，无结果→`"未找到相关记忆"` |
-| 边界 | top-K = `MemoryConfig.search_top_k`（默认 5） |
-| 注册方式 | 动态注入（`loop.py`），仅在 memory 开启时注册 |
+记忆系统（ADR-0014 v2）**没有检索工具**——`.agent/memory.md` 全文（限 200 行 / 25KB）注入 system prompt「## 项目记忆」段；LLM 需要细节时用 read 工具直接读文件。v1 的 `memory_search` 工具与 SQLite 记忆库已整体移除（蒸馏产物即上下文，DB 检索是多余分层）。
 
 ---
 
@@ -146,7 +139,7 @@ class Tool:
 | `Tool.factory` | `Callable[[str], Callable[[dict], str]]` — workdir → handler |
 | `Tool.bind(workdir)` | 返回绑定工作目录的 handler 函数 |
 
-**DEFAULT_TOOLS 注册表**（`tools.py:341-348`）：`dict[str, Tool]`，key 必须等于 `tool.spec.name`。`memory_search` 和 `code_search` 不在 DEFAULT_TOOLS 中，由 `loop.py` 动态注入（memory 开启 / repo index 成功时）。
+**DEFAULT_TOOLS 注册表**（`tools.py:341-348`）：`dict[str, Tool]`，key 必须等于 `tool.spec.name`。`code_search` 不在 DEFAULT_TOOLS 中，由 `loop.py` 动态注入（repo index 成功时）。
 
 ---
 

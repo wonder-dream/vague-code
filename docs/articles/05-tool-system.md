@@ -28,8 +28,9 @@ ADR-0004 的设计动机：注册即用，零插件开销。添加新工具 = �
 | glob | 文件模式匹配 | pattern | PREFIX | READ | 1000 结果截断 |
 | grep | 正则搜索文件内容 | pattern | PREFIX | READ | 500 条结果 / 500 文件 / 5MB 文件 |
 | bash | 执行 shell 命令 | command | WORKSPACE | WRITE | 30 秒超时 / 50KB 截断 |
-| memory_search | 搜索跨会话记忆 | query | WORKSPACE | READ | top-5 结果 |
 | code_search | 搜索代码库符号定义 | query | EXACT | READ | top-20 结果 |
+
+> 记忆不是工具（ADR-0014 v2）：v1 的 `memory_search` 已移除，记忆以 `.agent/memory.md` 注入 system prompt。
 
 ---
 
@@ -60,9 +61,10 @@ DEFAULT_TOOLS: dict[str, Tool] = {
 }
 ```
 
-`memory_search` 和 `code_search` 不在 DEFAULT_TOOLS 中——它们是动态注入的：
-- `memory_search`（`loop.py` 动态注册）：仅在 `memory.enabled=True` 且 task 非空时注册
+`code_search` 不在 DEFAULT_TOOLS 中——它是动态注入的：
 - `code_search`（`loop.py` 动态注册）：仅在 repo index 构建成功时注册（`repo_map.enabled=True` 且工作区有可解析符号）
+
+> **记忆无工具（ADR-0014 v2）**：v1 的 `memory_search` 动态注入工具已随 SQLite 记忆库整体移除——记忆改为 `.agent/memory.md` 文件式，system prompt 注入全文（限 200 行/25KB），需要细节时用 read 工具直接读文件。
 
 ---
 
@@ -131,14 +133,9 @@ DEFAULT_TOOLS: dict[str, Tool] = {
 - 返回格式：`退出码: N\n标准输出:\n{...}\n标准错误输出:\n{...}`
 - 错误类型：`ValueError`（空命令）→ `RuntimeError`（超时，附 partial output）
 
-### memory_search（`memory_tool.py:5-32`）
+### 记忆注入（非工具，ADR-0014 v2）
 
-跨会话记忆检索工具。
-
-- 动态注入时机：仅在 `memory.enabled=True` 且 task 非空时注册
-- 搜索参数：`query: string`
-- top-K：`MemoryConfig.search_top_k`（默认 5）
-- 返回格式：`--- Memory (confidence: {n}) ---\n{content}`
+记忆不是工具——`.agent/memory.md` 全文（限 200 行/25KB）注入 system prompt「## 项目记忆」段；LLM 需要细节时用 read 工具直接读文件。v1 的 `memory_search` 工具与 SQLite 记忆库已移除（蒸馏产物即上下文，DB 检索是多余分层）。
 
 ### code_search（`repomap.py` + `tools.py`）
 
@@ -218,7 +215,6 @@ class ResourceScope:
 | glob | READ | PREFIX | pattern 的目录前缀 |
 | grep | READ | PREFIX | `input["path"]`（默认空=完整 workspace） |
 | bash | WRITE | WORKSPACE | — |
-| memory_search | READ | WORKSPACE | — |
 | code_search | READ | EXACT | `input["path"]`（可选过滤） |
 
 ### 冲突判定规则

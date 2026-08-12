@@ -58,14 +58,14 @@
 
 ## 4. MemoryConfig 字段表
 
-**代码位置：** `config.py:53-58`
+**代码位置：** `config.py`
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | enabled | bool | `True` | 启用记忆系统 |
-| memory_db_path | str | `"runs/memory.db"` | SQLite 记忆数据库路径 |
-| search_top_k | int | 5 | `memory_search` 返回的最大结果数 |
-| auto_compact_distill | bool | `True` | auto_compact 摘要自动蒸馏为 episodic 记忆 |
+| memory_file | str | `".agent/memory.md"` | 记忆文件路径（相对 workdir 解析，绝对路径直用） |
+| session_end_distill | bool | `True` | 会话结束是否执行 LLM 总结蒸馏 |
+| distill_model | str \| None | `None` | 蒸馏模型（None = 主 agent 模型） |
 
 ---
 

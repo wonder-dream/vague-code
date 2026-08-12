@@ -118,7 +118,7 @@
 
 ### 5.2 工具系统（第 1～2 周）
 
-- 8 工具（6 基础 + 2 动态）：read / write / patch 编辑 / glob / grep / bash（基础）+ memory_search / code_search（动态注入）；
+- 7 工具（6 基础 + 1 动态）：read / write / patch 编辑 / glob / grep / bash（基础）+ code_search（动态注入）；记忆系统无检索工具（ADR-0014 v2：注入式）；
 - 每个工具 JSON Schema 参数校验 + 缺参追问 + 失败重试 + 结果截断；
 - 无依赖工具并发执行，编辑类工具 read-before-edit + mtime 新鲜度校验，冲突串行化调度 + 失败下游取消；
 
@@ -233,34 +233,35 @@ LLM 返回 tool call 的顺序就是基准串行序；并发执行必须在可�
 
 **为什么**：阿里 JD 原文"大模型幻觉、Prompt 注入等风险的工程化应对思路"——这个模块就是标准答案。模式按可逆性分档（编辑可逆放宽、执行不可逆收紧）回答"为什么是 4 种不是 3 种"。24 类危险命令正则是静态防线，对抗任务集是动态验证，简历上两条分开写。
 
-### 5.5 记忆系统（第 3 周）
+### 5.5 记忆系统（第 3 周，2026-08-12 重构为 v2）
 
-**一个统一记忆库 + episodic 按需检索**
+**文件式记忆（ADR-0014 v2）：`<workdir>/.agent/memory.md`**
 
 记忆系统的边界：**只管跨会话才存在的东西**。当前会话轨迹已在上下文窗口，归上下文工程管。
 
-**存储模型**
+**存储模型（v2）**
 
-```sql
-memories(id, kind,            -- 'episodic'（情景）
-         content, source_session_id,
-         created_at, last_used_at, use_count, confidence,
-         content_hash)
+```markdown
+## <标题>
+<!-- source: <run_id>; created: <iso>; hash: <sha256[:12]> -->
+<蒸馏内容>
 ```
 
-`kind` 区分记忆类别（当前仅 episodic）。统一 SQLite 存储，检索走 LIKE 子句 + 热度排序。
+每个 `## 标题` 块 = 一条记忆。**项目物理隔离**（文件在 workdir 内，跨项目天然不可见），可人工编辑、可 diff。
 
-- ~~pinned（常驻知识）~~：**已移除**（判定为伪需求）——生效范围是全局 memory.db、无项目隔离，与"项目约定"用途不匹配；常驻知识职责由 `.agent/rules.md` 层级加载（ADR-0008）承担；
-- **episodic（情景知识）**：踩坑经验、历史方案，量大、按需取用 → 暴露 `memory_search` 工具，Agent 感觉信息不足时主动拉取。检索：分词后每词独立 LIKE 匹配，按热度排序（`use_count × 100 / minutes_since_last_use`）。
+> **v1 → v2 演进**：
+> - v1（SQLite 统一记忆库 + `memory_search` 工具 LIKE 检索 + 热度排序）：被判定为**过度设计**——蒸馏产物本就要注入上下文，DB 检索与注入是两套机制服务同一件事，且全局库无项目隔离（与 pinned 同源缺陷）；
+> - **v2**：SQLite 整体移除。system prompt 注入全文（限 200 行/25KB，对齐 Claude Code MEMORY.md）；写入走双时点蒸馏（auto_compact 摘要落盘 + 会话结束一次 LLM 总结）；内容 hash 幂等去重。对齐业界主流：Claude Code auto memory / Codex memories / PI 会话档案。
 
-**写入策略：增量蒸馏**
+**写入策略：双时点蒸馏**
 
-- **auto-compact 触发时做增量蒸馏**：压缩产生的摘要直接复用为蒸馏输入——一次 compact 同时服务上下文治理和记忆写入（两个子系统的协同点）；
+- **auto-compact 触发时**：压缩摘要直接落盘——一次 compact 同时服务上下文治理和记忆写入（两个子系统的协同点）；
+- **会话结束时**（`Agent.run()` 收尾 / `chat_end()`）：一次 LLM 总结本会话 1-3 条要点追加（模型可配 `distill_model`，异常静默降级）；
 - 全程幂等（`content_hash` 去重），崩溃重跑不产生重复条目。
 
-**评测指标**：HitRate@10 / MRR（从 memory_search 工具日志和注入记录计算）+ 记忆利用率（注入的 top-k 中被后续回答实际使用的比例）。
+**评测指标**：记忆不在评测消融因变量中（`harness.py` 禁用 memory）——记忆价值的实证靠产品使用与人工审查，不报未实证数字。
 
-**为什么**：对标 MyClaw 的 HitRate@10 指标，记忆系统的价值必须用召回质量数字证明。砍掉"蒸馏工作记忆"中间层（它是注入策略区分，不是存储层），面试能讲"我调研过三层记忆的说法，最后判断中间层不是存储层而是注入策略，理由如下"——Kimi JD 的"知其所以然"。
+**为什么**：SQLite 记忆是"把记忆当数据库问题"的直觉设计；重做后回到"记忆即上下文文件"的第一性原理，附带修复跨项目污染缺陷，且与规则文件（rules.md，用户写）形成互补双文件（Claude Code 的 CLAUDE.md vs auto memory 同构）。
 
 ### 5.6 评测工具（第 4 周，**独立子项目，简历第二个亮点**）
 
@@ -399,8 +400,8 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 ### Week 3（07-27 ～ 07-27）：安全与记忆
 
 - [x] 4 种权限模式 + 24 类危险命令正则 + 三层规则 + 审计日志
-- [x] 统一记忆库 + episodic 注入 + 增量蒸馏（auto-compact 协同）
-- [x] 记忆检索工具（memory_search）暴露给 Agent
+- [x] 统一记忆库 + episodic 注入 + 增量蒸馏（auto-compact 协同）→ **2026-08-12 重构 v2**：SQLite 移除，文件式记忆 `.agent/memory.md`（项目隔离 + 注入限长 + 会话结束 LLM 蒸馏）
+- [x] 记忆检索工具（memory_search）暴露给 Agent → **v2 移除**（检索=多余分层，注入式取代）
 - [x] repo map 代码库符号索引（tree-sitter）+ code_search 工具 + 地图注入（ADR-0016）
 - [x] 自动化测试补齐至 80+（当前 586 条）
 - **里程碑 M3**：危险操作全部可拦截可审计；跨会话记住用户偏好与项目背景
@@ -432,9 +433,9 @@ Agent Loop / ContextManager / 权限 / 评测 / 日志
 ## 八、简历呈现预案（做完后数字回填）
 
 > **vague-code：面向长程编码任务的 Coding Agent CLI** ｜ 个人项目 ｜ 2026.07 - 2026.08
-> 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、SQLite、tree-sitter、tiktoken
+> 技术栈：Python 3.12、DeepSeek/Anthropic API、自研 Agent Runtime、tree-sitter、tiktoken
 
-- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **8 个工具**（6 基础 read/write/patch/glob/grep/bash + memory_search/code_search 动态注入），基于冲突可串行化的并发调度（消融数字待 20 题真验收跑出后回填）；
+- **Agent 循环与工具系统**：统一接入 DeepSeek/Anthropic 兼容后端，自定义 IR + 厂商 codec 架构；Agent 核心 Python 包暴露 `Agent(config).run(task, workdir) → Trajectory` 编程接口，CLI 仅为薄壳；实现 **7 个工具**（6 基础 read/write/patch/glob/grep/bash + code_search 动态注入），基于冲突可串行化的并发调度（消融数字待 20 题真验收跑出后回填）；
 - **上下文工程**：实现五层压缩流水线（stale_snip → microcompact → structured_snip → auto_compact → truncation），按精准度排序，逐层回收 token；structured_snip 层利用轨迹事件零 LLM 成本识别闭合子任务（ADR-0017）；每层发射 `EventType.compression` 事件供离线重算；
 - **权限与安全**：4 种权限模式（按操作可逆性切分）+ **24 类危险命令正则** + 持久/会话/单次三层规则 + 审计日志纯函数决策；评测含对抗注入任务集，验证注入拦截率；
 - **代码理解**：基于 tree-sitter 的 repo map 符号索引（`repomap.py`），`code_search` 工具 + system prompt 符号地图注入（max 1000 tokens），mtime 增量刷新（ADR-0016）；

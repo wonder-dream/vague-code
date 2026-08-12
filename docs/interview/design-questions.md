@@ -138,12 +138,12 @@
 **分析思路**：先界定边界——**记忆管跨会话，上下文管当前对话**。约束是数据量级（1000-10000 条）和零外部服务（不能依赖向量服务）。移除 pinned 的原因是它和 `.agent/rules.md` 功能重复且更弱。
 
 **回答要点**：
-1. SQLite 单文件统一记忆库，只保留 `kind='episodic'`（按需检索）。
-2. 检索 v1 用 LIKE 分词 + 热度排序 `use_count×100/minutes_since_last_use`；v2 可换 FTS5/BM25 或向量，只改 search 方法。
-3. 写入走 auto_compact 蒸馏（`loop.py:340-347`），`content_hash`(sha256) 幂等去重。
-4. pinned 常驻注入被判伪需求移除：全局 memory.db 无项目隔离，且 `.agent/rules.md` 层级加载（ADR-0008）可完整替代。
+1. 文件式记忆（ADR-0014 v2）：`<workdir>/.agent/memory.md` markdown 分块文件，按项目物理隔离。
+2. 注入策略：system prompt 注入全文（限 200 行 / 25KB，对齐 Claude Code MEMORY.md）；无检索工具——蒸馏产物即上下文，v1 的 SQLite+memory_search 是多余分层，已整体移除。
+3. 写入双时点：auto_compact 摘要落盘 + 会话结束一次 LLM 总结（1-3 条要点，hash 幂等去重）。
+4. pinned 常驻注入此前被判伪需求移除：全局 memory.db 无项目隔离，且 `.agent/rules.md` 层级加载（ADR-0008）可完整替代。
 
-**加分深度**：记忆系统**无项目隔离是已知缺陷**——memories 表无 project 字段，跨项目会污染。标准诚实答法：主动承认 → 根因（与 pinned 同源）→ 修复方向（方案 A 加 project 字段 / 方案 B memory_db_path 跟随 workdir）→ 业界双轨（项目约定走 rules.md，全局偏好走记忆）。
+**加分深度**：v1 的"记忆无项目隔离"缺陷（memories 表无 project 字段、跨项目污染）**已在 v2 根治**——记忆文件放 workdir 内，隔离从"按字段过滤"变成"物理上就不在一个文件"。诚实叙事：承认 v1 缺陷 → 分析 SQLite 记忆与上下文注入的重复性（检索+注入两套机制为一件事服务）→ 砍库改文件，对齐 Claude auto memory / Codex memories / PI 会话档案的主流形态 → 附带收益（可 diff、可人工编辑、零 schema）。
 
 **数据与坑**：评测中记忆**关闭**（`harness.py`），不在消融因变量里——主动说这个更可信。**坑**：别吹"记忆提升了 X%"，当前记忆没进消融矩阵，说了会被戳穿。
 
@@ -267,11 +267,11 @@
 
 面试遇到"你这个系统有什么缺点"——标准模板：**主动承认 → 根因 → 修复方向**。硬说"设计如此"最不可信。
 
-### 14.1 记忆无项目隔离（最重点，必讲）
-- **问题**：memories 表无 project 字段，episodic 记忆全局共享，跨项目污染。
-- **根因**：当初判定 pinned 是伪需求时用了"全局无隔离"的理由，但 episodic 留下同样隐患——已知的不一致，不是正确设计。
-- **修复方向**：A 加 project 字段（ingest 记 workdir/repo，search 按 project 过滤）；B memory_db_path 跟随 workdir（每项目一个 DB）。
-- **业界双轨**：项目约定走 `.agent/rules.md`（ADR-0008，已解决隔离），跨项目偏好走全局记忆。
+### 14.1 记忆无项目隔离（已修复，讲修复路径）
+- **问题（v1）**：SQLite memories 表无 project 字段，episodic 记忆全局共享，跨项目污染；且检索与注入两套机制为一件事服务。
+- **根因**：v1 把"记忆"当成数据库问题设计——实际蒸馏产物本就要注入上下文，DB 检索是多余分层。
+- **修复（v2）**：SQLite 整体移除 → `<workdir>/.agent/memory.md` 文件式记忆，隔离变成物理文件级；对齐 Claude Code auto memory（MEMORY.md 注入限长）/ Codex memories（文件生成注入）/ PI（会话档案，无独立记忆）的业界主流。
+- **代价**：每会话结束 +1 次 LLM 总结调用（~几分钱）；无自动冲突检测，靠文件可编辑 + 注入可见性兜底。
 
 ### 14.2 truncate 尾部贪心时序偏移（U1）
 - 重写算法代价高，per-message token 缓存（R2）只缓解性能。诚实说"算法不完美，但触发次数是流水线健康指标"。

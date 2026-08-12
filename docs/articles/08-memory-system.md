@@ -2,221 +2,107 @@
 
 **谁需要读：** 想理解跨会话记忆机制的开发者
 **前置阅读：** 07-permission-system.md
-**读完能做什么：** 了解 episodic 记忆的检索与写入流程
+**读完能做什么：** 了解文件式记忆的蒸馏与注入流程
 
 ---
 
 ## 1. 概述
 
-**记忆 ≠ 上下文。** 这是 Memory System 的第一设计边界。上下文（Context Engineering）管理当前对话的 token 窗口，是短期的、瞬态的。记忆负责长期知识——跨会话、可检索、持续积累。
+**记忆 ≠ 上下文。** 这是 Memory System 的第一设计边界。上下文（Context Engineering）管理当前对话的 token 窗口，是短期的、瞬态的。记忆负责长期知识——跨会话、可持续积累。
 
-vague-code 的记忆系统围绕一个统一记忆库（SQLite）构建，提供按需检索的 episodic 注入策略：
+vague-code 的记忆系统（ADR-0014 v2）是**文件式记忆**：`<workdir>/.agent/memory.md`（gitignored），按项目物理隔离，system prompt 注入全文（限 200 行 / 25KB）。
 
-- **Episodic（情景记忆）：** 按需检索。Agent 通过 `memory_search` 工具主动搜索历史经验。
-
-> **设计更新：** pinned（常驻注入）已被移除（ADR-0016 配套决策）。原 pinned 承担的"常驻知识"职责由 `.agent/rules.md` 层级加载（ADR-0008）替代——因为 pinned 生效范围是全局 memory.db、无项目隔离，与"项目约定"的用途不匹配。
-
-写入走 auto_compact 蒸馏——长会话的自动摘要自然成为新的长期记忆。检索使用 LIKE 子句 + 热度排序，不需要第三方向量数据库。
-
-ADR-0014 的设计动机：记忆系统必须和压缩系统协同工作，而不是独立运行。压缩产生摘要，摘要蒸馏为记忆，记忆在下一次会话中被召回。
+> **设计演进：**
+> - **v1（2026-07-27）**：SQLite 统一记忆库 + `memory_search` 工具按需检索（LIKE + 热度排序）
+> - **2026-08-01**：pinned（常驻注入）移除——全局 memory.db 无项目隔离，与"项目约定"用途不匹配，职责移交 `.agent/rules.md`（ADR-0008）
+> - **v2（2026-08-12）**：**SQLite 整体移除，改为 markdown 文件**。蒸馏产物本就要注入上下文，DB 检索是多余分层；对齐 Claude Code auto memory（MEMORY.md 注入限长）与 Codex memories（文件生成后注入）的主流形态
 
 ---
 
 ## 2. 存储模型
 
-**MemoryStore** 类（`memory.py:8-101`）管理 SQLite 统一记忆库。
+**MemoryFile** 类（`memory_file.py`）管理单个 markdown 文件，每个 `## 标题` 块 = 一条记忆：
 
-**表结构：**
+```markdown
+<!-- vague-code memory: agent 蒸馏的历史会话记忆，可手动编辑 -->
 
-| 字段 | 类型 | 约束 | 用途 |
-|------|------|------|------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 主键 |
-| kind | TEXT | NOT NULL | `"episodic"` |
-| content | TEXT | NOT NULL | 记忆内容 |
-| source_session | TEXT | — | 来源会话 ID |
-| created_at | TEXT | NOT NULL | ISO 8601 创建时间 |
-| last_used_at | TEXT | NOT NULL | 最后命中时间 |
-| use_count | INTEGER | DEFAULT 0 | 命中次数 |
-| confidence | REAL | DEFAULT 1.0 | 置信度（预留） |
-| content_hash | TEXT | UNIQUE NOT NULL | SHA-256 去重 |
-
-```sql
-CREATE TABLE IF NOT EXISTS memories (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL,
-    content TEXT NOT NULL,
-    source_session TEXT,
-    created_at TEXT NOT NULL,
-    last_used_at TEXT NOT NULL,
-    use_count INTEGER DEFAULT 0,
-    confidence REAL DEFAULT 1.0,
-    content_hash TEXT UNIQUE NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_memories_kind ON memories(kind);
+## <标题>
+<!-- source: <run_id>; created: <iso>; hash: <sha256[:12]> -->
+<蒸馏内容>
 ```
 
-**索引：** `idx_memories_kind` 按 kind 快速区分记忆类别（当前仅 episodic）。
-
-**连接模式：** `PRAGMA journal_mode=WAL` + `check_same_thread=False`，保证跨线程访问安全。
+- **项目隔离**：文件在 workdir 内 → 跨项目天然不可见（修复 v1 全局库跨项目污染缺陷）
+- **可人工编辑**：文件即事实源，可 diff、可手动增删改
+- **幂等去重**：`append()` 以内容 sha256 前 12 位比对 hash 注释，重复内容不重复写
+- **并发**：进程内按路径加锁串行写（TUI 多会话同项目并发安全）
 
 ---
 
-## 3. Episodic 检索
+## 3. 注入（读取）
 
-### 动态注册
-
-`memory_search` 工具不在 DEFAULT_TOOLS 中——它在 `loop.py` 动态注册：
+`_init_run` 构建 system prompt 时追加「## 项目记忆」段：
 
 ```python
-if self._memory_store and task.strip():
-    from vague_code.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
-    self._tool_specs.append(MEMORY_SEARCH_SPEC)
-    memory_search_handler = make_memory_search_handler(self._memory_store)
-    bound_tools["memory_search"] = memory_search_handler
+if self.config.memory.enabled:
+    mf = self._get_memory_file(workdir)
+    if mf is not None:
+        memory_text = mf.inject_text()
+if memory_text:
+    system_prompt += "\n\n## 项目记忆（历史会话蒸馏，可编辑 .agent/memory.md）\n" + memory_text
 ```
 
-条件：`memory.enabled=True` 且 task 非空。无任务时 Agent 不需要搜索记忆。
+**`inject_text()` 限长**（与 Claude Code MEMORY.md 同款上限）：
+- 限 200 行：超出取前 200 行
+- 限 25KB：超出按字节截断（UTF-8 安全，无半个字符）
 
-### 搜索算法
+无按需检索工具——限长内全文可见，LLM 可随时用 read 工具读文件或直接引用注入内容。
 
-**代码位置：** `memory.py:66-86`
+---
+
+## 4. 写入管道（蒸馏）
+
+### 时点 1：auto_compact 触发
+
+压缩摘要直接落盘（复用摘要结果，零额外 LLM 调用）：
 
 ```python
-def search(self, query: str, k: int = 5) -> list[dict]:
-    terms = query.split()
-    like_clauses = " OR ".join("content LIKE ?" for _ in terms)
-    params = [f"%{t}%" for t in terms]
-
-    rows = self.conn.execute(
-        f"SELECT ... FROM memories WHERE {like_clauses} "
-        f"ORDER BY (use_count * 100.0 / "
-        f"  MAX(1, ROUND((julianday('now') - julianday(last_used_at)) * 1440 + 1))"
-        f") DESC, last_used_at DESC LIMIT ?",
-        (*params, k),
+if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
+    mf.append(
+        title=summary.strip().splitlines()[0][:40],
+        content=summary,
+        source_session=traj.run_id,
     )
 ```
 
-使用 `LIKE` 查询——分词后每个词独立匹配，返回按热度排序的 top-K 结果。
+### 时点 2：会话结束（`Agent.run()` 收尾 / `chat_end()`）
 
-**转义处理**（`memory.py:73`）：`\` → `\\`、`%` → `\%`、`_` → `\_`，防止 LIKE 通配符注入。
+一次 LLM 总结调用（`_distill_session`，模型可配 `distill_model`，缺省主模型）：
 
-**热度因子：**
-- 分子：`use_count × 100`（使用越多越热）
-- 分母：`MAX(1, minutes_since_last_use + 1)`（越久未用越冷）
-- 分时差：`julianday('now') - julianday(last_used_at) × 1440`（分钟差）
+- 输入：会话任务文本（截 2000 字符）
+- 输出要求：1-3 条 `## 标题 + 内容` markdown；无可记内容输出「无」
+- 解析失败 / LLM 异常 → 静默降级（warn + 跳过），不影响运行
+- 成功追加 → `memory_distill` 事件落盘（run_id / appended / 文件路径）
 
-**返回格式：**
-
-```
---- Memory (confidence: 1.0) ---
-用户偏好使用 pytest 而非 unittest
-
---- Memory (confidence: 0.8) ---
-项目约定：数据库连接用 asyncpg
-```
+**成本**：每会话 +1 次 LLM 调用（约几分钱）。
 
 ---
 
-## 4. 写入管道
+## 5. 清理
 
-### ingest() 写入
-
-**代码位置：** `memory.py:34-64`
-
-```python
-def ingest(self, content: str, kind: str = "episodic",
-           source_session: str | None = None, confidence: float = 1.0) -> bool:
-    content = content.strip()
-    if not content:
-        return False
-
-    content_hash = hashlib.sha256(content.encode()).hexdigest()
-
-    # 去重：已有相同 hash → update 使用计数和时间
-    existing = self.conn.execute(
-        "SELECT id, use_count FROM memories WHERE content_hash=?", (content_hash,)
-    ).fetchone()
-    if existing:
-        self.conn.execute(
-            "UPDATE memories SET last_used_at=?, use_count=? WHERE id=?",
-            (_now(), existing[1] + 1, existing[0]),
-        )
-        return False
-
-    # 新记录
-    now = _now()
-    self.conn.execute(
-        "INSERT INTO memories (...) VALUES (?, ?, ?, ?, ?, ?)",
-        (kind, content, source_session, now, now, content_hash),
-    )
-    return True
-```
-
-**SHA-256 去重：** 内容完全相同时不重复写入，仅更新 `last_used_at` 和 `use_count`。这意味着同一段知识被多次提及时，其热度会自然上升。
-
-### 会话蒸馏
-
-**代码位置：** `loop.py:323-329`
-
-```
-for r in reports:
-    if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
-        self._memory_store.ingest(
-            content=r.detail["summary_text"],
-            kind="episodic",
-            source_session=traj.run_id,
-        )
-```
-
-auto_compact 产出的摘要自动蒸馏为 episodic 记忆。设计意图：长会话的自然总结即长期知识。下次会话中，Agent 可通过 `memory_search` 召回这些摘要。
+TUI 删除会话 → `MemoryFile.remove_sections(run_id)` 移除该来源会话的所有分块（按 `<!-- source: -->` 注释匹配）。
 
 ---
 
-## 5. 评分与排序
+## 6. 配置参考
 
-热度公式：`score = (use_count × 100) / MAX(1, minutes_since_last_use + 1)`
-
-几个典型场景下的得分直观理解：
-
-| 场景 | use_count | 距最后使用（分钟） | 得分 | 隐含含义 |
-|------|-----------|-------------------|------|---------|
-| 高频且刚用 | 50 | 5 | 833 | 最相关 |
-| 高频但久不用 | 50 | 10080（7 天） | 0.5 | 历史高频但可能过时 |
-| 低频但刚用 | 1 | 5 | 16.6 | 刚产生的新记忆 |
-| 低频且久不用 | 1 | 10080 | 0.01 | 几乎被遗忘 |
-
-高频且刚用的记忆得分最高，低频且久不用的最低。这个公式不需要额外的参数调优，在 SQL 中直接计算。
-
----
-
-## 6. 与压缩的协同——蒸馏
-
-Memory System 与 Context Engineering 的协同通过蒸馏路径实现：
-
-```
-auto_compact → 摘要 → ingest() → episodic 记忆库 → 下次会话 memory_search 可召回
-```
-
-循环流程：
-1. 上下文利用率 > 85% 时触发 auto_compact
-2. auto_compact 生成历史摘要
-3. 摘要通过 `ingest()` 写入 episodic 记忆库（SHA-256 去重）
-4. 下次会话中，Agent 可通过 `memory_search` 搜索到这些摘要
-
-配置开关：`MemoryConfig.auto_compact_distill`（默认 True）。蒸馏不需要额外的 LLM 调用——复用了 auto_compact 的摘要结果。
-
----
-
-## 7. 配置参考
-
-**MemoryConfig**（`config.py:53-59`）：
+**MemoryConfig**（`config.py`）：
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | enabled | bool | True | 是否启用记忆系统 |
-| memory_db_path | str | `"runs/memory.db"` | SQLite 数据库文件路径 |
-| search_top_k | int | 5 | memory_search 返回的最大结果数 |
-| auto_compact_distill | bool | True | auto_compact 摘要是否自动蒸馏为 episodic 记忆 |
+| memory_file | str | `".agent/memory.md"` | 记忆文件路径（相对 workdir 解析，绝对路径直用） |
+| session_end_distill | bool | True | 会话结束是否执行 LLM 总结蒸馏 |
+| distill_model | str \| None | None | 蒸馏模型（None = 主 agent 模型） |
 
 ---
 

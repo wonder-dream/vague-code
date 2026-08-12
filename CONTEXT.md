@@ -21,7 +21,7 @@ _Avoid_: Prompt Engineering, Context Management
 _Avoid_: Security Module, Safety Guard
 
 **Memory System**:
-跨会话知识存储与检索子系统。统一记忆库 + episodic（按需检索）注入策略。写入走会话蒸馏（auto-compact 协同），检索走 LIKE + 热度排序召回。
+跨会话知识存储与检索子系统。文件式记忆（ADR-0014 v2）：`<workdir>/.agent/memory.md` 按项目物理隔离，system prompt 注入全文（限 200 行/25KB）；写入走会话蒸馏（auto_compact 摘要落盘 + 会话结束 LLM 总结），内容 hash 幂等去重。
 _Avoid_: Knowledge Base, RAG
 
 **Repo Map**:

@@ -87,7 +87,7 @@ vague-code 提供了 7 项核心能力，每一项对应一个工具（tool）�
 | 搜索内容 | `grep` | "搜索 add_user 函数在哪里定义" |
 | 执行命令 | `bash` | "运行 pytest 看看测试是否通过" |
 | 定位符号 | `code_search` | "calculate 函数定义在哪个文件哪一行？" |
-| 跨会话回忆 | `memory_search` | "用户之前提到过什么偏好？" |
+| 跨会话回忆 | 记忆注入 | "用户之前提到过什么偏好？"（`.agent/memory.md` 注入 system prompt） |
 
 这些工具的调用受到一套内置规则的约束。最重要的两条守则：
 
@@ -122,7 +122,7 @@ Agent 记住你的偏好和历史解决方案，下次自动使用。
 
 > **例子：** 昨天你告诉它"用 pytest"，今天再次使用时，它自动调用 pytest 而不需要再说一遍。
 
-记忆为按需检索的 episodic 注入策略（跨会话记忆库 + `memory_search` 工具）。详见 08-memory-system.md。
+记忆为文件式注入策略（`.agent/memory.md` 按项目隔离，system prompt 注入全文限长，会话结束 LLM 蒸馏）。详见 08-memory-system.md。
 
 ### 工具并发（Tool Concurrency）
 

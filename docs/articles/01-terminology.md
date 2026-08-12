@@ -60,10 +60,10 @@
 - **正式定义：** 以 LLM 返回的 tool call 顺序为基准串行序，scope 重叠且至少一方为写者则串行执行，否则并发（`concurrency.py:90-104`）。
 - **常见错误叫法：** Dependency Detection——冲突可串行化是数据库理论的标准概念，比依赖检测更严谨。
 
-### 8 个工具（6 基础 + 2 动态）
+### 7 个工具（6 基础 + 1 动态）
 
 - **一句话通俗解释：** Agent 与外部世界交互的唯一接口。
-- **正式定义：** 6 个基础工具：read_file / write_file / patch / glob / grep / bash（`tools.py:341-348`）；2 个动态注入工具：memory_search（`memory_tool.py:5-19`，memory 开启时注册）、code_search（`tools.py` + `repomap.py`，repo index 成功时注册）。
+- **正式定义：** 6 个基础工具：read_file / write_file / patch / glob / grep / bash（`tools.py:341-348`）；1 个动态注入工具：code_search（`tools.py` + `repomap.py`，repo index 成功时注册）。记忆不是工具——以 `.agent/memory.md` 注入 system prompt（ADR-0014 v2，v1 的 memory_search 已移除）。
 - **常见错误叫法：** —（没有常见混淆）
 
 ### Repo Map（代码库符号地图）
@@ -149,8 +149,8 @@
 
 ### Episodic Memory（情景记忆）
 
-- **一句话通俗解释：** 按需检索的历史经验，像翻笔记本找上次的写法。
-- **正式定义：** 通过 `memory_search` 工具按 LIKE 查询 + 热度排序检索（`memory_tool.py:5-19`）。
+- **一句话通俗解释：** 跨会话积累的历史经验，像翻笔记找上次的写法。
+- **正式定义：** 文件式记忆（ADR-0014 v2）：`.agent/memory.md` 分块文件，system prompt 注入全文（限 200 行/25KB）；v1 的 `memory_search` 工具按 LIKE 检索 + 热度排序已移除。
 
 ### Distillation（蒸馏）
 

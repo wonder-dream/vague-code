@@ -113,7 +113,7 @@ CLI              Agent              Context            Backend          Codec
 | messages | 内存 `list[Message]` | IR Block 列表 | 单次 run | `loop.py:226-229` | `loop.py:268` |
 | events | SQLite `runs` + `events` 表 | Event rows | 持久化 | `trajectory.py:187-196` `emit()` | `trajectory.py:130-185` `from_db()` |
 | event JSONL | 文件系统 | JSONL | 按需导出 | `trajectory.py:252-255` `export_jsonl()` | 文本读取 |
-| memories | SQLite `memory.db` | FTS5 索引 | 跨会话 | `memory.py:34-64` `ingest()` | `memory.py:66-86` `search()` |
+| memories | `.agent/memory.md` | Markdown 分块 | 跨会话 | `memory_file.py` `append()` | `memory_file.py` `inject_text()`（注入） |
 | rules | `.agent/rules.md` | Markdown | 项目级 | 用户手动创建 | `context_rules.py:19-40` `load_rules()` |
 | config | AgentConfig → SQLite runs 表 | Python → JSON | 单次 run | `loop.py:210-216` | `trajectory.py:141-157` |
 | permissions | `.agent/permission-rules.json` | JSON | 持久化 | `app.py:90-100` | `app.py:81-88` |
@@ -122,7 +122,7 @@ CLI              Agent              Context            Backend          Codec
 关键观察：
 
 - **messages 是瞬态的**——只在内存中，不做持久化。持久化的是 events（事件溯源），`to_messages()` 再从 events 重建 messages
-- **memories 是跨会话的**——SQLite 统一记忆库，不受单次 run 生命周期影响
+- **memories 是跨会话的**——`.agent/memory.md` 文件式记忆，按项目物理隔离，system prompt 注入全文（限 200 行/25KB）
 - **rules/permissions 是项目级的**——存储在项目 `.agent/` 目录下，跟随版本控制
 
 ---
@@ -141,8 +141,7 @@ CLI              Agent              Context            Backend          Codec
 | `agent/context_tokens.py` | Token 计数 + 预算 | `count_tokens()` / `compute_budget()` / `per_message_tokens()` | tiktoken 精确 / 字符粗糙估算双路径 |
 | `agent/context_rules.py` | 规则文件层级加载 | `load_rules()` | 向上遍历目录树收集 `.agent/rules.md` |
 | `agent/permission.py` | 权限系统 | `evaluate()` / `Decision` / `PermissionMode` / `Operation` | 18 安全 + 24 危险命令分类、三层规则匹配 |
-| `agent/memory.py` | 记忆存储 | `MemoryStore` | SQLite 统一记忆库、SHA-256 去重、热度排序 |
-| `agent/memory_tool.py` | memory_search 工具 | `MEMORY_SEARCH_SPEC` / `make_memory_search_handler()` | 动态注入工具，memory 开启时注册 |
+| `agent/memory_file.py` | 文件式记忆 | `MemoryFile` | `.agent/memory.md` 分块解析/追加（hash 去重）/移除/注入截尾 |
 | `agent/repomap.py` | tree-sitter 符号索引 | `RepoIndex` / `Symbol` | 符号提取、引用计数热度、code_search、地图注入 |
 | `agent/ir.py` | 自定义 IR dataclass | `Message` / `Block` 4 种 / `StopReason` / `StreamEvent` 10 种 / `ToolSpec` | 统一消息内部表示，序列化 |
 | `agent/backend.py` | LLM 后端适配 | `ModelBackend` Protocol / `DeepSeekBackend` / `AnthropicBackend` | 统一 complete()/stream() 接口 |
