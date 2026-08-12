@@ -1003,7 +1003,8 @@ def test_bash_output_spilled_to_file(tmp_path):
     ws = _ws(tmp_path)
     (ws / "big.txt").write_text("x" * 60_000, encoding="utf-8")
     handler = DEFAULT_TOOLS["bash"].bind(str(ws))
-    result = handler({"command": "type big.txt"})
+    cmd = "type big.txt" if os.name == "nt" else "cat big.txt"
+    result = handler({"command": cmd})
     assert result.metadata["truncated"] is True
     full_path = result.metadata.get("full_output_path")
     assert full_path is not None
