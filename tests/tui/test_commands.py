@@ -96,29 +96,20 @@ def test_model_command_opens_picker_without_arg() -> None:
     app = _make_app()
     result = app._command_handler.handle("/model")
     assert result.handled
-    assert result.action["type"] == "open_picker"
-    assert len(result.action["items"]) >= 2
+    assert result.action == {"type": "open_model_picker"}
 
 
-def test_model_list_shows_all_providers() -> None:
-    """ADR-0039：/model picker 列出全部 provider 的模型（detail 标注服务商）。"""
+def test_model_direct_set_all_providers() -> None:
+    """/model <名> 直切：跨 provider 模型解析归属（列表内容由 ModelPicker 单测覆盖）。"""
     app = _make_app()
     app._provider = "openai"
-    result = app._command_handler.handle("/model")
-    labels = [i["label"] for i in result.action["items"]]
-    details = [i["detail"] for i in result.action["items"]]
-    assert "gpt-5.6-sol" in labels
-    assert "deepseek-v4-flash" in labels
-    assert "claude-fable-5" in labels
-    assert details.count("openai") == 3
-    assert details.count("deepseek") == 2
     direct = app._command_handler.handle("/model gpt-5.6-sol")
     assert direct.action == {"type": "model_changed", "provider": "openai", "model": "gpt-5.6-sol"}
     direct2 = app._command_handler.handle("/model claude-opus-5")
     assert direct2.action == {"type": "model_changed", "provider": "anthropic", "model": "claude-opus-5"}
 
 
-def test_model_list_for_custom_provider_from_config() -> None:
+def test_model_direct_set_custom_provider_from_config() -> None:
     app = _make_app()
     app._provider = "fox"
     app._file_config = {
@@ -130,11 +121,6 @@ def test_model_list_for_custom_provider_from_config() -> None:
             }
         }
     }
-    result = app._command_handler.handle("/model")
-    labels = [i["label"] for i in result.action["items"]]
-    assert "gpt-5.6-sol" in labels
-    assert "gpt-5.6-terra" in labels
-    assert "deepseek-v4-flash" in labels  # 内置目录模型也列出
     # 配置 models 优先：gpt-5.6-sol 归属 fox 而非 openai
     direct = app._command_handler.handle("/model gpt-5.6-sol")
     assert direct.action["provider"] == "fox"
@@ -194,17 +180,46 @@ def test_render_picker_selected_marker() -> None:
     assert " 2. B" in rendered
 
 
-async def test_picker_open_and_number_select() -> None:
+async def test_model_slash_opens_model_picker(monkeypatch) -> None:
+    """/model（无参数）→ 打开独立 ModelPicker；Enter 确认有 key 模型 → 作用于 app 默认。"""
+    import vague_code.cli as cli_mod
+    from vague_code.tui.screens.model_picker import ModelPicker
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: "sk-" + env)
     app = _make_app()
     async with app.run_test() as pilot:
         await pilot.pause()
         app._handle_slash("/model")
-        assert app._picker is not None
-        app._submit_task("1")
+        for _ in range(100):
+            if isinstance(app.screen, ModelPicker):
+                break
+            await pilot.pause(0.05)
+        assert isinstance(app.screen, ModelPicker)
+        assert app._picker is None  # 不再走 transcript 文本 picker
+        await pilot.press("enter")
         await pilot.pause()
         # 无会话 → 作用于 app 默认；首项 = 排序第一的 anthropic 模型
         assert app._config.model == "claude-fable-5"
-        assert app._picker is None
+
+
+async def test_model_picker_no_key_opens_setup_wizard(monkeypatch) -> None:
+    """ModelPicker 确认无 key 模型 → 自动弹 SetupWizard 引导（补缺：欢迎页路径）。"""
+    import vague_code.cli as cli_mod
+    from vague_code.tui.screens.model_picker import ModelPicker
+    from vague_code.tui.screens.setup import SetupWizard
+
+    monkeypatch.setattr(cli_mod, "_resolve_api_key", lambda env: None)
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._handle_slash("/model")
+        for _ in range(100):
+            if isinstance(app.screen, ModelPicker):
+                break
+            await pilot.pause(0.05)
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert isinstance(app.screen, SetupWizard)  # 无 key → 引导（preselect anthropic）
 
 
 # ── input history / escape ───────────────────────────────────────────────────
