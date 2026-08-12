@@ -128,12 +128,6 @@ class ModelCommandHandler(CommandHandler):
     def __init__(self, app) -> None:
         self._app = app
 
-    def _models(self) -> tuple[tuple[str, str], ...]:
-        """全部 (provider, model) 对（ADR-0039 会话级跨 provider 切换）。"""
-        from vague_code.config import all_provider_models
-        file_config = getattr(self._app, "_file_config", None) or {}
-        return tuple(all_provider_models(file_config))
-
     def handle(self, text: str) -> CommandResult:
         if not self._match(text, "/model"):
             return CommandResult()
@@ -149,18 +143,10 @@ class ModelCommandHandler(CommandHandler):
                 handled=True,
                 action={"type": "model_changed", "provider": provider, "model": model},
             )
-        items = [
-            TuiPickerItem(id=m, label=m, detail=p)
-            for p, m in self._models()
-        ]
+        # 无参数：打开独立模型选择界面（ModelPicker，替代 transcript 文本 picker）
         return CommandResult(
             handled=True,
-            action={
-                "type": "open_picker",
-                "kind": "model",
-                "title": "Select a model:",
-                "items": [{"id": i.id, "label": i.label, "detail": i.detail} for i in items],
-            },
+            action={"type": "open_model_picker"},
         )
 
 

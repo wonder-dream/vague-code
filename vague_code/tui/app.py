@@ -717,17 +717,46 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             return self._apply_model_change(
                 str(action.get("model") or ""), str(action.get("provider") or ""),
             )
+        if action_type == "open_model_picker":
+            self._open_model_picker()
+            return True
         return False
+
+    def _open_model_picker(self) -> None:
+        """打开独立模型选择界面（ModelPicker）：模型列表 + key 状态。"""
+        from vague_code.config import all_provider_models
+        from vague_code.tui.screens.model_picker import ModelPicker
+
+        file_config = self._file_config or {}
+        models = [
+            (provider, model, bool(self._resolve_key_for(provider)))
+            for provider, model in all_provider_models(file_config)
+        ]
+        self.push_screen(ModelPicker(models), callback=self._on_model_picked)
+
+    def _on_model_picked(self, picked) -> None:
+        """ModelPicker 确认回调：(provider, model) → 复用切换逻辑；None = 取消。"""
+        if not picked:
+            return
+        provider, model = picked
+        self._apply_model_change(model, provider)
 
     def _apply_model_change(self, model: str, provider: str) -> bool:
         """会话级模型切换（ADR-0039）。
 
         同 provider 直切模型；跨 provider 时目标有 key 则换会话 backend 直切，
         无 key 弹 SetupWizard（预选目标 provider/模型，可取消 → 零改动回退）。
+        所有路径统一检查目标 key：缺失即引导（含欢迎页/同 provider 异常态）。
         """
         if not model:
             return False
         state = self._sessions.current
+        target_provider = provider or (state.provider if state else self._provider)
+        if not self._resolve_key_for(target_provider):
+            self._open_setup_wizard(
+                preselect=target_provider, preselect_model=model, cancellable=True,
+            )
+            return True
         if state is None:
             # 无会话（欢迎页）：作用于 app 默认
             self._config.model = model
@@ -735,7 +764,6 @@ class VagueCodeApp(VagueCodeViewMixin, App):
                 self._provider = provider
             self._refresh_topbar()
             return True
-        target_provider = provider or state.provider or self._provider
         if target_provider == (state.provider or self._provider):
             # 同 provider：仅换模型
             state.model = model
@@ -743,12 +771,7 @@ class VagueCodeApp(VagueCodeViewMixin, App):
                 state.agent.config.model = model
             self._refresh_topbar()
             return True
-        # 跨 provider：目标 key 缺失 → 引导配置（取消则回退原模型）
-        if not self._resolve_key_for(target_provider):
-            self._open_setup_wizard(
-                preselect=target_provider, preselect_model=model, cancellable=True,
-            )
-            return True
+        # 跨 provider：目标有 key → 换会话 backend 直切
         key = self._resolve_key_for(target_provider)
         self._switch_session_provider(state, target_provider, model, key or "")
         return True
