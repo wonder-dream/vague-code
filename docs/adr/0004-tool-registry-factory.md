@@ -67,3 +67,5 @@ class Tool(ABC):
 - 模型可见行为变更：read_file 上限 10MB→50KB；错误 message 带修正指引 + Did you mean? 建议
 - 输出 metadata 不进 codec（模型不可见），仅事件/Block 层
 - 测试：工具行为测试 + 元数据一致性测试（test_tool_metadata.py 防回归到硬编码分支）
+
+> **实施补充（2026-08-12，plans/0019）：** 工具实现层重构：read_file 加 offset/limit（1-indexed 行读）+ 目录读取 + 二进制检测 + 单行截断；glob 结果排序 + path 参数；write/patch 原子写（tempfile + os.replace，mode 保留）；grep 改 ripgrep 驱动（--sort path 确定性 + .gitignore 尊重 + ignore_case/literal/context 参数，rg 不可用降级纯 Python）；bash 加 timeout 参数 + 输出超限落盘（full_output_path，read_file 读回）；code_search 加 k 参数；新增 web_search 工具（DuckDuckGo 零 key，permission=network 分类首次落地，动态注入评测零影响）。

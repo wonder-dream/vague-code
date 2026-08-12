@@ -18,19 +18,21 @@ ADR-0004 的设计动机：注册即用，零插件开销。添加新工具 = �
 
 ---
 
-## 2. 8 个工具一览表
+## 2. 工具一览表（8 个，plans/0019 更新）
 
 | 名称 | 作用 | 必填参数 | scope_type | op_type | 输出限制 |
 |------|------|---------|------------|---------|---------|
-| read_file | 读取文件内容 | path | EXACT | READ | 10MB 截断 |
-| write_file | 写入文件 | path, content | EXACT | WRITE / SW | — |
-| patch | 精确字符串替换 | path, old_str, new_str | EXACT | WRITE | 1MB 文件限制 |
-| glob | 文件模式匹配 | pattern | PREFIX | READ | 1000 结果截断 |
-| grep | 正则搜索文件内容 | pattern | PREFIX | READ | 500 条结果 / 500 文件 / 5MB 文件 |
-| bash | 执行 shell 命令 | command | WORKSPACE | WRITE | 30 秒超时 / 50KB 截断 |
-| code_search | 搜索代码库符号定义 | query | EXACT | READ | top-20 结果 |
+| read_file | 读取文件/目录（offset/limit 行区间） | path | EXACT | READ | 2000 行 / 50KB，单行 2000 字符，二进制跳过 |
+| write_file | 写入文件（原子写） | path, content | EXACT | WRITE / SW | — |
+| patch | 精确字符串替换（原子写） | path, old_str, new_str | EXACT | WRITE | 1MB 文件限制 |
+| glob | 文件模式匹配（排序确定性） | pattern | PREFIX | READ | 1000 结果截断 |
+| grep | 正则搜索文件内容（ripgrep） | pattern | PREFIX | READ | 500 条结果 / 5MB 文件，行内 500 字符 |
+| bash | 执行 shell 命令（timeout 可配，输出超限落盘） | command | WORKSPACE | WRITE | 默认 30 秒超时 / 50KB 截断 |
+| code_search | 搜索代码库符号定义 | query | EXACT | READ | top-50（默认 20） |
+| web_search | 网页搜索（DDG，动态注入） | query | WORKSPACE | READ | 最多 10 条结果 |
 
 > 记忆不是工具（ADR-0014 v2）：v1 的 `memory_search` 已移除，记忆以 `.agent/memory.md` 注入 system prompt。
+> `web_search` 权限分类 = `network`（SAFE 拒绝 / NORMAL 确认 / AUTO 放行）；动态注入（`config.web_search.enabled`），评测零影响。
 
 ---
 
