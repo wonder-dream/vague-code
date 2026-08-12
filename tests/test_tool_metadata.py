@@ -99,10 +99,9 @@ def test_code_search_scope_read_exact(tmp_path: Path) -> None:
 # ── 统一截断元数据 ──────────────────────────────────────────────────────────
 
 def test_tool_result_metadata_on_truncation(tmp_path: Path) -> None:
-    (tmp_path / "big.txt").write_text("y" * 60_000, encoding="utf-8")
+    (tmp_path / "big.txt").write_text(("y" * 100 + "\n") * 600, encoding="utf-8")
     result = _tool("read_file", str(tmp_path))({"path": "big.txt"})
-    assert result.metadata["truncated"] is True
-    assert result.metadata["truncated_by"] in ("lines", "bytes")
+    assert "输出截断于" in result.output  # 读入预算截断（模型可见标记）
     assert result.metadata["title"] == "read_file"
 
 
@@ -110,4 +109,4 @@ def test_tool_result_metadata_untouched(tmp_path: Path) -> None:
     (tmp_path / "small.txt").write_text("ok", encoding="utf-8")
     result = _tool("read_file", str(tmp_path))({"path": "small.txt"})
     assert result.metadata["truncated"] is False
-    assert result.output == "ok"
+    assert result.output.endswith("ok")

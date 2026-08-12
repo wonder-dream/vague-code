@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,7 +27,7 @@ def test_read_file_happy_path(tmp_path):
     (ws / "hello.txt").write_text("hello world", encoding="utf-8")
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "hello.txt"})
-    assert result.output == "hello world"
+    assert result.output.endswith("hello world")
 
 
 def test_read_file_not_found(tmp_path):
@@ -70,10 +71,10 @@ def test_read_file_rejects_null_byte(tmp_path):
 def test_read_file_truncates_large_file(tmp_path):
     ws = _ws(tmp_path)
     big = ws / "big.txt"
-    big.write_text("A" * 60_000, encoding="utf-8")
+    big.write_text(("A" * 100 + "\n") * 600, encoding="utf-8")  # 60KB 多行，超 50KB 上限
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "big.txt"})
-    assert result.metadata["truncated"] is True
+    assert "输出截断于" in result.output
     assert len(result.output) < 60_000
 
 
@@ -82,7 +83,7 @@ def test_read_file_strips_utf8_bom(tmp_path):
     (ws / "bom.txt").write_bytes(b'\xef\xbb\xbf{"key": "value"}')
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "bom.txt"})
-    assert result.output.startswith('{"key"')
+    assert '{"key"' in result.output
     assert "\ufeff" not in result.output
 
 
@@ -511,18 +512,10 @@ def test_grep_file_count_truncation(tmp_path):
     ws = _ws(tmp_path)
     for i in range(600):
         (ws / f"f{i}.py").write_text(f"x_{i}\n", encoding="utf-8")
-    import vague_code.agent.tools.fs as tmod
-    orig_size = tmod.MAX_GREP_FILE_SIZE
-    orig_count = tmod.MAX_GREP_FILE_COUNT
-    try:
-        tmod.MAX_GREP_FILE_SIZE = 10_000_000
-        tmod.MAX_GREP_FILE_COUNT = 50
-        handler = DEFAULT_TOOLS["grep"].bind(str(ws))
-        result = handler({"pattern": r"^x_"})
-        assert "已截断于 50 个文件" in result.output
-    finally:
-        tmod.MAX_GREP_FILE_SIZE = orig_size
-        tmod.MAX_GREP_FILE_COUNT = orig_count
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    result = handler({"pattern": r"^x_"})
+    assert "截断" in result.output  # rg --max-files / 结果条数上限
+    assert len(result.output.splitlines()) < 600
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -793,3 +786,225 @@ def test_patch_not_found_suggests_similar(tmp_path):
     handler = DEFAULT_TOOLS["patch"].bind(str(ws))
     with pytest.raises(FileNotFoundError, match="您是不是要找"):
         handler({"path": "client.py", "old_str": "x", "new_str": "y"})
+
+
+# ── read: offset/limit + 目录 + 二进制检测（plans/0019） ──────────────
+
+def test_read_file_offset_limit(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.txt").write_text("".join(f"line{i}\n" for i in range(20)), encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "f.txt", "offset": 5, "limit": 3})
+    assert "第 5-7 行" in r.output
+    assert "line4" in r.output and "line6" in r.output
+    assert "line0" not in r.output
+
+
+def test_read_file_offset_beyond_eof(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.txt").write_text("a\nb\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "f.txt", "offset": 10})
+    assert "无内容" in r.output
+
+
+def test_read_file_directory_lists_sorted(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "b.py").write_text("x", encoding="utf-8")
+    (ws / "a.py").write_text("x", encoding="utf-8")
+    (ws / "sub").mkdir()
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "."})
+    assert "目录 ." in r.output
+    names = [line for line in r.output.splitlines()[1:] if line]
+    assert names[0] == "a.py"
+    assert "b.py" in names
+    assert "sub/" in names
+
+
+def test_read_file_binary_skipped(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "data.bin").write_bytes(b"\x00\x01\x02\x03\xff\xfe")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "data.bin"})
+    assert "二进制文件" in r.output
+
+
+def test_read_file_binary_by_extension(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "pkg.zip").write_bytes(b"PK\x05\x06not really zip")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "pkg.zip"})
+    assert "二进制文件" in r.output
+
+
+def test_read_file_long_line_truncated(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "long.txt").write_text("x" * 5000 + "\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    r = handler({"path": "long.txt"})
+    assert "行截断至" in r.output
+    assert len(r.output.splitlines()[-1]) <= 2100
+
+
+# ── glob: path 参数 + 确定性排序（plans/0019） ─────────────────────────
+
+def test_glob_sorted_deterministic(tmp_path):
+    ws = _ws(tmp_path)
+    for name in ("b.py", "a.py", "c.py"):
+        (ws / name).write_text("x", encoding="utf-8")
+    handler = DEFAULT_TOOLS["glob"].bind(str(ws))
+    r = handler({"pattern": "*.py"}).output
+    lines = r.splitlines()
+    assert lines == ["a.py", "b.py", "c.py"]
+    assert handler({"pattern": "*.py"}).output == r  # 两次结果一致
+
+
+def test_glob_path_param(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "sub").mkdir()
+    (ws / "sub" / "x.py").write_text("x", encoding="utf-8")
+    (ws / "root.py").write_text("x", encoding="utf-8")
+    handler = DEFAULT_TOOLS["glob"].bind(str(ws))
+    r = handler({"pattern": "*.py", "path": "sub"}).output.replace("\\", "/")
+    assert r == "sub/x.py"
+    assert "root.py" not in r
+
+
+def test_glob_path_not_directory(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.txt").write_text("x", encoding="utf-8")
+    handler = DEFAULT_TOOLS["glob"].bind(str(ws))
+    with pytest.raises(ValueError, match="不是目录"):
+        handler({"pattern": "*.py", "path": "f.txt"})
+
+
+# ── 原子写（plans/0019） ──────────────────────────────────────────────
+
+def test_write_atomic_no_temp_leftover(tmp_path):
+    ws = _ws(tmp_path)
+    handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
+    handler({"path": "f.txt", "content": "content"})
+    leftovers = list(ws.glob(".vaguecode_*"))
+    assert leftovers == []
+    assert (ws / "f.txt").read_text(encoding="utf-8") == "content"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX 权限语义仅类 Unix 有效")
+def test_write_atomic_preserves_mode(tmp_path):
+    import stat as _stat
+    ws = _ws(tmp_path)
+    f = ws / "f.txt"
+    f.write_text("old", encoding="utf-8")
+    os.chmod(f, 0o600)
+    handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
+    handler({"path": "f.txt", "content": "new"})
+    assert _stat.S_IMODE(f.stat().st_mode) == 0o600
+
+
+def test_patch_atomic_writes(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.py").write_text("a\nb\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["patch"].bind(str(ws))
+    handler({"path": "f.py", "old_str": "a", "new_str": "A"})
+    assert (ws / "f.py").read_text(encoding="utf-8") == "A\nb\n"
+    assert list(ws.glob(".vaguecode_*")) == []
+
+
+# ── grep: ripgrep 参数扩展（plans/0019） ──────────────────────────────
+
+def test_grep_ignore_case(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.py").write_text("Hello World\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    assert handler({"pattern": "hello"}).output == ""
+    assert "Hello" in handler({"pattern": "hello", "ignore_case": True}).output
+
+
+def test_grep_literal(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.py").write_text("a.b.c\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    assert "a.b.c" in handler({"pattern": "a.b.c", "literal": True}).output
+    # 正则语义下 . 匹配任意字符——literal 应只匹配字面
+    assert handler({"pattern": "aXbXc", "literal": True}).output == ""
+
+
+def test_grep_context_lines(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.py").write_text("before\nMATCH\nafter\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    r = handler({"pattern": "MATCH", "context": 1}).output
+    assert "before" in r and "after" in r
+
+
+def test_grep_excludes_noise_dirs_via_rg(tmp_path):
+    """rg 路径：EXCLUDED_DIRS 硬编码噪音目录排除（runs 等非 gitignore 项）。"""
+    ws = _ws(tmp_path)
+    (ws / "runs").mkdir()
+    (ws / "runs" / "log.jsonl").write_text("needle", encoding="utf-8")
+    (ws / "keep.py").write_text("needle", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    r = handler({"pattern": "needle"}).output
+    assert "runs" not in r
+    assert "keep.py" in r
+
+
+def test_grep_long_line_truncated(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "f.py").write_text("x" * 2000 + "\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    r = handler({"pattern": "x"}).output
+    assert "行截断至" in r
+
+
+def test_grep_python_fallback_when_no_rg(tmp_path, monkeypatch):
+    """rg 不可用 → 纯 Python 降级保底（行为一致）。"""
+    import vague_code.agent.tools.fs as tmod
+    monkeypatch.setattr(tmod, "_rg_path", lambda: None)
+    ws = _ws(tmp_path)
+    (ws / "a.py").write_text("needle here\na.b.c\n", encoding="utf-8")
+    handler = DEFAULT_TOOLS["grep"].bind(str(ws))
+    assert "needle" in handler({"pattern": "needle"}).output
+    assert "needle" in handler({"pattern": "NEEDLE", "ignore_case": True}).output
+    assert "a.b" in handler({"pattern": "a.b", "literal": True}).output
+
+
+# ── bash: timeout 参数 + 输出落盘（plans/0019） ───────────────────────
+
+def test_bash_timeout_param_used(tmp_path, monkeypatch):
+    ws = _ws(tmp_path)
+    seen: dict = {}
+
+    def fake_communicate(self, timeout=None):
+        seen["timeout"] = timeout
+        return (b"", b"")
+
+    def fake_popen(*args, **kwargs):
+        import types
+        p = types.SimpleNamespace()
+        p.communicate = fake_communicate.__get__(p)
+        p.returncode = 0
+        p.pid = 1
+        p.kill = lambda: None
+        return p
+
+    import vague_code.agent.tools.bash_tool as bmod
+    monkeypatch.setattr(bmod.subprocess, "Popen", fake_popen)
+    handler = DEFAULT_TOOLS["bash"].bind(str(ws))
+    handler({"command": "echo hi", "timeout": 7})
+    assert seen.get("timeout") == 7
+    handler({"command": "echo hi"})
+    assert seen.get("timeout") == 30  # 默认
+
+
+def test_bash_output_spilled_to_file(tmp_path):
+    ws = _ws(tmp_path)
+    (ws / "big.txt").write_text("x" * 60_000, encoding="utf-8")
+    handler = DEFAULT_TOOLS["bash"].bind(str(ws))
+    result = handler({"command": "type big.txt"})
+    assert result.metadata["truncated"] is True
+    full_path = result.metadata.get("full_output_path")
+    assert full_path is not None
+    from pathlib import Path as _P
+    assert len(_P(full_path).read_text(encoding="utf-8")) > 50_000

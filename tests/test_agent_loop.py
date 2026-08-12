@@ -485,6 +485,7 @@ def test_empty_tools_registry():
     config = AgentConfig(max_turns=5)
     config.memory.enabled = False  # 禁用记忆蒸馏与注入
     config.repo_map.enabled = False  # disable code_search tool spec injection
+    config.web_search.enabled = False  # disable web_search spec injection
     agent = Agent(config, _RecordingBackend(), tools={})
     assert agent._tool_specs == []
     agent.run("x", ".")
@@ -569,10 +570,10 @@ def test_read_file_truncates_large_file(tmp_path):
     ws = tmp_path / "ws"
     ws.mkdir()
     big_file = ws / "big.txt"
-    big_file.write_text("A" * 60_000, encoding="utf-8")
+    big_file.write_text(("A" * 100 + "\n") * 600, encoding="utf-8")
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "big.txt"})
-    assert result.metadata["truncated"] is True
+    assert "输出截断于" in result.output
     assert len(result.output) < 60_000
 
 
@@ -582,7 +583,7 @@ def test_read_file_strips_utf8_bom(tmp_path):
     (ws / "bom.txt").write_bytes(b'\xef\xbb\xbf{"key": "value"}')
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": "bom.txt"})
-    assert result.output.startswith('{"key"')
+    assert '{"key"' in result.output
     assert "\ufeff" not in result.output
 
 

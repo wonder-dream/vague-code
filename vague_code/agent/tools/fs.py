@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 from vague_code.agent.tools.base import (
@@ -9,6 +13,7 @@ from vague_code.agent.tools.base import (
     ResourceScope,
     ScopeType,
     Tool,
+    ToolExecutionError,
     ToolExistsError,
     ToolInputError,
     ToolNotFoundError,
@@ -36,6 +41,49 @@ def _path_in_excluded_dir(path: Path, root: Path) -> bool:
     except ValueError:
         return True
     return any(part in EXCLUDED_DIRS for part in rel.parts[:-1])
+
+
+# ── ripgrep 定位（plans/0019）────────────────────────────────────────────
+
+_rg_cache: str | None = None
+_rg_probed: bool = False
+
+
+def _rg_path() -> str | None:
+    """定位 rg 二进制：PATH → ripgrep pip 包（Scripts 目录）→ None（降级纯 Python）。"""
+    global _rg_cache, _rg_probed
+    if _rg_probed:
+        return _rg_cache
+    import shutil
+    found = shutil.which("rg")
+    if found is None and os.name == "nt":
+        scripts = Path(sys.executable).parent / "Scripts" / "rg.exe"
+        if scripts.is_file():
+            found = str(scripts)
+    _rg_cache = found
+    _rg_probed = True
+    return found
+
+
+def _atomic_write(target: Path, content: str) -> None:
+    """原子写：同目录临时文件 + os.replace（崩溃不产生半文件）。
+
+    新文件 0644；覆盖保留原文件 mode。
+    """
+    mode = target.stat().st_mode if target.exists() else 0o644
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".vaguecode_", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _not_found_error(root: Path, path_str: str) -> ToolNotFoundError:
@@ -70,11 +118,14 @@ def _not_found_error(root: Path, path_str: str) -> ToolNotFoundError:
 
 class ReadFileTool(Tool):
     name = "read_file"
-    description = "读取文件内容。路径必须相对于工作目录根路径。"
+    description = ("读取文件内容（支持按行区间读取）。路径必须相对于工作目录根路径；"
+                   "path 为目录时返回条目列表。")
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "相对于工作目录根路径的文件路径"},
+            "path": {"type": "string", "description": "相对于工作目录根路径的文件或目录路径"},
+            "offset": {"type": "integer", "description": "起始行号（1 起，默认 1）"},
+            "limit": {"type": "integer", "description": "最大读取行数（默认 2000）"},
         },
         "required": ["path"],
     }
@@ -88,12 +139,99 @@ class ReadFileTool(Tool):
     def run(self, input: dict) -> str:
         path_str = self.extract(input, "path")
         target = self.resolve_path(path_str)
+        if not target.exists():
+            raise _not_found_error(self.root, path_str)
+        if target.is_dir():
+            return _read_directory(target, path_str)
         if not target.is_file():
             raise _not_found_error(self.root, path_str)
-        # 预读 = 输出上限 + 1 字节：保证统一截断的字节限可触发且内存安全
+        if _is_binary_file(target):
+            return f"[二进制文件，跳过内容: {path_str}]"
+        offset = int(input.get("offset", 1) or 1)
+        limit = int(input.get("limit", READ_DEFAULT_LIMIT) or READ_DEFAULT_LIMIT)
+        return _read_lines(target, path_str, max(1, offset), max(1, limit), self.max_bytes)
+
+
+READ_DEFAULT_LIMIT = 2000
+MAX_LINE_LENGTH = 2000
+MAX_LINE_SUFFIX = f"... (行截断至 {MAX_LINE_LENGTH} 字符)"
+BINARY_SAMPLE_BYTES = 4096
+BINARY_EXTS = {
+    ".zip", ".tar", ".gz", ".exe", ".dll", ".so", ".class", ".jar", ".war",
+    ".7z", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
+    ".odp", ".bin", ".dat", ".obj", ".o", ".a", ".lib", ".wasm", ".pyc", ".pyo",
+}
+
+
+def _is_binary_file(target: Path) -> bool:
+    """二进制检测（对齐 opencode）：扩展名黑名单 + NUL 字节 + 非可打印字符比例。"""
+    if target.suffix.lower() in BINARY_EXTS:
+        return True
+    try:
         with target.open("rb") as f:
-            raw = f.read(self.max_bytes + 1)
-        return raw.decode("utf-8-sig", errors="replace")
+            sample = f.read(BINARY_SAMPLE_BYTES)
+    except OSError:
+        return False
+    if not sample:
+        return False
+    if b"\x00" in sample:
+        return True
+    non_printable = sum(1 for b in sample if b < 9 or 13 < b < 32)
+    return non_printable / len(sample) > 0.3
+
+
+def _read_directory(target: Path, path_str: str) -> str:
+    """目录读取：排序条目列表（对齐 opencode read 目录模式）。"""
+    entries: list[str] = []
+    try:
+        for child in target.iterdir():
+            entries.append(child.name + ("/" if child.is_dir() else ""))
+    except OSError:
+        raise ToolInputError(f"无法读取目录: {path_str}")
+    entries.sort()
+    total = len(entries)
+    if total > 500:
+        entries = entries[:500]
+        entries.append(f"... 已显示 500 条，共 {total} 项")
+    return f"目录 {path_str}（{total} 项）：\n" + "\n".join(entries)
+
+
+def _read_lines(target: Path, path_str: str, offset: int, limit: int, max_bytes: int) -> str:
+    """按行区间流式读取：单 pass 统计 total + 收集 [offset, offset+limit) 区段。
+
+    行内截断（>2000 字符）+ 字节预算（读入受输出上限约束；预算耗尽时输出显式
+    截断标记，统一截断层作为最终保险）。
+    """
+    collected: list[str] = []
+    total = 0
+    hit_budget = False
+    budget = max_bytes
+    try:
+        f = target.open("r", encoding="utf-8-sig", errors="replace")
+    except OSError:
+        raise ToolInputError(f"无法读取文件: {path_str}")
+    with f:
+        for line in f:
+            total += 1
+            if total < offset:
+                continue
+            if len(collected) >= limit:
+                continue
+            line = line.rstrip("\n").rstrip("\r")
+            if len(line) > MAX_LINE_LENGTH:
+                line = line[:MAX_LINE_LENGTH] + MAX_LINE_SUFFIX
+            budget -= len(line.encode("utf-8")) + 1
+            if budget <= 0:
+                hit_budget = True
+                break
+            collected.append(line)
+    if not collected:
+        return f"（无内容：文件共 {total} 行，请求第 {offset} 行起 {limit} 行）"
+    header = f"第 {offset}-{offset + len(collected) - 1} 行（共 {total} 行）：\n"
+    out = header + "\n".join(collected)
+    if hit_budget:
+        out += f"\n[... 输出截断于 {max_bytes // 1024}KB]"
+    return out
 
 
 class WriteFileTool(Tool):
@@ -135,18 +273,19 @@ class WriteFileTool(Tool):
         overwrite = input.get("overwrite", True)
         if target.exists() and not overwrite:
             raise ToolExistsError(f"文件已存在: {path_str}。设置 overwrite=true 覆盖。")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        _atomic_write(target, content)
         return f"已将 {len(content)} 字符写入 {path_str}"
 
 
 class GlobTool(Tool):
     name = "glob"
-    description = "搜索匹配 glob 模式的文件。支持 * 和 ** 通配符。路径相对于工作目录根路径。"
+    description = ("搜索匹配 glob 模式的文件。支持 * 和 ** 通配符。"
+                   "路径相对于工作目录根路径；可指定 path 限定搜索目录。")
     parameters = {
         "type": "object",
         "properties": {
             "pattern": {"type": "string", "description": "相对于工作目录根路径的 glob 模式"},
+            "path": {"type": "string", "description": "搜索目录（默认: 工作目录根路径）"},
         },
         "required": ["pattern"],
     }
@@ -154,10 +293,15 @@ class GlobTool(Tool):
     op_type = OpType.READ
 
     def scope_path(self, input: dict) -> str:
-        prefix = pattern_prefix(input.get("pattern", ""))
-        return "" if not prefix else prefix
+        path_param = input.get("path") or ""
+        if path_param:
+            return path_param
+        return pattern_prefix(input.get("pattern", ""))
 
     def resource_scope(self, input: dict) -> ResourceScope:
+        path_param = input.get("path") or ""
+        if path_param:
+            return ResourceScope(path=normalize_path(path_param), scope_type=ScopeType.PREFIX, op_type=OpType.READ)
         prefix = pattern_prefix(input.get("pattern", ""))
         if not prefix:
             # 根级模式（**/*.py、*.py）覆盖整个工作区 → 视为 WORKSPACE
@@ -166,13 +310,19 @@ class GlobTool(Tool):
 
     def run(self, input: dict) -> str:
         pattern = self.extract(input, "pattern")
+        path_str = self.extract_optional(input, "path")
+        search_root = self.resolve_path(path_str) if path_str else self.root
+        if not search_root.is_dir():
+            raise ToolInputError(f"搜索路径不是目录: {path_str}")
         result = []
-        for path in self.root.glob(pattern):
+        for path in search_root.glob(pattern):
             if not path.resolve().is_relative_to(self.root):
                 continue
             if _path_in_excluded_dir(path, self.root):
                 continue
             result.append(str(path.relative_to(self.root)))
+        # 确定性：结果字典序排序（pathlib.glob 遍历顺序不稳定）
+        result.sort()
         if len(result) > MAX_GLOB_RESULTS:
             result = result[:MAX_GLOB_RESULTS]
             result.append(f"... 已显示 {MAX_GLOB_RESULTS} 条结果，输出已截断")
@@ -220,24 +370,29 @@ class PatchTool(Tool):
         elif count > 1:
             raise ToolInputError(f"发现 {count} 处匹配，请添加更多上下文")
         new_content = content.replace(old_str, new_str, 1)
-        target.write_text(new_content, encoding="utf-8")
+        _atomic_write(target, new_content)
         return f"已将 {len(new_content)} 字符写入 {path_str}"
 
 
 class GrepTool(Tool):
     name = "grep"
-    description = "在文件内容中搜索正则表达式模式。返回匹配行及其文件路径和行号。"
+    description = ("在文件内容中搜索正则表达式模式。返回匹配行及其文件路径和行号。"
+                   "尊重 .gitignore；可指定 path 限定搜索目录或文件。")
     parameters = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "搜索目录（默认: 工作目录根路径）"},
+            "path": {"type": "string", "description": "搜索目录或文件（默认: 工作目录根路径）"},
             "pattern": {"type": "string", "description": "要在文件内容中搜索的正则表达式模式"},
             "include": {"type": "string", "description": "文件过滤 glob 模式（如 '*.py'）"},
+            "ignore_case": {"type": "boolean", "description": "忽略大小写（默认 false）"},
+            "literal": {"type": "boolean", "description": "按字面字符串搜索而非正则（默认 false）"},
+            "context": {"type": "integer", "description": "每个匹配前后显示的上下行数（默认 0）"},
         },
         "required": ["pattern"],
     }
     permission = "read"
     op_type = OpType.READ
+    GREP_MAX_LINE_LENGTH = 500
 
     def scope_path(self, input: dict) -> str:
         return input.get("path") or ""
@@ -250,17 +405,83 @@ class GrepTool(Tool):
         return ResourceScope(path=normalize_path(path), scope_type=ScopeType.PREFIX, op_type=OpType.READ)
 
     def run(self, input: dict) -> str:
-        import re
-
         pattern = self.extract(input, "pattern")
         path_str = self.extract_optional(input, "path")
+        include = self.extract_optional(input, "include") or "*"
+        ignore_case = bool(input.get("ignore_case", False))
+        literal = bool(input.get("literal", False))
+        context = int(input.get("context", 0) or 0)
+        rg = _rg_path()
+        if rg is not None:
+            out = self._run_rg(rg, pattern, path_str, include, ignore_case, literal, context)
+            if out is not None:
+                return out
+        return self._run_python(pattern, path_str, include, ignore_case, literal)
+
+    # ── ripgrep 路径（plans/0019：性能 + .gitignore + 确定性排序）──────────
+
+    def _run_rg(
+        self, rg: str, pattern: str, path_str: str, include: str,
+        ignore_case: bool, literal: bool, context: int,
+    ) -> str | None:
+        args = [rg, "--line-number", "--no-heading", "--color", "never", "--sort", "path"]
+        if ignore_case:
+            args.append("--ignore-case")
+        if literal:
+            args.append("--fixed-strings")
+        if context:
+            args += ["--context", str(context)]
+        for d in EXCLUDED_DIRS:
+            args += ["-g", f"!{d}/**"]
+        if include and include != "*":
+            args += ["--glob", include]
+        args.append("--")
+        args.append(pattern)
+        if path_str:
+            args.append(path_str)
+        # 无 path 参数时不传路径（cwd=root 默认搜索），输出保持相对路径
+        try:
+            proc = subprocess.run(
+                args, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                cwd=self.root, timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return "... grep 超时（30 秒）"
+        except OSError as e:
+            raise ToolExecutionError(f"ripgrep 执行失败: {e}")
+        if proc.returncode == 2:
+            # 正则语法错误等 → 回退纯 Python 保留旧错误语义
+            return None
+        if proc.returncode != 0:
+            return ""  # rc=1：无匹配
+        result: list[str] = []
+        for line in proc.stdout.splitlines():
+            if len(result) >= MAX_GREP_RESULTS:
+                result.append(f"... 已显示 {MAX_GREP_RESULTS} 条结果，输出已截断")
+                break
+            if len(line) > self.GREP_MAX_LINE_LENGTH:
+                line = line[: self.GREP_MAX_LINE_LENGTH] + f"... (行截断至 {self.GREP_MAX_LINE_LENGTH} 字符)"
+            result.append(line)
+        return "\n".join(result)
+
+    # ── 纯 Python 降级路径（rg 不可用时保底）───────────────────────────────
+
+    def _run_python(
+        self, pattern: str, path_str: str, include: str,
+        ignore_case: bool, literal: bool,
+    ) -> str:
+        import re
+
         if path_str:
             search_root = self.resolve_path(path_str)
         else:
             search_root = self.root
-        include = self.extract_optional(input, "include") or "*"
+        flags = re.IGNORECASE if ignore_case else 0
         try:
-            compiled = re.compile(pattern)
+            if literal:
+                compiled = re.compile(re.escape(pattern), flags)
+            else:
+                compiled = re.compile(pattern, flags)
         except re.error as e:
             return f"正则表达式格式错误: {e}"
 
