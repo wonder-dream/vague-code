@@ -77,6 +77,18 @@ class RepoMapConfig:
 
 
 @dataclass
+class WebSearchConfig:
+    """web_search 工具（plans/0019）：动态注入，默认开启；provider 可插拔。
+
+    权限走 network 分类（SAFE 拒绝 / NORMAL 确认 / AUTO 放行）。
+    评测 harness 不配置此工具（动态注入），Polyglot 反作弊"禁联网"不被破坏。
+    """
+    enabled: bool = True
+    provider: str = "ddg"
+    max_results: int = 5
+
+
+@dataclass
 class SupervisionConfig:
     """Supervision Agent 配置（ADR-0020）：监督者无工具，只"看"与"说"。
 
@@ -109,6 +121,7 @@ class AgentConfig:
     permission_mode: str = "normal"
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     repo_map: RepoMapConfig = field(default_factory=RepoMapConfig)
+    web_search: WebSearchConfig = field(default_factory=WebSearchConfig)
     supervision: SupervisionConfig = field(default_factory=SupervisionConfig)
     max_output_tokens: int = 32768  # 每轮输出预算（含 thinking）；评测可调大（ADR-0040）
     reasoning_effort: str | None = None  # "low"/"high"（deepseek/openai）；None=模型默认

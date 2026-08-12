@@ -485,6 +485,16 @@ class Agent:
             self._tool_specs.append(CodeSearchTool.spec())
             bound_tools["code_search"] = CodeSearchTool(workdir, self._repo_index)
 
+        # Web search: register when enabled (dynamic injection; eval unaffected)
+        if self.config.web_search.enabled:
+            from vague_code.agent.tools.web_search import WebSearchTool
+            self._tool_specs.append(WebSearchTool.spec())
+            bound_tools["web_search"] = WebSearchTool(
+                workdir,
+                provider=self.config.web_search.provider,
+                max_results=self.config.web_search.max_results,
+            )
+
         return traj, messages, bound_tools
 
     # ── Memory (file-based, ADR-0014) ────────────────────────────────────────
