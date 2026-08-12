@@ -1,102 +1,32 @@
 from __future__ import annotations
 
-import os
-import re
-from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from enum import Enum
-from pathlib import Path
 
 from vague_code.agent.ir import ToolResultBlock, ToolUseBlock
+from vague_code.agent.tools.base import (
+    OpType,
+    ResourceScope,
+    ScopeType,
+    Tool,
+    ToolResult,
+    normalize_path,
+    pattern_prefix,
+)
+
+# 兼容别名（重构迁移期；新代码直接导入 tools.base）
+_normalize_path = normalize_path
+_pattern_prefix = pattern_prefix
 
 
-class OpType(Enum):
-    READ = "R"
-    WRITE = "W"
-    STRUCTURAL_WRITE = "SW"
+def _scope_for(call: ToolUseBlock, tools: dict[str, Tool]) -> ResourceScope:
+    """并发 scope 由工具实例提供（ADR-0004 重构：元数据内聚，替代按工具名分支）。
 
-
-class ScopeType(Enum):
-    EXACT = "exact"
-    PREFIX = "prefix"
-    WORKSPACE = "workspace"
-
-
-@dataclass
-class ResourceScope:
-    path: str
-    scope_type: ScopeType
-    op_type: OpType
-
-
-# ── Scope extraction ────────────────────────────────────────────────────────
-
-def _pattern_prefix(pattern: str) -> str:
-    """Extract the directory prefix from a glob pattern before the first wildcard."""
-    p = pattern.replace("\\", "/")
-    # Strip trailing slash for clean comparison
-    trimmed = p.rstrip("/")
-    m = re.search(r"[*?[\]]", trimmed)
-    if m:
-        prefix = trimmed[:m.start()]
-        if "/" in prefix:
-            prefix = prefix.rsplit("/", 1)[0]
-        else:
-            return ""
-        return prefix or ""
-    return trimmed or ""
-
-
-def _normalize_path(path: str) -> str:
-    p = path.replace("\\", "/")
-    # Windows 文件系统大小写不敏感：归一化为小写，避免 read "SRC/A.PY" 与
-    # write "src/a.py" 指向同一文件却被判为不冲突的竞态。
-    return p.lower() if os.name == "nt" else p
-
-
-def _extract_scope(call: ToolUseBlock, workdir: str) -> ResourceScope:
-    name = call.name
-    inp = call.input
-
-    if name == "read_file":
-        path = _normalize_path(inp.get("path", ""))
-        return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.READ)
-
-    if name == "write_file":
-        path = _normalize_path(inp.get("path", ""))
-        target = Path(workdir).resolve() / path
-        is_new = not target.exists()
-        return ResourceScope(
-            path=path,
-            scope_type=ScopeType.EXACT,
-            op_type=OpType.STRUCTURAL_WRITE if is_new else OpType.WRITE,
-        )
-
-    if name == "patch":
-        path = _normalize_path(inp.get("path", ""))
-        return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.WRITE)
-
-    if name == "glob":
-        pattern = inp.get("pattern", "")
-        prefix = _normalize_path(_pattern_prefix(pattern))
-        if not prefix:
-            # 根级模式（**/*.py、*.py）覆盖整个工作区 → 视为 WORKSPACE
-            return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.READ)
-        return ResourceScope(path=prefix, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
-
-    if name == "grep":
-        path = _normalize_path(inp.get("path") or "")
-        if not path:
-            # 未指定搜索目录 → 扫整个工作区 → 视为 WORKSPACE
-            return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.READ)
-        return ResourceScope(path=path, scope_type=ScopeType.PREFIX, op_type=OpType.READ)
-
-    if name == "code_search":
-        path = _normalize_path(inp.get("path") or "")
-        return ResourceScope(path=path, scope_type=ScopeType.EXACT, op_type=OpType.READ)
-
-    return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.WRITE)
+    未知工具回退 WORKSPACE + WRITE（与旧默认分支一致）。
+    """
+    tool = tools.get(call.name)
+    if tool is None:
+        return ResourceScope(path="", scope_type=ScopeType.WORKSPACE, op_type=OpType.WRITE)
+    return tool.resource_scope(call.input)
 
 
 # ── Conflict detection ──────────────────────────────────────────────────────
@@ -131,9 +61,9 @@ def _path_under(prefix: str, path: str) -> bool:
 
 def schedule(
     calls: list[ToolUseBlock],
-    workdir: str,
+    tools: dict[str, Tool],
 ) -> list[list[ToolUseBlock]]:
-    scopes = [_extract_scope(c, workdir) for c in calls]
+    scopes = [_scope_for(c, tools) for c in calls]
     groups: list[list[ToolUseBlock]] = []
     group_scopes: list[list[ResourceScope]] = []
 
@@ -159,11 +89,10 @@ _CONCURRENT_TIMEOUT = 120.0
 
 def execute_concurrent(
     calls: list[ToolUseBlock],
-    handlers: dict[str, Callable[[dict], str]],
-    workdir: str,
+    tools: dict[str, Tool],
 ) -> list[ToolResultBlock]:
-    groups = schedule(calls, workdir)
-    group_scopes = [[_extract_scope(c, workdir) for c in g] for g in groups]
+    groups = schedule(calls, tools)
+    group_scopes = [[_scope_for(c, tools) for c in g] for g in groups]
     results: dict[str, ToolResultBlock] = {}
     failed_scopes: list[ResourceScope] = []
 
@@ -187,8 +116,8 @@ def execute_concurrent(
         group_failed = False
         try:
             for call in group:
-                handler = handlers.get(call.name)
-                if handler is None:
+                tool = tools.get(call.name)
+                if tool is None:
                     results[call.id] = ToolResultBlock(
                         tool_use_id=call.id,
                         content=f"未知工具: {call.name}",
@@ -196,15 +125,18 @@ def execute_concurrent(
                     )
                     group_failed = True
                     continue
-                future: Future = executor.submit(handler, call.input)
+                future: Future = executor.submit(tool, call.input)
                 future_map[future] = call.id
 
             try:
                 for future in as_completed(future_map, timeout=_CONCURRENT_TIMEOUT):
                     call_id = future_map[future]
                     try:
-                        content: str = future.result(timeout=_CONCURRENT_TIMEOUT)
-                        results[call_id] = ToolResultBlock(tool_use_id=call_id, content=content)
+                        result: ToolResult = future.result(timeout=_CONCURRENT_TIMEOUT)
+                        results[call_id] = ToolResultBlock(
+                            tool_use_id=call_id, content=result.output,
+                            meta=result.metadata,
+                        )
                     except Exception as e:
                         results[call_id] = ToolResultBlock(
                             tool_use_id=call_id,

@@ -146,10 +146,17 @@ _DEFAULT_POLICIES: dict[PermissionMode, dict[str, Decision]] = {
 
 def evaluate(
     mode: PermissionMode,
-    operation: Operation,
+    permission_class: str,
+    operation: Operation | None = None,
     rules: list[PermissionRule] | None = None,
 ) -> Decision:
-    if rules:
+    """按权限分类评估（ADR-0004 重构：分类由工具元数据提供，替代按工具名分支）。
+
+    permission_class：read / write / bash_safe / bash_dangerous / network
+    （来自 Tool.permission_class()；未知工具回退 "write"，与旧行为一致）。
+    operation 仅用于持久化规则匹配（tool_name + input repr）。
+    """
+    if rules and operation is not None:
         op_repr = operation.tool_name + " " + str(operation.input)
         for rule in rules:
             if not rule.pattern:
@@ -158,18 +165,9 @@ def evaluate(
                 return rule.action
 
     policy = _DEFAULT_POLICIES.get(mode, _DEFAULT_POLICIES[PermissionMode.NORMAL])
-
-    if operation.tool_name == "bash":
-        level = classify_bash(operation.command or "")
-        return policy["bash_safe" if level == DangerLevel.SAFE else "bash_dangerous"]
-
-    if operation.tool_name in ("read_file", "glob", "grep"):
-        return policy["read"]
-
-    if operation.tool_name in ("write_file", "patch"):
-        return policy["write"]
-
-    return policy["write"]
+    if permission_class not in policy:
+        permission_class = "write"
+    return policy[permission_class]
 
 
 def _rule_matches(pattern: str, op_repr: str) -> bool:

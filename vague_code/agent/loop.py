@@ -45,7 +45,7 @@ from vague_code.agent.retry import (
     classify_llm_error,
     estimate_input_tokens,
 )
-from vague_code.agent.tools import DEFAULT_TOOLS, Tool
+from vague_code.agent.tools import DEFAULT_TOOLS, Tool, bind_tools
 from vague_code.agent.trajectory import EventType, Trajectory
 
 
@@ -215,7 +215,7 @@ class Agent:
         self,
         config: AgentConfig,
         backend: ModelBackend,
-        tools: dict[str, Tool] | None = None,
+        tools: dict[str, type[Tool]] | None = None,
     ):
         self.config = config
         self.backend = backend
@@ -229,13 +229,13 @@ class Agent:
         self._repo_index: object | None = None
         self._chat_traj: Trajectory | None = None
         self._chat_messages: list[Message] | None = None
-        self._chat_bound_tools: dict[str, Callable[[dict], str]] | None = None
+        self._chat_bound_tools: dict[str, Tool] | None = None
         self._chat_turn: int = 0
         self._tool_registry = tools if tools is not None else DEFAULT_TOOLS
         for key, tool in self._tool_registry.items():
-            if key != tool.spec.name:
-                raise ValueError(f"Registry key '{key}' does not match tool spec name '{tool.spec.name}'")
-        self._tool_specs = [t.spec for t in self._tool_registry.values()]
+            if key != tool.name:
+                raise ValueError(f"Registry key '{key}' does not match tool name '{tool.name}'")
+        self._tool_specs = [t.spec() for t in self._tool_registry.values()]
 
     def run(self, task: str, workdir: str) -> Trajectory:
         handle = self.start(task, workdir)
@@ -418,7 +418,7 @@ class Agent:
     def _init_run(
         self, task: str, workdir: str, *, mode: str | None = None,
         identity: str | None = None,
-    ) -> tuple[Trajectory, list[Message] | None, dict[str, Callable[[dict], str]]]:
+    ) -> tuple[Trajectory, list[Message] | None, dict[str, Tool]]:
         """初始化一次运行/会话：traj + 首条消息 + 绑定工具（start 与 chat 首轮共用）。"""
         self._workdir = workdir
         run_id = uuid.uuid4().hex[:12]
@@ -467,7 +467,7 @@ class Agent:
         })
 
         try:
-            bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
+            bound_tools = bind_tools(self._tool_registry, workdir)
         except Exception as e:
             traj.emit(EventType.error, payload={"kind": "tool_bind_error", "message": str(e)})
             traj.emit(EventType.run_end, payload={"reason": "tool_bind_error"})
@@ -481,9 +481,9 @@ class Agent:
 
         # Repo map: register code_search tool when index is available
         if self._repo_index is not None:
-            from vague_code.agent.tools import CODE_SEARCH_SPEC, make_code_search_handler
-            self._tool_specs.append(CODE_SEARCH_SPEC)
-            bound_tools["code_search"] = make_code_search_handler(self._repo_index)
+            from vague_code.agent.tools.code_search import CodeSearchTool
+            self._tool_specs.append(CodeSearchTool.spec())
+            bound_tools["code_search"] = CodeSearchTool(workdir, self._repo_index)
 
         return traj, messages, bound_tools
 
@@ -561,7 +561,7 @@ class Agent:
         traj: Trajectory,
         messages: list[Message],
         turn_box: list[int],
-        bound_tools: dict[str, Callable[[dict], str]],
+        bound_tools: dict[str, Tool],
         *,
         chat_mode: bool = False,
     ) -> Iterator[StreamEvent]:
@@ -796,7 +796,7 @@ class Agent:
                     allowed_tool_uses: list[ToolUseBlock] = []
                     for block in tool_uses:
                         decision, content, is_error = self._check_tool_permission(
-                            block, perm_mode, turn, traj, check_confirm=True,
+                            block, perm_mode, turn, traj, check_confirm=True, tools=bound_tools,
                         )
                         if decision == Decision.DENY:
                             traj.emit(EventType.tool_call, turn=turn, payload={
@@ -818,9 +818,8 @@ class Agent:
 
                     if self.config.concurrent_tools and len(allowed_tool_uses) > 1:
                         from vague_code.agent.concurrency import execute_concurrent
-                        workdir = getattr(self, "_workdir", "")
                         try:
-                            con_results = execute_concurrent(allowed_tool_uses, bound_tools, workdir)
+                            con_results = execute_concurrent(allowed_tool_uses, bound_tools)
                         except Exception as e:
                             traj.emit(EventType.error, turn=turn, payload={"kind": "concurrent_execution_error", "message": str(e)})
                             traj.emit(EventType.run_end, payload={"reason": "concurrent_execution_error"})
@@ -842,17 +841,18 @@ class Agent:
                     else:
                         for block in allowed_tool_uses:
                             traj.emit(EventType.tool_call, turn=turn, payload={"id": block.id, "name": block.name, "input": block.input})
-                            handler = bound_tools.get(block.name)
-                            if handler is None:
+                            tool = bound_tools.get(block.name)
+                            if tool is None:
                                 error_msg = f"未知工具: {block.name}"
                                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": error_msg, "is_error": True})
                                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=error_msg, is_error=True))
                                 self._fire_on_tool_result(block.id, block.name, error_msg, True)
                                 continue
                             try:
-                                content = self._truncate_tool_content(handler(block.input))
-                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
-                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+                                tool_result = tool(block.input)
+                                content = self._truncate_tool_content(tool_result.output)
+                                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False, "metadata": tool_result.metadata})
+                                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, meta=tool_result.metadata))
                                 self._fire_on_tool_result(block.id, block.name, content, False)
                             except Exception as e:
                                 error_msg = f"{type(e).__name__}: {e}"
@@ -883,6 +883,7 @@ class Agent:
         traj: Trajectory,
         *,
         check_confirm: bool = True,
+        tools: dict[str, Tool] | None = None,
     ) -> tuple:
         """Evaluate permission for a single tool block.
 
@@ -891,11 +892,13 @@ class Agent:
         decision is DENY → content is the human-readable error, is_error=True.
         """
         from vague_code.agent.permission import Decision, PermissionMode, Operation, evaluate
+        tool = tools.get(block.name) if tools else None
+        permission_class = tool.permission_class(block.input) if tool else "write"
         op = Operation(
             tool_name=block.name, input=block.input,
             command=block.input.get("command", "") if block.name == "bash" else "",
         )
-        decision = evaluate(perm_mode, op, rules=self._permission_rules)
+        decision = evaluate(perm_mode, permission_class, op, rules=self._permission_rules)
         traj.emit(EventType.permission_check, turn=turn, payload={
             "tool": block.name, "decision": decision.value,
             "command": (op.command or "")[:200],
@@ -1261,7 +1264,7 @@ class Agent:
         traj: Trajectory,
         messages: list[Message],
         turn: int,
-        bound_tools: dict[str, Callable[[dict], str]],
+        bound_tools: dict[str, Tool],
     ) -> bool:
         if not messages or messages[-1].role != "assistant":
             return False
@@ -1285,23 +1288,24 @@ class Agent:
             from vague_code.agent.permission import Decision, PermissionMode
             perm_mode = PermissionMode(self.config.permission_mode)
             decision, content, is_error = self._check_tool_permission(
-                block, perm_mode, turn, traj, check_confirm=False,
+                block, perm_mode, turn, traj, check_confirm=False, tools=bound_tools,
             )
             if decision == Decision.DENY:
                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": True})
                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, is_error=True))
                 continue
 
-            handler = bound_tools.get(block.name)
-            if handler is None:
+            tool = bound_tools.get(block.name)
+            if tool is None:
                 err = f"Unknown tool: {block.name}"
                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
                 tool_results.append(ToolResultBlock(tool_use_id=block.id, content=err, is_error=True))
                 continue
             try:
-                content = self._truncate_tool_content(handler(block.input))
-                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False})
-                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content))
+                result = tool(block.input)
+                content = self._truncate_tool_content(result.output)
+                traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": content, "is_error": False, "metadata": result.metadata})
+                tool_results.append(ToolResultBlock(tool_use_id=block.id, content=content, meta=result.metadata))
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
                 traj.emit(EventType.tool_result, turn=turn, payload={"tool_use_id": block.id, "content": err, "is_error": True})
