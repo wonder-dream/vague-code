@@ -19,12 +19,14 @@ class CodeSearchTool(Tool):
         "properties": {
             "query": {"type": "string", "description": "要搜索的符号名或正则表达式"},
             "path": {"type": "string", "description": "过滤文件路径（可选）"},
+            "k": {"type": "integer", "description": "最大返回条数（1-50，默认 20）"},
         },
         "required": ["query"],
     }
     permission = "read"
     op_type = OpType.READ
     scope_type = ScopeType.EXACT
+    MAX_SIGNATURE_LENGTH = 200
 
     def __init__(self, workdir: str, repo_index):
         super().__init__(workdir)
@@ -38,10 +40,16 @@ class CodeSearchTool(Tool):
         if not query:
             return "需要提供搜索查询内容。"
         path = input.get("path") or None
-        results = self._repo_index.search(query, k=20, path=path)
+        k = max(1, min(int(input.get("k", 20) or 20), 50))
+        results = self._repo_index.search(query, k=k, path=path)
         if not results:
             return f"未找到与 {query!r} 匹配的符号。"
-        lines = [f"{s.file}:{s.line}: {s.signature}" for s in results]
+        lines = []
+        for s in results:
+            sig = s.signature
+            if len(sig) > self.MAX_SIGNATURE_LENGTH:
+                sig = sig[: self.MAX_SIGNATURE_LENGTH] + "..."
+            lines.append(f"{s.file}:{s.line}: {sig}")
         if len(lines) > MAX_GREP_RESULTS:
             lines = lines[:MAX_GREP_RESULTS]
             lines.append(f"... 已显示 {MAX_GREP_RESULTS} 条结果，输出已截断")

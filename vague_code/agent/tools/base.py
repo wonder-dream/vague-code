@@ -142,21 +142,28 @@ class Tool(ABC):
         return self.handle(input)
 
     def handle(self, input: dict) -> ToolResult:
-        """模板方法：run → 统一截断 → ToolResult（截断统计入 metadata）。"""
+        """模板方法：run → 统一截断 → ToolResult（截断统计入 metadata）。
+
+        截断发生时调用 on_truncated(full, tr) hook（如 bash 落盘完整输出）。
+        """
         out = self.run(input)
         tr = truncate_output(out, self.max_lines, self.max_bytes)
-        return ToolResult(
-            output=tr.content,
-            metadata={
-                "title": self.name,
-                "truncated": tr.truncated,
-                "truncated_by": tr.truncated_by,
-                "output_lines": tr.output_lines,
-                "output_bytes": tr.output_bytes,
-                "total_lines": tr.total_lines,
-                "total_bytes": tr.total_bytes,
-            },
-        )
+        metadata: dict = {
+            "title": self.name,
+            "truncated": tr.truncated,
+            "truncated_by": tr.truncated_by,
+            "output_lines": tr.output_lines,
+            "output_bytes": tr.output_bytes,
+            "total_lines": tr.total_lines,
+            "total_bytes": tr.total_bytes,
+        }
+        if tr.truncated:
+            metadata.update(self.on_truncated(out, tr))
+        return ToolResult(output=tr.content, metadata=metadata)
+
+    def on_truncated(self, full_output: str, tr) -> dict:
+        """输出被截断时的钩子（默认无操作）；返回追加进 metadata 的字段。"""
+        return {}
 
     @abstractmethod
     def run(self, input: dict) -> str:

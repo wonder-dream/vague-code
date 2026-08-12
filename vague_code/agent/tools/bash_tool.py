@@ -98,6 +98,7 @@ class BashTool(Tool):
         "properties": {
             "command": {"type": "string", "description": "要执行的 shell 命令"},
             "cwd": {"type": "string", "description": "命令的工作目录（默认: 工作目录根路径）"},
+            "timeout": {"type": "integer", "description": "超时秒数（默认 30）"},
         },
         "required": ["command"],
     }
@@ -111,6 +112,15 @@ class BashTool(Tool):
         level = classify_bash(str(command))
         return "bash_safe" if level.value == "safe" else "bash_dangerous"
 
+    def on_truncated(self, full_output: str, tr) -> dict:
+        """输出超限 → 完整输出落盘（对齐 PI fullOutputPath），模型可用 read_file 读回。"""
+        try:
+            path = Path(tempfile.gettempdir()) / f"vaguecode_bash_{uuid.uuid4().hex[:8]}.out"
+            path.write_text(full_output, encoding="utf-8")
+            return {"full_output_path": str(path)}
+        except OSError:
+            return {}
+
     def run(self, input: dict) -> str:
         command = self.extract(input, "command")
         cwd_str = self.extract_optional(input, "cwd")
@@ -118,6 +128,7 @@ class BashTool(Tool):
             cwd_path = self.resolve_path(cwd_str)
         else:
             cwd_path = self.root
+        timeout_s = int(input.get("timeout", BASH_TIMEOUT_S) or BASH_TIMEOUT_S)
         temp_script: Path | None = None
         rewritten = _rewrite_multiline_python(command)
         if rewritten is not None:
@@ -138,7 +149,7 @@ class BashTool(Tool):
                 env=env,
             )
             try:
-                stdout_bytes, stderr_bytes = proc.communicate(timeout=BASH_TIMEOUT_S)
+                stdout_bytes, stderr_bytes = proc.communicate(timeout=timeout_s)
             except subprocess.TimeoutExpired as exc:
                 if sys.platform == "win32":
                     subprocess.run(
@@ -154,7 +165,7 @@ class BashTool(Tool):
                 stdout_partial = stdout_bytes.decode("utf-8", errors="replace")
                 stderr_partial = stderr_bytes.decode("utf-8", errors="replace")
                 raise ToolExecutionError(
-                    f"命令在 {BASH_TIMEOUT_S} 秒后超时\n"
+                    f"命令在 {timeout_s} 秒后超时\n"
                     f"部分标准输出:\n{stdout_partial}\n"
                     f"部分标准错误输出:\n{stderr_partial}"
                 )
