@@ -57,9 +57,16 @@ class CompressionConfig:
 
 @dataclass
 class MemoryConfig:
+    """记忆 v2（ADR-0014 更新）：文件式记忆，按 workdir 物理隔离。
+
+    `<workdir>/<memory_file>`（默认 .agent/memory.md，已 gitignore）存储
+    历史会话蒸馏条目，system prompt 注入全文（限 200 行/25KB）。
+    session_end_distill：会话结束时一次 LLM 总结追加；distill_model None = 主模型。
+    """
     enabled: bool = True
-    memory_db_path: str = "runs/memory.db"
-    auto_compact_distill: bool = True
+    memory_file: str = ".agent/memory.md"
+    session_end_distill: bool = True
+    distill_model: str | None = None
 
 
 @dataclass

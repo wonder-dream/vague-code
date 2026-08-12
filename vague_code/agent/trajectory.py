@@ -35,6 +35,7 @@ class EventType(str, Enum):
     compression = "compression"
     permission_check = "permission_check"
     supervision = "supervision"
+    memory_distill = "memory_distill"
 
 
 @dataclass

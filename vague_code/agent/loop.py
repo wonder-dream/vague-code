@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from vague_code.agent.backend import ModelBackend
 from vague_code.agent.config import AgentConfig
+from vague_code.agent.memory_file import MemoryFile
 from vague_code.agent.ir import (
     ArgsDelta,
     Block,
@@ -46,6 +47,29 @@ from vague_code.agent.retry import (
 )
 from vague_code.agent.tools import DEFAULT_TOOLS, Tool
 from vague_code.agent.trajectory import EventType, Trajectory
+
+
+# ── Memory distill prompt (ADR-0014) ────────────────────────────────────────
+
+_MEMORY_DISTILL_PROMPT = (
+    "你是会话记忆整理器。根据下面的会话任务，总结本次会话值得长期记住的内容"
+    "（项目约定、构建/测试命令、踩坑解法、用户偏好等），最多 3 条。\n"
+    "若无值得记住的内容，只输出「无」。\n"
+    "输出格式（markdown，每条以 ## 标题开头，多条用空行分隔）：\n\n"
+    "## 短标题\n内容\n\n任务：{task}"
+)
+
+
+def _response_text(resp: ModelResponse) -> str:
+    """取 ModelResponse 的纯文本（str 或 TextBlock 列表）。"""
+    content = resp.message.content
+    if isinstance(content, str):
+        return content
+    parts = []
+    for b in content:
+        if isinstance(b, TextBlock):
+            parts.append(b.text)
+    return "".join(parts)
 
 
 # ── Aggregator ──────────────────────────────────────────────────────────────
@@ -200,19 +224,13 @@ class Agent:
         self.on_state_change: Callable[[str, dict], None] | None = None
         self.guidance_provider: Callable[[], list[str]] | None = None
         self._permission_rules: list = []
-        self._memory_store = None
+        self._memory_files: dict[str, MemoryFile] = {}
+        self._workdir: str = ""
         self._repo_index: object | None = None
         self._chat_traj: Trajectory | None = None
         self._chat_messages: list[Message] | None = None
         self._chat_bound_tools: dict[str, Callable[[dict], str]] | None = None
         self._chat_turn: int = 0
-        if config.memory.enabled:
-            try:
-                from vague_code.agent.memory import MemoryStore
-                self._memory_store = MemoryStore(config.memory.memory_db_path)
-            except Exception as e:
-                import warnings
-                warnings.warn(f"Failed to initialize memory store: {e}", stacklevel=2)
         self._tool_registry = tools if tools is not None else DEFAULT_TOOLS
         for key, tool in self._tool_registry.items():
             if key != tool.spec.name:
@@ -223,7 +241,9 @@ class Agent:
         handle = self.start(task, workdir)
         for _ in handle:
             pass
-        return handle.trajectory
+        traj = handle.trajectory
+        self._distill_session(traj)
+        return traj
 
     def start(self, task: str, workdir: str, identity: str | None = None) -> RunHandle:
         traj, messages, bound_tools = self._init_run(task, workdir, identity=identity)
@@ -278,6 +298,7 @@ class Agent:
             if e.type == EventType.run_start:
                 workdir = e.payload.get("workdir", "")
                 break
+        self._workdir = workdir
         bound_tools = {name: t.bind(workdir) for name, t in self._tool_registry.items()}
         last_llm = next((e for e in reversed(traj.events) if e.type == EventType.llm_response), None)
         self._chat_traj = traj
@@ -291,12 +312,13 @@ class Agent:
         return RunHandle(gen, traj)
 
     def chat_end(self) -> None:
-        """结束当前会话：emit run_end(reason=chat_end) + 落库 + 清空会话状态。"""
+        """结束当前会话：emit run_end(reason=chat_end) + 落库 + 会话记忆蒸馏 + 清空。"""
         if self._chat_traj is None:
             return
         if not any(e.type == EventType.run_end for e in self._chat_traj.events):
             self._chat_traj.emit(EventType.run_end, payload={"reason": "chat_end"})
         self._persist(self._chat_traj)
+        self._distill_session(self._chat_traj)
         self._chat_traj = None
         self._chat_messages = None
         self._chat_bound_tools = None
@@ -424,6 +446,17 @@ class Agent:
         if repo_map_text:
             system_prompt += "\n\n## 代码库符号地图\n" + repo_map_text
 
+        # Memory: inject project memory (distilled history, capped)
+        memory_text = ""
+        if self.config.memory.enabled:
+            mf = self._get_memory_file(workdir)
+            if mf is not None:
+                memory_text = mf.inject_text()
+        if memory_text:
+            system_prompt += (
+                "\n\n## 项目记忆（历史会话蒸馏，可编辑 .agent/memory.md）\n" + memory_text
+            )
+
         traj.emit(EventType.run_start, payload={
             "task": task,
             "workdir": workdir,
@@ -446,12 +479,6 @@ class Agent:
             Message(role="user", content=task),
         ]
 
-        # Memory: inject episodic search results when memory_search tool is available
-        if self._memory_store and task.strip():
-            from vague_code.agent.memory_tool import MEMORY_SEARCH_SPEC, make_memory_search_handler
-            self._tool_specs.append(MEMORY_SEARCH_SPEC)
-            bound_tools["memory_search"] = make_memory_search_handler(self._memory_store)
-
         # Repo map: register code_search tool when index is available
         if self._repo_index is not None:
             from vague_code.agent.tools import CODE_SEARCH_SPEC, make_code_search_handler
@@ -459,6 +486,75 @@ class Agent:
             bound_tools["code_search"] = make_code_search_handler(self._repo_index)
 
         return traj, messages, bound_tools
+
+    # ── Memory (file-based, ADR-0014) ────────────────────────────────────────
+
+    def _memory_path(self, workdir: str) -> Path | None:
+        """memory 文件路径：相对路径按 workdir 解析（项目隔离），绝对路径直用。"""
+        if not workdir:
+            return None
+        p = Path(self.config.memory.memory_file)
+        if p.is_absolute():
+            return p
+        return Path(workdir) / p
+
+    def _get_memory_file(self, workdir: str) -> MemoryFile | None:
+        """按 workdir 懒建 MemoryFile（失败降级为 None，不中断运行）。"""
+        if not self.config.memory.enabled:
+            return None
+        path = self._memory_path(workdir)
+        if path is None:
+            return None
+        key = str(path.resolve())
+        if key not in self._memory_files:
+            self._memory_files[key] = MemoryFile(path)
+        return self._memory_files[key]
+
+    def _distill_session(self, traj: Trajectory) -> None:
+        """会话结束蒸馏：一次 LLM 总结 → 追加到项目记忆文件。失败静默降级。
+
+        run() 收尾与 chat_end() 调用；非交互（CLI 任务）同样执行。
+        """
+        if not self.config.memory.enabled or not self.config.memory.session_end_distill:
+            return
+        mf = self._get_memory_file(self._workdir)
+        if mf is None:
+            return
+        task = ""
+        for e in traj.events:
+            if e.type == EventType.run_start:
+                task = e.payload.get("task", "")
+                break
+        if not task.strip():
+            return
+        try:
+            model = self.config.memory.distill_model or self.config.model
+            resp = self.backend.complete(
+                [Message(role="user", content=_MEMORY_DISTILL_PROMPT.format(task=task[:2000]))],
+                tools=None,
+                config={"model": model},
+            )
+            text = _response_text(resp)
+            appended = 0
+            for block in re.split(r"(?m)^## ", text.strip()):
+                lines = [ln for ln in block.strip().splitlines() if ln.strip()]
+                if not lines:
+                    continue
+                if lines[0] == "无" and len(lines) == 1:
+                    continue
+                title = lines[0][:60]
+                body = "\n".join(lines[1:]).strip()
+                if body and mf.append(title=title, content=body, source_session=traj.run_id):
+                    appended += 1
+            if appended:
+                traj.emit(EventType.memory_distill, payload={
+                    "run_id": traj.run_id,
+                    "appended": appended,
+                    "memory_file": str(mf.path),
+                })
+        except Exception as e:
+            import warnings
+            warnings.warn(f"Failed to distill session memory: {e}", stacklevel=2)
 
     def _run_gen(
         self,
@@ -576,15 +672,18 @@ class Agent:
                         "layer": "budget", "utilization": 0.0, "budget": budget,
                     })
 
-                # Memory: auto_compact distillation
-                if self._memory_store and self.config.memory.auto_compact_distill:
-                    for r in reports:
-                        if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
-                            self._memory_store.ingest(
-                                content=r.detail["summary_text"],
-                                kind="episodic",
-                                source_session=traj.run_id,
-                            )
+                # Memory: auto_compact distillation → memory.md
+                if self.config.memory.enabled:
+                    mf = self._get_memory_file(self._workdir)
+                    if mf is not None:
+                        for r in reports:
+                            if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
+                                summary = r.detail["summary_text"]
+                                mf.append(
+                                    title=summary.strip().splitlines()[0][:40],
+                                    content=summary,
+                                    source_session=traj.run_id,
+                                )
 
                 while True:
                     aggregator = _StreamAggregator()

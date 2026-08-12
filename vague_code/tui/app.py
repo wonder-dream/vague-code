@@ -278,7 +278,7 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             sidebar.focus()
 
     def _delete_session_artifacts(self, run_id: str) -> None:
-        """清理会话的磁盘产物：轨迹 jsonl 导出 + memory.db 中的会话记忆。"""
+        """清理会话的磁盘产物：轨迹 jsonl 导出 + memory.md 中的会话记忆。"""
         from pathlib import Path
 
         for path in (
@@ -290,24 +290,12 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             except OSError:
                 pass
         try:
-            memory_db = Path(self._config.memory.memory_db_path)
-            if memory_db.exists():
-                import sqlite3 as _sq
-                mconn = _sq.connect(str(memory_db), timeout=5)
-                try:
-                    tables = {
-                        r[0]
-                        for r in mconn.execute(
-                            "SELECT name FROM sqlite_master WHERE type='table'"
-                        ).fetchall()
-                    }
-                    if "memories" in tables:
-                        mconn.execute(
-                            "DELETE FROM memories WHERE source_session=?", (run_id,)
-                        )
-                        mconn.commit()
-                finally:
-                    mconn.close()
+            memory_file = Path(self._config.memory.memory_file)
+            if not memory_file.is_absolute():
+                memory_file = Path(self._workdir) / memory_file
+            if memory_file.is_file():
+                from vague_code.agent.memory_file import MemoryFile
+                MemoryFile(memory_file).remove_sections(run_id)
         except Exception:
             pass
 

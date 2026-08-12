@@ -535,11 +535,12 @@ async def test_deleted_session_row_removed_from_sidebar(monkeypatch) -> None:
 
 
 async def test_delete_session_cleans_artifacts(tmp_path) -> None:
-    """删除会话必须自动清理：DB 行、轨迹 jsonl、memory.db 记忆。"""
+    """删除会话必须自动清理：DB 行、轨迹 jsonl、memory.md 记忆。"""
     import sqlite3 as _sq
 
     db_path = str(tmp_path / "runs.db")
-    mem_path = str(tmp_path / "memory.db")
+    mem_dir = tmp_path / ".agent"
+    mem_path = mem_dir / "memory.md"
     run_id = "abcdef123456"
 
     # 构造会话数据：runs + events + jsonl 轨迹 + memory 记忆
@@ -562,28 +563,21 @@ async def test_delete_session_cleans_artifacts(tmp_path) -> None:
     traj_file = tmp_path / f"{run_id}.jsonl"
     traj_file.write_text('{"run_id": "%s"}\n' % run_id, encoding="utf-8")
 
-    mconn = _sq.connect(mem_path)
-    mconn.executescript(
-        """
-        CREATE TABLE memories (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            kind TEXT, content TEXT, source_session TEXT,
-            created_at TEXT, last_used_at TEXT, use_count INTEGER,
-            confidence REAL, content_hash TEXT UNIQUE
-        );
-        """
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    mem_path.write_text(
+        "<!-- vague-code memory: agent 蒸馏的历史会话记忆，可手动编辑 -->\n\n"
+        "## 目标会话记忆\n"
+        "<!-- source: {0}; created: 2026-08-12; hash: aaa -->\n"
+        "本次会话的要点\n\n"
+        "## 其他会话记忆\n"
+        "<!-- source: other123; created: 2026-08-12; hash: bbb -->\n"
+        "保留的内容\n".format(run_id),
+        encoding="utf-8",
     )
-    mconn.execute(
-        "INSERT INTO memories (kind, content, source_session, created_at, last_used_at, content_hash) "
-        "VALUES ('episodic', 'ctx summary', ?, 'now', 'now', 'h1')",
-        (run_id,),
-    )
-    mconn.commit()
-    mconn.close()
 
     config = AgentConfig(model="m", max_turns=5, db_path=db_path)
-    config.memory.memory_db_path = mem_path
-    app = VagueCodeApp(config=config, backend=_FakeBackend(), workdir=".")
+    config.memory.memory_file = str(mem_path.relative_to(tmp_path))
+    app = VagueCodeApp(config=config, backend=_FakeBackend(), workdir=str(tmp_path))
 
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -599,12 +593,10 @@ async def test_delete_session_cleans_artifacts(tmp_path) -> None:
         conn.close()
     # jsonl 删除
     assert not traj_file.exists()
-    # memory 删除
-    mconn = _sq.connect(mem_path)
-    try:
-        assert mconn.execute("SELECT 1 FROM memories WHERE source_session=?", (run_id,)).fetchone() is None
-    finally:
-        mconn.close()
+    # memory 删除：目标会话分块移除，其他保留
+    remaining = mem_path.read_text(encoding="utf-8")
+    assert "目标会话记忆" not in remaining
+    assert "其他会话记忆" in remaining
 
 
 

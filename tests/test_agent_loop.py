@@ -146,6 +146,7 @@ def test_guidance_injected_at_turn_start():
 
     backend = RecordingBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)
+    config.memory.enabled = False  # 该测试断言最后一次 LLM 调用，蒸馏会覆盖 seen_messages
     with tempfile.TemporaryDirectory() as tmpdir:
         agent = Agent(config, backend)
         agent.guidance_provider = lambda: ["continue please"]
@@ -482,7 +483,7 @@ def test_empty_tools_registry():
             return _text_response("ok")
 
     config = AgentConfig(max_turns=5)
-    config.memory.enabled = False  # disable memory_search tool spec injection
+    config.memory.enabled = False  # 禁用记忆蒸馏与注入
     config.repo_map.enabled = False  # disable code_search tool spec injection
     agent = Agent(config, _RecordingBackend(), tools={})
     assert agent._tool_specs == []
@@ -1866,3 +1867,83 @@ def test_to_messages_stale_snip_ignored():
     msgs = traj.to_messages()
     texts = [b.text for m in msgs for b in m.content if isinstance(b, TextBlock)]
     assert "original" in texts
+
+
+# ── Memory v2 (ADR-0014: file-based memory) ────────────────────────────────
+
+
+def test_memory_injected_into_system_prompt(tmp_path):
+    """workdir 下的 .agent/memory.md 内容注入 system prompt。"""
+    mem_dir = tmp_path / ".agent"
+    mem_dir.mkdir()
+    (mem_dir / "memory.md").write_text(
+        "## 构建命令\n用 uv run pytest 跑测试\n", encoding="utf-8"
+    )
+    backend = FakeBackend([_text_response("ok")])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    traj = agent.run("test", str(tmp_path))
+    run_start = next(e for e in traj.events if e.type == EventType.run_start)
+    prompt = run_start.payload["system_prompt"]
+    assert "项目记忆" in prompt
+    assert "用 uv run pytest 跑测试" in prompt
+
+
+def test_run_distills_session_memory(tmp_path):
+    """run() 收尾 LLM 总结 → 追加 memory.md；memory_distill 事件落盘。"""
+    summary = "## 构建命令\n项目用 uv run pytest 跑测试\n"
+    backend = FakeBackend([_text_response("ok"), _text_response(summary)])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    traj = agent.run("实现功能", str(tmp_path))
+    mem_file = tmp_path / ".agent" / "memory.md"
+    assert mem_file.is_file()
+    text = mem_file.read_text(encoding="utf-8")
+    assert "uv run pytest" in text
+    assert "source: {0};".format(traj.run_id) in text
+    assert any(e.type == EventType.memory_distill for e in traj.events)
+
+
+def test_run_distill_none_skips_write(tmp_path):
+    """总结输出「无」→ 不写文件。"""
+    backend = FakeBackend([_text_response("ok"), _text_response("无")])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    agent.run("闲聊", str(tmp_path))
+    assert not (tmp_path / ".agent" / "memory.md").exists()
+
+
+def test_run_distill_failure_degrades_gracefully(tmp_path):
+    """蒸馏 LLM 异常 → 静默降级，运行结果不受影响。"""
+    backend = FakeBackend([_text_response("ok"), RuntimeError("distill boom")])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    traj = agent.run("测试", str(tmp_path))
+    assert traj.events[-1].type == EventType.run_end
+
+
+def test_chat_end_distills_session_memory(tmp_path):
+    """chat_end() 收尾触发蒸馏。"""
+    summary = "## 用户偏好\n喜欢中文回复\n"
+    backend = FakeBackend([_text_response("ok"), _text_response(summary)])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    handle = agent.chat("你好", str(tmp_path))
+    for _ in handle:
+        pass
+    agent.chat_end()
+    mem_file = tmp_path / ".agent" / "memory.md"
+    assert mem_file.is_file()
+    assert "喜欢中文回复" in mem_file.read_text(encoding="utf-8")
+
+
+def test_distill_idempotent_duplicate_content(tmp_path):
+    """同内容重复蒸馏 → 幂等去重，不重复写入。"""
+    summary = "## 构建命令\n用 uv run pytest 跑测试\n"
+    backend = FakeBackend([_text_response("ok"), _text_response(summary), _text_response(summary)])
+    config = AgentConfig(max_turns=5)
+    agent = Agent(config, backend)
+    agent.run("任务一", str(tmp_path))
+    agent.run("任务二", str(tmp_path))
+    text = (tmp_path / ".agent" / "memory.md").read_text(encoding="utf-8")
+    assert text.count("uv run pytest") == 1
