@@ -26,6 +26,80 @@ class SetupWizard(ModalScreen):
         ("custom", "自定义中转站（任意 OpenAI/Responses 兼容端点）"),
     )
 
+    DEFAULT_CSS = """
+    SetupWizard {
+        align: center middle;
+        background: rgba(0, 0, 0, 0.65);
+    }
+    #setup-dialog {
+        width: 74;
+        max-height: 85%;
+        background: #1e2126;
+        border: round #3d4451;
+        padding: 2 3;
+        scrollbar-size: 0 0;
+    }
+    .setup-title {
+        color: #7bba55;
+        text-style: bold;
+        text-align: center;
+        height: 1;
+    }
+    #setup-desc {
+        color: #9aa0a6;
+        text-align: center;
+        margin-bottom: 1;
+    }
+    #setup-provider {
+        margin: 0 0 1 0;
+    }
+    #setup-provider RadioButton {
+        padding: 0 1;
+        margin: 0 0 1 0;
+    }
+    #setup-provider RadioButton:focus {
+        background: #2a2f38;
+    }
+    #setup-provider RadioButton.--toggle-on {
+        color: #7bba55;
+        text-style: bold;
+    }
+    #setup-fields {
+        margin-top: 1;
+    }
+    #setup-fields Input {
+        margin: 0 0 1 0;
+        border: round #3d4451;
+        background: #171a1f;
+    }
+    #setup-fields Input:focus {
+        border: round #7bba55;
+    }
+    #setup-protocol-label {
+        color: #9aa0a6;
+        margin: 0 0 1 0;
+    }
+    #setup-protocol RadioButton {
+        margin: 0 0 1 0;
+    }
+    #setup-protocol RadioButton.--toggle-on {
+        color: #7bba55;
+    }
+    #setup-status {
+        height: 1;
+        margin-top: 1;
+        text-align: center;
+    }
+    #setup-buttons {
+        width: 100%;
+        align: right middle;
+        margin-top: 1;
+    }
+    #setup-buttons Button {
+        margin-left: 1;
+    }
+    """
+
     def __init__(
         self,
         app,
