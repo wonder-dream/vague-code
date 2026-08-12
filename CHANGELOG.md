@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.19] — 2026-08-12
+
+### Added
+
+- **web_search 工具**：DuckDuckGo 零 key 搜索（`query` + `max_results`），权限分类 `network` 首次落地（SAFE 拒绝/NORMAL 确认/AUTO 放行）；动态注入（`config.web_search.enabled`），评测零影响
+- **read_file 能力补全**：`offset`/`limit` 行区间读取（1-indexed）、目录条目列表、二进制检测（扩展名黑名单 + NUL + 非可打印字符比例）、单行截断 2000 字符、行区间输出头
+- **grep 现代化**：ripgrep 驱动（`ripgrep>=15.1.0`，确定性排序 + 尊重 .gitignore + 二进制天然跳过）+ `ignore_case`/`literal`/`context` 参数 + 行内截断 500 字符；rg 不可用时降级纯 Python
+- **bash**：`timeout` 参数（默认 30 秒）；输出超限（>50KB）完整输出落盘 `full_output_path`（模型可用 read_file 读回）
+- **glob**：结果排序（确定性）+ `path` 参数限定搜索目录
+- **code_search**：`k` 参数（1-50 默认 20）+ signature 行内截断
+- **write_file / patch**：原子写（tempfile + os.replace，新文件 0644 覆盖保留原 mode）
+
 ## [0.1.18] — 2026-08-12
 
 ### Added
