@@ -653,16 +653,16 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         if provider == self._provider and self._backend is not None:
             return self._backend
         from vague_code.cli import _provider_settings
-        base_url, key_env, protocol = _provider_settings(provider, None, None, self._file_config)
+        base_url, key_env, protocol, user_agent = _provider_settings(provider, None, None, self._file_config)
         key = self._resolve_key_for(provider)
         if not key:
             return None
-        return build_backend(provider, key, base_url, protocol, self._config.transport.timeout_s)
+        return build_backend(provider, key, base_url, protocol, self._config.transport.timeout_s, user_agent=user_agent)
 
     def _resolve_key_for(self, provider: str) -> str | None:
         """provider 的 API key：项目 .env → 全局 .env → 环境变量（ADR-0039）。"""
         from vague_code.cli import _provider_settings, _resolve_api_key
-        _base_url, key_env, _protocol = _provider_settings(provider, None, None, self._file_config)
+        _base_url, key_env, _protocol, _user_agent = _provider_settings(provider, None, None, self._file_config)
         if not key_env:
             return None
         return _resolve_api_key(key_env)
@@ -772,9 +772,9 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         from vague_code.config import build_backend
         from vague_code.cli import _provider_settings
 
-        base_url, key_env, protocol = _provider_settings(provider, None, None, self._file_config)
+        base_url, key_env, protocol, user_agent = _provider_settings(provider, None, None, self._file_config)
         new_backend = build_backend(
-            provider, key, base_url, protocol, self._config.transport.timeout_s,
+            provider, key, base_url, protocol, self._config.transport.timeout_s, user_agent=user_agent,
         )
         state.backend = new_backend
         state.provider = provider
@@ -911,7 +911,11 @@ class VagueCodeApp(VagueCodeViewMixin, App):
         return False
 
     def _suggest_enter(self) -> bool:
-        """浮层可见时 Enter：无参命令直接执行，有参命令填入命令+空格。"""
+        """浮层可见时 Enter：无参命令直接执行，有参命令填入命令+空格。
+
+        浮层可见即输入为命令前缀（filter_commands 含空格即收起），
+        选中项即用户意图——无论文本是否已完整输入，Enter 一律按选中项处理。
+        """
         suggest = self.query_one("#command-suggest", CommandSuggest)
         if not suggest.is_visible():
             return False
@@ -920,21 +924,18 @@ class VagueCodeApp(VagueCodeViewMixin, App):
             suggest.show_for("")
             return False
         cmd, _desc, needs_args = item
-        text = self.query_one("#input").text.strip()
-        if text == cmd:
-            if needs_args:
-                # 有参命令：填入"命令+空格"继续输参数
-                input_widget = self.query_one("#input")
-                input_widget.load_text(cmd + " ")
-                input_widget.cursor_location = input_widget.document.end
-                suggest.show_for(cmd + " ")
-            else:
-                # 无参命令：直接执行
-                self.query_one("#input").load_text("")
-                suggest.show_for("")
-                self._handle_slash(cmd)
-            return True
-        return False
+        input_widget = self.query_one("#input")
+        if needs_args:
+            # 有参命令：填入"命令+空格"继续输参数
+            input_widget.load_text(cmd + " ")
+            input_widget.cursor_location = input_widget.document.end
+            suggest.show_for(cmd + " ")
+        else:
+            # 无参命令：直接执行
+            input_widget.load_text("")
+            suggest.show_for("")
+            self._handle_slash(cmd)
+        return True
 
     # ── Input history ─────────────────────────────────────────────────────────
 

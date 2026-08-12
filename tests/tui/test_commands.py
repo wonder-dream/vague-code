@@ -318,6 +318,47 @@ async def test_suggest_popup_on_slash() -> None:
         assert not suggest.is_visible()
 
 
+async def test_suggest_enter_with_partial_text_uses_selection() -> None:
+    """known-issues：部分前缀 + ↑/↓ 选中后 Enter 不自动填充 → 按选中项处理。
+
+    Enter 不再要求输入文本与命令完全相等（filter_commands 保证浮层可见即前缀匹配）。
+    """
+    from vague_code.tui.widgets.command_suggest import CommandSuggest
+
+    app = _make_app()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#input")
+        suggest = app.query_one("#command-suggest", CommandSuggest)
+
+        # "/" + 下移到有参命令 /model → Enter 填入 "/model " 继续输参数
+        input_widget.load_text("/")
+        await pilot.pause(0.1)
+        suggest.selected_index = 0
+        suggest.move(6)  # index 6 = /model
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert input_widget.text == "/model "
+
+        # "/" + 下移到无参命令 /new → Enter 直接执行（新会话）
+        input_widget.load_text("/")
+        await pilot.pause(0.1)
+        suggest.selected_index = 0
+        suggest.move(1)  # index 1 = /new
+        await pilot.press("enter")
+        await pilot.pause(0.2)
+        assert input_widget.text == ""
+        assert app._sessions.current is not None
+
+        # 部分前缀 "/mo" + 选中 /mode → Enter 填入 "/mode "
+        input_widget.load_text("/mo")
+        await pilot.pause(0.1)
+        suggest.move(1)  # 候选 [/model, /mode]，index 1 = /mode
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert input_widget.text == "/mode "
+
+
 async def test_suggest_scrolls_window_keeps_selection_visible() -> None:
     """ADR-0038 修复：9 个命令超出可视行时滚动窗口，选中项始终可见。"""
     from vague_code.tui.widgets.command_suggest import CommandSuggest

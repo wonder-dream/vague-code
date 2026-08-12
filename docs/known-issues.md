@@ -1,8 +1,8 @@
 # Known Issues & Unfixed Bugs
 
-Last updated: 2026-08-05
+Last updated: 2026-08-12
 
-此文档记录项目当前已知问题状态。已修复 11 项，6 项经分析非实际缺陷，3 项为代价高/分析侧处理。
+此文档记录项目当前已知问题状态。已修复 16 项，6 项经分析非实际缺陷，3 项为代价高/分析侧处理。
 
 ---
 
@@ -25,6 +25,7 @@ Last updated: 2026-08-05
 | concurrency Windows 路径大小写不敏感（normcase 归一化） | R7 | 未提交 |
 | concurrency 超时后 with 块等待慢任务（shutdown wait=False） | R7 | 未提交 |
 | eval harness workdir 跨进程共享，并行评测互删目录 | R8 | 未提交 |
+| TUI `/` 命令浮层：部分前缀 + ↑/↓ 选中后 Enter 不自动填充（`_suggest_enter` 要求文本与命令全等） | T1 | 未提交 |
 
 ---
 
