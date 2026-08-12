@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.21] — 2026-08-12
+
+### Fixed
+
+- **ripgrep 依赖降级 15.1.0 → 14.1.0**：15.1.0 无 Windows wheel（仅 macosx/manylinux），Windows + 无 Rust 编译链的用户安装时走 sdist 源码构建失败；14.1.0 有全平台 wheel（win_amd64/win32/manylinux2014/macos）
+
 ## [0.1.20] — 2026-08-12
 
 ### Changed
