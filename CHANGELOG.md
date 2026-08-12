@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.22] — 2026-08-12
+
+### Added
+
+- **独立模型选择界面 ModelPicker**（对齐 opencode）：`/model` 打开居中面板——搜索过滤 + 滚动列表 + ↑/↓ 选择 + Enter 确认 + Esc 取消，provider 彩色徽章 + 无 key 模型 `[需配置]` 标记；确认后自动处理直切 / 跨 provider 换 backend / 无 key 弹引导
+
+### Fixed
+
+- **无 key 模型切换不弹引导**：欢迎页/无会话路径与同 provider 分支统一前置 key 检查——切到未配置 key 的模型自动弹 SetupWizard（预选 provider/模型）
+
 ## [0.1.21] — 2026-08-12
 
 ### Fixed
