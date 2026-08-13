@@ -55,6 +55,12 @@ def test_classify_unknown_conservative() -> None:
     assert classify_bash("some_unknown_tool --dangerous") == DangerLevel.DANGEROUS
 
 
+def test_classify_env_exposure_dangerous() -> None:
+    """env/printenv 可读全部环境变量（含 API key），必须走确认而非免确认 SAFE。"""
+    assert classify_bash("env") == DangerLevel.DANGEROUS
+    assert classify_bash("printenv PATH") == DangerLevel.DANGEROUS
+
+
 # ── M5 补盲：git 破坏性操作 / 包安装 / 进程杀死 ─────────────────────────────
 
 def test_classify_dangerous_git_reset_hard() -> None:

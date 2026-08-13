@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import warnings
 from pathlib import Path
 
@@ -177,6 +178,11 @@ def write_env_key(env_path: str | Path, key_env: str, key: str) -> Path:
     if not replaced:
         lines.append(f"{key_env}={key}")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if os.name != "nt":
+        try:
+            os.chmod(out, 0o600)
+        except OSError:
+            pass
     return out
 
 

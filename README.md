@@ -360,17 +360,17 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 ## 评测
 
 > ⚠️ 早期 v0.1 的 83%/93% 等数字基于**假 pass/fail**（验收测试未实跑），已废弃且不得引用。
-> 2026-08 起评测体系按 `docs/plans/0016-eval-methods.md` 全面升级：真验收（sanity gate 双检 +
-> F2P/P2P 实跑）、pass^k 可靠性、任务集按 OpenAI SWE-bench Verified 官方标注重建。
+> 2026-08 起评测体系重构为 **Aider Polyglot + Docker 容器化**（`docs/plans/0040-eval-redesign.md`）：
+> 任务的验收测试在隔离容器内实跑，pass@1 / pass^k / 失败互斥分类 / 成本分位。
 
 ```bash
-python -m eval.cli --tasks eval/tasks.json --fake          # 验证框架（不耗 API）
-python -m eval.cli --tasks eval/tasks.json --max-turns 25  # 真实评测（20 题本机可跑）
-python -m eval.cli --tasks eval/tasks.json --repeat 3 --out report.md  # pass^k 实验
+python -m eval.polyglot --dataset <polyglot-benchmark 路径> --fake            # 验证框架（不耗 API）
+python -m eval.polyglot --dataset <polyglot-benchmark 路径> --repeat 3 --out report.md  # 真实评测
 ```
 
-现状：任务集 20 题本机可跑（sympy 17 + sphinx 2 + pytest 1）；8 题小消融显示基线全开 pass 最高
-（5/8），压缩减少 29% 输入 token 但 KV Cache 命中率 93%→27%（详见 `docs/handoff/2026-08-05-vague-code-concurrency-and-ablation.md`）。
+现状：**225 题 × 6 语言（Python/Go/Rust/Java/JS/C++）pass@1 = 100%（224/224，$10）**，
+e2e 99.56%（complex-numbers 数据集缺陷剔除分母）；另有 5 类对抗注入评测验证权限栈
+拦截（详见 `polyglot_final_v5.md` 与 `eval/README.md`）。
 
 ---
 

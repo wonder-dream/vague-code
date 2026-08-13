@@ -280,7 +280,7 @@ function scored(id) {
   return !!(s && Number.isInteger(s.clarity) && Number.isInteger(s.f2p_reach));
 }
 
-const esc = (s) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const esc = (s) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");
 const shortTest = (t) => t.split("::").pop() + " · " + t.split("::")[0].split("/").pop();
 
 function render() {
