@@ -37,16 +37,16 @@ vague-code tui "Fix the bug in stats.py"
 |---|---|---|---|---|
 | **① DeepSeek 官方**（默认） | `DEEPSEEK_API_KEY` | `https://api.deepseek.com` | `--provider deepseek`（可省略） | platform.deepseek.com |
 | **② OpenAI 官方（GPT 系列）** | `OPENAI_API_KEY` | `https://api.openai.com/v1` | `--provider openai` | platform.openai.com |
-| **③ Anthropic** | `ANTHROPIC_API_KEY` | DeepSeek 的 Anthropic 兼容端点 | `--provider anthropic` | DeepSeek 平台（兼容端点） |
+| **③ Anthropic** | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` | `--provider anthropic` | platform.anthropic.com |
 | **④ 任意 OpenAI 兼容端点**（中转站 / OpenRouter / Moonshot / Codex 中转） | 自定义（如 `RELAY_KEY`） | 自定义 | `--base-url <URL> --api-key-env <变量名>` | 各服务商后台 |
 
-> 三条命令行界面（CLI 单次 / TUI 全屏 / chat 对话）的参数完全一致，下文命令中的 `vague-code` 均可替换为 `vague-code tui` 或 `vague-code chat`。
+> 三种界面（CLI 单次 / TUI 全屏 / chat 对话）共用同一套 provider/模型配置体系，核心参数一致；TUI/chat 会省略部分仅 CLI 单次任务才需要的参数（如 `--stream`、`--export-jsonl`、`--no-repo-map` 等）。下文命令中的 `vague-code` 均可替换为 `vague-code tui` 或 `vague-code chat`。
 
 ---
 
 ## 通用配置方法（任选其一）
 
-vague-code 按顺序读取：**当前工作目录的 `.env` 文件** → **系统环境变量**。两种方式二选一即可。
+vague-code 按顺序读取 Key：**当前工作目录的 `.env` 文件** → **全局 `~/.config/vague-code/.env`** → **系统环境变量**。任一处配置即可，前面的优先。
 
 **方式 A：`.env` 文件（推荐，跨平台、不污染系统）**
 
@@ -87,7 +87,7 @@ vague-code "修复 stats.py 的 bug"
 vague-code tui "分析项目结构"
 vague-code chat                      # 交互式连续对话
 
-# 指定模型（deepseek-v4-pro / deepseek-chat / deepseek-reasoner）
+# 指定模型（deepseek-v4-pro；也支持直接传任意服务商模型名）
 vague-code --model deepseek-v4-pro "重构 auth 模块"
 ```
 
@@ -128,16 +128,16 @@ vague-code tui --provider openai --model gpt-5.6-terra "重构项目结构"
 
 **第 1 步**：创建 Key。
 
-- 默认指向 **DeepSeek 的 Anthropic 兼容端点**（`https://api.deepseek.com/anthropic`），Key 同样在 DeepSeek 平台获取，填到 `ANTHROPIC_API_KEY`
-- 想连 Anthropic 官方或第三方 Anthropic 端点：用 `--base-url` 覆盖端点，Key 用对应平台的
+- 默认指向 **Anthropic 官方端点**（`https://api.anthropic.com`），Key 在 Anthropic 平台获取，填到 `ANTHROPIC_API_KEY`
+- 想连 DeepSeek 的 Anthropic 兼容端点或其他第三方 Anthropic 端点：用 `--base-url` 覆盖端点，Key 用对应平台的
 
 **第 2 步**：配置 Key（`.env` 或环境变量）。
 
 **第 3 步**：运行。
 
 ```bash
-vague-code --provider anthropic "重构 auth 模块"                    # DeepSeek 兼容端点
-vague-code --provider anthropic --base-url https://api.anthropic.com "..."  # 官方端点
+vague-code --provider anthropic "重构 auth 模块"                    # 官方端点（默认）
+vague-code --provider anthropic --base-url https://api.deepseek.com/anthropic "..."  # DeepSeek 兼容端点
 ```
 
 ---
@@ -282,6 +282,7 @@ curl.exe https://中转站URL/v1/responses ^
 | `/resume` | picker 选择历史会话继续（重放历史后恢复运行） |
 | `/new` | 清空并开始新会话 |
 | `/clear` | 清空对话视图 |
+| `/compact` | 手动压缩当前会话上下文（LLM 摘要） |
 | `/save [path]` | 导出 trajectory 为 JSONL |
 | `/model` / `/model <name>` | picker（按当前 provider 分组）或直接切换模型 |
 | `/mode <m>` | 设置权限模式 `safe\|normal\|autoedit\|auto` |
@@ -295,20 +296,26 @@ curl.exe https://中转站URL/v1/responses ^
 ### CLI 常用参数
 
 ```
-vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
-           [--base-url URL] [--api-key-env NAME] [--max-turns N]
-           [--mode {safe,normal,autoedit,auto}] [--db-path PATH]
-           [--timeout-s N] [--no-repo-map] [--resume RUN_ID]
+vague-code [task] [--model] [--provider NAME] [--base-url URL]
+           [--api-key-env NAME] [--max-turns N] [--mode {safe,normal,autoedit,auto}]
+           [--db-path PATH] [--timeout-s N] [--no-repo-map] [--resume RUN_ID]
+           [--stream|--no-stream] [--retry|--no-retry] [--effort {low,high}]
+           [--export-jsonl PATH] [--verbose] [--workdir PATH]
 ```
 
 | 参数 | 说明 |
 |---|---|
-| `--provider` | deepseek / openai / anthropic（默认 deepseek） |
+| `--provider` | 内置 deepseek / openai / anthropic，或 `vague-code.json` 中任意自定义 provider 名（默认 deepseek） |
 | `--base-url` | 覆盖端点（任意 OpenAI 兼容服务） |
 | `--api-key-env` | 自定义 Key 的环境变量名 |
 | `--model` | 任意模型名（OpenRouter 的 `provider/model` 斜杠格式也支持） |
 | `--mode auto` | 无人值守：允许所有写操作与安全命令（危险 bash 仍需确认） |
 | `--resume RUN_ID` | 断点续跑历史任务 |
+| `--effort low\|high` | 推理努力度（deepseek/openai；low 省 token 少思考，high 深推理） |
+| `--stream` / `--no-stream` | 启用/关闭流式输出（默认流式） |
+| `--retry` / `--no-retry` | 启用/关闭瞬时错误自动重试（默认启用；另有 `--retry-max-attempts` / `--retry-base-s` / `--retry-max-delay-s`） |
+| `--export-jsonl PATH` | 导出 trajectory 为 JSONL |
+| `--verbose` | 显示模型信息与结束原因 |
 
 ---
 
@@ -321,7 +328,7 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 │  Agent Runtime (ReAct Loop + Retry + Checkpoint/Resume)             │
 │  ┌─────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
 │  │ Tool System │ │ Context  │ │Security  │ │ Memory System      │  │
-│  │ 7 核心工具  │ │五层压缩  │ │4 种模式  │ │文件式记忆          │  │
+│  │ 8 核心工具  │ │五层压缩  │ │4 种模式  │ │文件式记忆          │  │
 │  │ 并发调度    │ │KV Cache  │ │审计日志  │ │.agent/memory.md    │  │
 │  │ 冲突可串行化│ │分层注入  │ │纯函数决策│ │注入限长+LLM 蒸馏   │  │
 │  └─────────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
@@ -344,7 +351,7 @@ vague-code [task] [--model] [--provider {deepseek,openai,anthropic}]
 | 模块 | 文件 | 描述 |
 |------|------|------|
 | **Agent Loop** | `vague_code/agent/loop.py` | ReAct 循环：LLM → tool_use → tool_result → LLM，含 retry/checkpoint/resume |
-| **Tool System** | `vague_code/agent/tools/` | 7 个工具（read/write/patch/glob/grep/bash/code_search），class-based 元数据声明，统一截断（2000 行/50KB）+ 结构化结果 |
+| **Tool System** | `vague_code/agent/tools/` | 8 个工具（read_file/write_file/patch/glob/grep/bash/code_search/web_search），class-based 元数据声明，统一截断（2000 行/50KB）+ 结构化结果 |
 | **Concurrency** | `vague_code/agent/concurrency.py` | 冲突可串行化 ThreadPool 调度，资源 scope 提取 + 冲突检测 |
 | **Context Engineering** | `vague_code/agent/context_compress.py` | 五层压缩：stale_snip → microcompact → structured_snip → auto_compact → truncation |
 | **Permission System** | `vague_code/agent/permission.py` | 4 种模式（safe/normal/autoedit/auto）+ 30+ 类危险命令正则 |
@@ -380,7 +387,7 @@ e2e 99.56%（complex-numbers 数据集缺陷剔除分母）；另有 5 类对抗
 vague-code/
 ├── vague_code/agent/                 # Agent 核心包
 │   ├── loop.py                # ReAct 主循环
-│   ├── tools/                 # class-based 工具层（base/fs/bash/truncate/code_search）
+│   ├── tools/                 # class-based 工具层（base/fs/bash/truncate/code_search/web_search）
 │   ├── concurrency.py         # 冲突可串行化并发
 │   ├── context_compress.py    # 五层压缩流水线
 │   ├── context.py             # 系统提示构建
@@ -402,7 +409,7 @@ vague-code/
 │   └── tasks.json             # 20 题任务集（本机可跑）
 ├── vague_code/cli/            # CLI 薄壳（三入口 + provider 配置）
 ├── docs/                      # ADR / plans / articles / handoff / known-issues
-└── tests/                     # 780+ 条自动化测试
+└── tests/                     # 890+ 条自动化测试
 ```
 
 ---
@@ -415,7 +422,7 @@ vague-code/
 | LLM API | DeepSeek / OpenAI（GPT 系列）/ Anthropic / 任意 OpenAI 兼容端点 |
 | 记忆存储 | Markdown 文件（`.agent/memory.md`，按项目隔离） |
 | 代码索引 | tree-sitter 0.26 + tree-sitter-python |
-| 代码质量 | ruff + mypy + pytest（830+ tests） |
+| 代码质量 | ruff + mypy + pytest（890+ tests） |
 | CLI | argparse + Rich |
 | TUI | Textual 8 |
 | 依赖管理 | uv |

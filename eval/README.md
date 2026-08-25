@@ -14,7 +14,7 @@ EDD（Evaluation-Driven Development）评测体系，两套 runner：
 | `harness.py` | P0 | SWE runner：驱动 Agent，每 run 独立 db，接 verify + metrics |
 | `env.py` | P0 | 每 repo uv venv 缓存（`eval/.venvs/<repo>__<commit>/`），`REPO_SETUP` 策展 install 规格 |
 | `verify.py` | P0 | SWE 验收执行器：状态隔离 / sanity gate 双检 / 防钻空子 / F2P-P2P 判定 |
-| `polyglot.py` | ADR-0040 | **Polyglot runner**：任务加载器（6 语言）/ 容器 verifier（vague-eval 镜像）/ 防作弊测试恢复 / 依赖缓存挂载；实测 225 题 pass@1=96%（deepseek-v4-flash，$11.56） |
+| `polyglot.py` | ADR-0040 | **Polyglot runner**：任务加载器（6 语言）/ 容器 verifier（vague-eval 镜像）/ 防作弊测试恢复 / 依赖缓存挂载；实测 225 题 pass@1=100%（224/224，~$10，详见 `polyglot_final_v5.md`） |
 | `docker/Dockerfile` | ADR-0040 | vague-eval 镜像：python3.10+pytest / node 20 / go / rust / openjdk-17 / g+++cmake |
 | `evidence.py` | ADR-0040 | 证据链三件套：config.json（运行配置）/ lock.json（任务 sha256+依赖指纹+版本）/ result.json（逐题明细） |
 | `classify.py` | ADR-0040 | 互斥失败分类学：success/f2p_fail/p2p_fail/no_diff/gaming_tests/timeout/env_broken/infra/…（基础设施与模型能力分账） |
