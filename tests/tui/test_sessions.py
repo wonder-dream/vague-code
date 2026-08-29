@@ -3,7 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 
-import tempfile
+import uuid
 
 import threading
 import time
@@ -81,8 +81,16 @@ class _ParallelAgent:
         return (task or "会话")[:max_chars]
 
 
+
+def _tmp_dir() -> Path:
+    root = Path(__file__).resolve().parent.parent.parent / ".testtmp_tui"
+    root.mkdir(parents=True, exist_ok=True)
+    p = root / ("sess_" + uuid.uuid4().hex[:12])
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
 def _make_app(cls=VagueCodeApp, **kwargs):
-    config = AgentConfig(model="m", max_turns=5, db_path=str(Path(tempfile.mkdtemp()) / "runs.db"))
+    config = AgentConfig(model="m", max_turns=5, db_path=str(Path(_tmp_dir()) / "runs.db"))
     config.permission_mode = "normal"
     return cls(config=config, backend=_FakeBackend(), workdir=".", **kwargs)
 

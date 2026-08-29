@@ -8,18 +8,23 @@ All tests in this file must be runnable WITHOUT a real API key."""
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 
-VAGUE_CODE = ["uv", "run", "vague-code"]
+VAGUE_CODE = [sys.executable, "-m", "vague_code.cli"]
 
 
 def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
-    """Run vague-code with given args and return CompletedProcess."""
+    """Run vague-code CLI entry point with given args and return CompletedProcess.
+
+    用 `python -m vague_code.cli` 而非 `uv run vague-code`：uv 在本环境（受限
+    token）会偶发尝试重建项目而失败，python -m 直接走已安装包，等价覆盖
+    argparse/参数解析/错误消息等真实 CLI 行为。
+    """
     cmd = VAGUE_CODE + list(args)
-    merged_env = None
-    if env is not None:
-        merged_env = {**__import__("os").environ, **env}
-    return subprocess.run(cmd, capture_output=True, text=True, env=merged_env)
+    merged_env = {**os.environ, **env} if env is not None else dict(os.environ)
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=merged_env)
 
 
 class TestSubprocessArgs:

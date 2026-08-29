@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+from tests._writetmp import make_temp_dir, writable_temporary_directory
 from pathlib import Path
 
 import pytest
@@ -123,7 +124,7 @@ def test_single_turn_end_turn():
 def test_start_includes_system_message():
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         traj = agent.run("test", tmpdir)
 
@@ -147,7 +148,7 @@ def test_guidance_injected_at_turn_start():
     backend = RecordingBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)
     config.memory.enabled = False  # 该测试断言最后一次 LLM 调用，蒸馏会覆盖 seen_messages
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         agent.guidance_provider = lambda: ["continue please"]
         agent.run("test", tmpdir)
@@ -172,7 +173,7 @@ def test_deny_feedback_propagates_to_tool_result():
 
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5, permission_mode="normal")
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         agent._workdir = tmpdir
         traj = Trajectory(run_id="review", config=config)
@@ -195,7 +196,7 @@ def test_deny_feedback_propagates_to_tool_result():
 def test_token_budget_recorded():
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         traj = agent.run("test", tmpdir)
 
@@ -215,7 +216,7 @@ def test_multi_turn_tool_use_then_end_turn():
     ])
     config = AgentConfig(max_turns=5)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         readme = Path(tmpdir) / "README.md"
         readme.write_text("# Project", encoding="utf-8")
         agent = Agent(config, backend)
@@ -235,7 +236,7 @@ def test_max_turns_meltdown():
     ])
     config = AgentConfig(max_turns=1)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         traj = agent.run("do stuff", tmpdir)
 
@@ -718,7 +719,7 @@ def test_sqlite_persist():
     backend = FakeBackend([_text_response("ok")])
     config = AgentConfig(max_turns=5)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         db_path = str(Path(tmpdir) / "test.db")
         config.db_path = db_path
         agent = Agent(config, backend)
@@ -1371,7 +1372,7 @@ def test_e2e_read_patch_bash_pass():
     repo_content_after: str | None = None
     bash_output: str | None = None
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         for item in TARGET_BUG_DIR.iterdir():
             src = item
             dst = Path(tmpdir) / item.name
@@ -1436,7 +1437,7 @@ def test_to_messages_workdir_prefix_matches_fresh_start():
     config = AgentConfig(max_turns=1, db_path=db_path)
     backend = FakeBackend([_text_response("ok")])
 
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with writable_temporary_directory() as tmpdir:
         agent = Agent(config, backend)
         traj = agent.run("do the thing", tmpdir)
 
@@ -1819,7 +1820,7 @@ def test_supervision_input_includes_exploration(tmp_path):
 
 def test_to_messages_replays_auto_compact_summary():
     """compression(auto_compact) event must replay in to_messages: history replaced by summary."""
-    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    config = AgentConfig(db_path=str(Path(str(make_temp_dir())) / "t.db"))
     traj = Trajectory(run_id="abc", config=config)
     traj.emit(EventType.run_start, payload={
         "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],
@@ -1844,7 +1845,7 @@ def test_to_messages_replays_auto_compact_summary():
 
 def test_to_messages_skips_noop_auto_compact():
     """affected=0 auto_compact (fail/skip) must not wipe history."""
-    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    config = AgentConfig(db_path=str(Path(str(make_temp_dir())) / "t.db"))
     traj = Trajectory(run_id="abc", config=config)
     traj.emit(EventType.run_start, payload={
         "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],
@@ -1863,7 +1864,7 @@ def test_to_messages_skips_noop_auto_compact():
 
 def test_to_messages_stale_snip_ignored():
     """stale_snip layer must not trigger summary replay (runtime-only optimization)."""
-    config = AgentConfig(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    config = AgentConfig(db_path=str(Path(str(make_temp_dir())) / "t.db"))
     traj = Trajectory(run_id="abc", config=config)
     traj.emit(EventType.run_start, payload={
         "task": "TASK", "workdir": ".", "system_prompt": "sys prompt", "config": {}, "tools": [],

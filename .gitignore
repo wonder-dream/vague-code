@@ -46,3 +46,22 @@ __pycache__/
 polyglot_*.md
 !polyglot_final_v5.md
 tmp_vr_reset/
+
+# 安全加固 TDD 测试临时目录（Windows 目录锁环境）
+.testtmp/
+
+# 测试临时目录（conftest 覆盖 tmp_path）
+.pytest_tmp_root/
+
+# 测试可写临时目录（受限 token 环境）
+.writetmp_root/
+.writetmp/
+.testtmp_tui/
+.uv_cache/
+.testtmp/
+
+# pytest 残留临时目录（本环境受限 token 无法删除）
+.pytest_bt_*/
+.pytest_tmp/
+.tmpenv/
+.pytest-of-*/

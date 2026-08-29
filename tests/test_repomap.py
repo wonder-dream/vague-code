@@ -3,7 +3,14 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 from vague_code.agent.repomap import RepoIndex, _extract_symbols
+
+
+def _require_ts() -> None:
+    """tree_sitter_python 为可选依赖：缺失时跳过依赖符号提取的用例。"""
+    pytest.importorskip("tree_sitter_python")
 
 SRC = """
 import os
@@ -38,6 +45,7 @@ def _make_index(d: Path) -> RepoIndex:
 # ── _extract_symbols ───────────────────────────────────────────────────────
 
 def test_extract_symbols_classes_functions_methods() -> None:
+    _require_ts()
     syms, counts = _extract_symbols(SRC, "stats.py")
     by_name = {s.name: s for s in syms}
     assert by_name["Stats"].kind == "class"
@@ -58,6 +66,7 @@ def test_extract_symbols_invalid_python_no_crash() -> None:
 # ── RepoIndex.build ────────────────────────────────────────────────────────
 
 def test_build_indexes_py_files(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     _write(tmp_path, "nested/util.py", "def helper():\n    pass\n")
     _write(tmp_path, "notes.txt", "not python")  # ignored
@@ -66,6 +75,7 @@ def test_build_indexes_py_files(tmp_path: Path) -> None:
 
 
 def test_build_ignores_non_python_and_hidden(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "a.py", "def a():\n    pass\n")
     _write(tmp_path, ".hidden/b.py", "def b():\n    pass\n")
     _write(tmp_path, "__pycache__/c.py", "def c():\n    pass\n")
@@ -87,6 +97,7 @@ def test_build_nonexistent_workdir(tmp_path: Path) -> None:
 
 
 def test_build_max_files_limit(tmp_path: Path) -> None:
+    _require_ts()
     for i in range(5):
         _write(tmp_path, f"f{i}.py", f"def fn{i}():\n    pass\n")
     idx = RepoIndex(workdir=str(tmp_path), max_files=2)
@@ -97,6 +108,7 @@ def test_build_max_files_limit(tmp_path: Path) -> None:
 # ── search ────────────────────────────────────────────────────────────────
 
 def test_search_by_substring(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     idx = _make_index(tmp_path)
     results = idx.search("calc")
@@ -105,6 +117,7 @@ def test_search_by_substring(tmp_path: Path) -> None:
 
 
 def test_search_regex(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     idx = _make_index(tmp_path)
     results = idx.search(r"^me", k=20)
@@ -113,6 +126,7 @@ def test_search_regex(tmp_path: Path) -> None:
 
 
 def test_search_path_filter(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     _write(tmp_path, "other.py", "def calculate():\n    pass\n")
     idx = _make_index(tmp_path)
@@ -141,6 +155,7 @@ def test_search_before_build_returns_empty() -> None:
 # ── top_symbols / to_map_text ─────────────────────────────────────────────
 
 def test_top_symbols_ranked_by_ref_count(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     _write(tmp_path, "main.py", "from stats import calculate\ncalculate(2)\ncalculate(3)\n")
     idx = _make_index(tmp_path)
@@ -149,6 +164,7 @@ def test_top_symbols_ranked_by_ref_count(tmp_path: Path) -> None:
 
 
 def test_to_map_text_contains_signatures(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "stats.py", SRC)
     idx = _make_index(tmp_path)
     text = idx.to_map_text(max_tokens=500)
@@ -168,6 +184,7 @@ def test_to_map_text_respects_token_budget(tmp_path: Path) -> None:
 # ── refresh ───────────────────────────────────────────────────────────────
 
 def test_refresh_detects_modified_file(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "a.py", "def foo():\n    pass\n")
     idx = _make_index(tmp_path)
     assert {s.name for s in idx._symbols} == {"foo"}
@@ -187,6 +204,7 @@ def test_refresh_no_change_returns_empty(tmp_path: Path) -> None:
 
 
 def test_refresh_specific_paths(tmp_path: Path) -> None:
+    _require_ts()
     _write(tmp_path, "a.py", "def foo():\n    pass\n")
     _write(tmp_path, "b.py", "def bar():\n    pass\n")
     idx = _make_index(tmp_path)
@@ -199,6 +217,7 @@ def test_refresh_specific_paths(tmp_path: Path) -> None:
 # ── code_search 工具（class-based，ADR-0004 重构）─────────────────────────
 
 def test_code_search_handler_end_to_end(tmp_path: Path) -> None:
+    _require_ts()
     from vague_code.agent.tools.code_search import CodeSearchTool
 
     _write(tmp_path, "stats.py", SRC)

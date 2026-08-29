@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import cast
 
+import pytest
+
 from vague_code.agent.context_tokens import compute_budget, count_tokens
 from vague_code.agent.ir import (
     Message,
@@ -163,6 +165,7 @@ def test_chinese_tool_args_not_ascii_escaped() -> None:
 
 def test_prefers_deepseek_tokenizer_when_available() -> None:
     """默认编码器必须是 DeepSeek-V4 官方 tokenizer（精确计数）。"""
+    pytest.importorskip("deepseek_tokenizer")
     import vague_code.agent.context_tokens as ct
 
     enc = ct._get_enc()
@@ -172,6 +175,7 @@ def test_prefers_deepseek_tokenizer_when_available() -> None:
 
 def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
     """deepseek_tokenizer 导入失败时回退 tiktoken，不崩溃。"""
+    pytest.importorskip("tiktoken")
     import vague_code.agent.context_tokens as ct
 
     ct.set_tokenizer_for_model("")
@@ -194,6 +198,7 @@ def test_fallback_to_tiktoken_when_deepseek_missing(monkeypatch) -> None:
 
 def test_set_tokenizer_for_model_gpt_uses_o200k() -> None:
     """GPT-4o/4.1/5.x 系列使用 o200k 词表（对齐 tiktoken MODEL_TO_ENCODING）。"""
+    pytest.importorskip("tiktoken")
     import vague_code.agent.context_tokens as ct
 
     try:
@@ -208,6 +213,7 @@ def test_set_tokenizer_for_model_gpt_uses_o200k() -> None:
 
 def test_set_tokenizer_for_model_legacy_gpt_uses_cl100k() -> None:
     """老 gpt-4/gpt-3.5 系列仍用 cl100k 词表。"""
+    pytest.importorskip("tiktoken")
     import vague_code.agent.context_tokens as ct
 
     try:
@@ -233,6 +239,7 @@ def test_gpt_compute_budget() -> None:
 
 def test_deepseek_tokenizer_counts_chinese_compactly() -> None:
     """ds_token 对中文按官方 tokenizer 计数（比 cl100k 字节估算紧凑得多）。"""
+    pytest.importorskip("deepseek_tokenizer")
     import vague_code.agent.context_tokens as ct
 
     enc = ct._get_enc()
