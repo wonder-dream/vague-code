@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -53,10 +54,20 @@ class RepoIndex:
         if max_files is not None:
             self.max_files = max_files
 
-        py_files = [
-            p for p in root.rglob("*.py")
-            if not any(part.startswith(".") or part == "__pycache__" for part in p.parts)
-        ][: self.max_files]
+        # 用 os.walk 并在遍历时剪枝噪音目录（.venv/.git/__pycache__/node_modules），
+        # 避免 rglob 先下钻到整棵依赖树再过滤（大仓库会慢数秒）。
+        _NOISE_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox"}
+        py_files: list[Path] = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _NOISE_DIRS]
+            for fn in filenames:
+                if fn.endswith(".py"):
+                    py_files.append(Path(dirpath) / fn)
+                    if len(py_files) >= self.max_files:
+                        break
+            if len(py_files) >= self.max_files:
+                break
+        py_files = py_files[: self.max_files]
 
         self._symbols = []
         self._name_counts = {}
