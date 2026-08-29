@@ -65,3 +65,9 @@ tmp_vr_reset/
 .pytest_tmp/
 .tmpenv/
 .pytest-of-*/
+
+# 构建产物
+dist/
+build/
+.buildtmp/
+*.egg-info/
