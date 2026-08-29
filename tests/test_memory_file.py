@@ -81,3 +81,75 @@ def test_per_workdir_isolation(tmp_path: Path) -> None:
     assert "A 项目" not in b.read()
     assert "B 项目" in b.read()
     assert "B 项目" not in a.read()
+
+# ── Memory hygiene（ADR-0021）：修订/作废/清理 ─────────────────────────────
+
+
+def test_list_sections_returns_block_metadata(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("构建命令", "用 uv run pytest", "run_a")
+    mf.append("技术栈", "用 SQLite", "run_b")
+    sections = mf.list_sections()
+    assert len(sections) == 2
+    titles = [s["title"] for s in sections]
+    assert "构建命令" in titles and "技术栈" in titles
+    for s in sections:
+        assert "source" in s and "created" in s and "hash" in s and "body" in s
+
+
+def test_replace_matching_title_updates_block(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("技术栈", "项目用 MySQL", "run_a")
+    ok = mf.replace("技术栈", "技术栈", "项目用 SQLite", source_session="run_b")
+    assert ok is True
+    text = mf.read()
+    assert "项目用 SQLite" in text
+    assert "项目用 MySQL" not in text
+    assert "source: run_b;" in text
+    sections = mf.list_sections()
+    assert len(sections) == 1
+    assert "MySQL" not in mf.read()
+
+
+def test_replace_missing_title_returns_false(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("技术栈", "项目用 SQLite", "run_a")
+    assert mf.replace("不存在的标题", "新标题", "内容", source_session="run_b") is False
+    assert "项目用 SQLite" in mf.read()
+
+
+def test_deprecate_marks_stale_but_keeps_visible(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("技术栈", "项目用 MySQL", "run_a")
+    ok = mf.deprecate("技术栈", reason="实际用 SQLite", source_session="run_b")
+    assert ok is True
+    text = mf.read()
+    assert "项目用 MySQL" in text
+    assert "stale" in text
+    assert "实际用 SQLite" in text
+
+
+def test_deprecate_missing_title_returns_false(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("技术栈", "项目用 SQLite", "run_a")
+    assert mf.deprecate("不存在的标题", reason="x") is False
+
+
+def test_remove_by_title_substring(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("构建命令", "uv run pytest", "run_a")
+    mf.append("部署命令", "docker push", "run_b")
+    removed = mf.remove_by_title("构建")
+    assert removed == 1
+    assert "uv run pytest" not in mf.read()
+    assert "docker push" in mf.read()
+
+
+def test_remove_by_keyword(tmp_path: Path) -> None:
+    mf = MemoryFile(tmp_path / "memory.md")
+    mf.append("技术栈", "项目用 MySQL 做存储", "run_a")
+    mf.append("构建命令", "uv run pytest", "run_b")
+    removed = mf.remove_by_keyword("MySQL")
+    assert removed == 1
+    assert "MySQL" not in mf.read()
+    assert "uv run pytest" in mf.read()

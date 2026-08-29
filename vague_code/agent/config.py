@@ -56,6 +56,23 @@ class CompressionConfig:
 
 
 @dataclass
+class MemoryValidationConfig:
+    """记忆写入前校验（ADR-0021 机制 1）：规则化事实校验。
+
+    mode:
+    - "warn"  默认：不阻断蒸馏，非 verified 内容仍写入但加标记
+    - "block" 严格模式：非 verified 内容拒绝写入并 emit memory_rejected
+    - "off"   完全关闭校验（eval 兼容/降级路径，行为与 ADR-0014 v2 完全一致）
+    """
+    enabled: bool = True
+    mode: str = "warn"
+
+    def __post_init__(self) -> None:
+        if self.mode not in ("warn", "block", "off"):
+            raise ValueError(f"mode must be 'warn'/'block'/'off', got {self.mode!r}")
+
+
+@dataclass
 class MemoryConfig:
     """记忆 v2（ADR-0014 更新）：文件式记忆，按 workdir 物理隔离。
 
@@ -67,6 +84,7 @@ class MemoryConfig:
     memory_file: str = ".agent/memory.md"
     session_end_distill: bool = True
     distill_model: str | None = None
+    validation: MemoryValidationConfig = field(default_factory=MemoryValidationConfig)
 
 
 @dataclass

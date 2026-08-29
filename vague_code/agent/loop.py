@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 from vague_code.agent.backend import ModelBackend
 from vague_code.agent.config import AgentConfig
 from vague_code.agent.memory_file import MemoryFile
+from vague_code.agent.memory_validator import MemoryValidator
 from vague_code.agent.ir import (
     ArgsDelta,
     Block,
@@ -56,8 +57,16 @@ _MEMORY_DISTILL_PROMPT = (
     "（项目约定、构建/测试命令、踩坑解法、用户偏好等），最多 3 条。\n"
     "若无值得记住的内容，只输出「无」。\n"
     "输出格式（markdown，每条以 ## 标题开头，多条用空行分隔）：\n\n"
-    "## 短标题\n内容\n\n任务：{task}"
+    "## 短标题\n内容\n\n"
+    "若某条新要点与\"已有记忆\"矛盾，必须用下面的标记，而不是追加一条新的：\n"
+    "## [修正: 旧标题] 新标题\n新内容\n"
+    "## [作废] 旧标题\n原因\n\n"
+    "已有记忆：\n{existing_memory}\n\n任务：{task}"
 )
+
+# 蒸馏输出中的修订/作废标记
+_RE_FIX = re.compile(r"^\[修正:\s*(.+?)\]\s*(.*)$")
+_RE_OBS = re.compile(r"^\[作废\]\s*(.+)$")
 
 
 def _response_text(resp: ModelResponse) -> str:
@@ -521,8 +530,10 @@ class Agent:
         return self._memory_files[key]
 
     def _distill_session(self, traj: Trajectory) -> None:
-        """会话结束蒸馏：一次 LLM 总结 → 追加到项目记忆文件。失败静默降级。
+        """会话结束蒸馏：一次 LLM 总结 → 追加/修订/作废到项目记忆。失败静默降级。
 
+        ADR-0021 机制2：prompt 注入已有记忆做冲突检查，支持 [修正] / [作废]；
+        机制1：写入前规则化事实校验（warn 标记 / block 拒绝）。
         run() 收尾与 chat_end() 调用；非交互（CLI 任务）同样执行。
         """
         if not self.config.memory.enabled or not self.config.memory.session_end_distill:
@@ -538,9 +549,14 @@ class Agent:
         if not task.strip():
             return
         try:
+            validator = self._memory_validator()
+            existing = mf.inject_text()
             model = self.config.memory.distill_model or self.config.model
             resp = self.backend.complete(
-                [Message(role="user", content=_MEMORY_DISTILL_PROMPT.format(task=task[:2000]))],
+                [Message(role="user", content=_MEMORY_DISTILL_PROMPT.format(
+                    task=task[:2000],
+                    existing_memory=existing or "（暂无）",
+                ))],
                 tools=None,
                 config={"model": model},
             )
@@ -552,9 +568,9 @@ class Agent:
                     continue
                 if lines[0] == "无" and len(lines) == 1:
                     continue
-                title = lines[0][:60]
+                title_line = lines[0]
                 body = "\n".join(lines[1:]).strip()
-                if body and mf.append(title=title, content=body, source_session=traj.run_id):
+                if body and self._distill_block(mf, traj, title_line, body, validator):
                     appended += 1
             if appended:
                 traj.emit(EventType.memory_distill, payload={
@@ -565,6 +581,82 @@ class Agent:
         except Exception as e:
             import warnings
             warnings.warn(f"Failed to distill session memory: {e}", stacklevel=2)
+
+    def _memory_validator(self) -> MemoryValidator | None:
+        """按配置构造校验器；off/disabled 返回 None（不校验）。"""
+        vcfg = self.config.memory.validation
+        if not vcfg.enabled or vcfg.mode == "off":
+            return None
+        return MemoryValidator(self._workdir)
+
+    def _distill_block(
+        self,
+        mf: MemoryFile,
+        traj: Trajectory,
+        title_line: str,
+        body: str,
+        validator: MemoryValidator | None,
+    ) -> bool:
+        """处理蒸馏输出中的一个块，返回是否写入了记忆。
+
+        支持普通新增、`[修正: 旧标题]`（replace，未命中降级 append）、
+        `[作废]`（deprecate）。写入前过校验（warn 标记 / block 拒绝）。
+        """
+        m_obs = _RE_OBS.match(title_line)
+        if m_obs:
+            old_title = m_obs.group(1).strip()
+            return mf.deprecate(old_title, reason=body[:200], source_session=traj.run_id)
+
+        m_fix = _RE_FIX.match(title_line)
+        if m_fix:
+            old_title = m_fix.group(1).strip()
+            new_title = (m_fix.group(2).strip() or old_title)[:60]
+            title, content, ok = self._apply_validation(traj, validator, new_title, body)
+            if not ok:
+                return False
+            if mf.replace(old_title, title, content, source_session=traj.run_id):
+                return True
+            # 旧标题未命中：降级为普通追加，不丢内容
+            return mf.append(title=title, content=content, source_session=traj.run_id)
+
+        title, content, ok = self._apply_validation(
+            traj, validator, title_line[:60], body,
+        )
+        if not ok:
+            return False
+        return mf.append(title=title, content=content, source_session=traj.run_id)
+
+    def _apply_validation(
+        self,
+        traj: Trajectory,
+        validator: MemoryValidator | None,
+        title: str,
+        body: str,
+    ) -> tuple[str | None, str | None, bool]:
+        """写入前校验。返回 (title, content, ok)。
+
+        - verified / 校验关闭 → (原样, 原样, True)
+        - warn 模式：非 verified → 标题加标记，仍写入
+        - block 模式：非 verified → 拒绝写入，emit memory_rejected
+        """
+        if validator is None:
+            return title, body, True
+        result = validator.check(body)
+        if result.level == "verified":
+            return title, body, True
+        if self.config.memory.validation.mode == "block":
+            traj.emit(EventType.memory_rejected, payload={
+                "run_id": traj.run_id,
+                "title": title,
+                "level": result.level,
+                "rule": result.rule,
+                "evidence": result.evidence,
+                "memory_file": str(self._memory_path(self._workdir)),
+            })
+            return None, None, False
+        # warn：标记后仍写入，避免误杀
+        prefix = "[可能矛盾] " if result.level == "contradicted" else "⚠ unverified "
+        return f"{prefix}{title}", body, True
 
     def _run_gen(
         self,
@@ -686,14 +778,20 @@ class Agent:
                 if self.config.memory.enabled:
                     mf = self._get_memory_file(self._workdir)
                     if mf is not None:
+                        validator = self._memory_validator()
                         for r in reports:
                             if r.layer == "auto_compact" and r.affected > 0 and r.detail.get("summary_text"):
                                 summary = r.detail["summary_text"]
-                                mf.append(
-                                    title=summary.strip().splitlines()[0][:40],
-                                    content=summary,
-                                    source_session=traj.run_id,
+                                title, content, ok = self._apply_validation(
+                                    traj, validator,
+                                    summary.strip().splitlines()[0][:40], summary,
                                 )
+                                if ok:
+                                    mf.append(
+                                        title=title,
+                                        content=content,
+                                        source_session=traj.run_id,
+                                    )
 
                 while True:
                     aggregator = _StreamAggregator()
