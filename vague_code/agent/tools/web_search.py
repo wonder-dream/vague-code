@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from vague_code.agent.tools.base import OpType, ScopeType, Tool
+from vague_code.agent.trust import mark_untrusted
 
 DEFAULT_MAX_RESULTS = 5
 MAX_RESULTS_LIMIT = 10
@@ -42,8 +43,8 @@ class WebSearchTool(Tool):
         max_results = int(input.get("max_results", self._default_max_results) or self._default_max_results)
         max_results = max(1, min(max_results, MAX_RESULTS_LIMIT))
         if self._provider == "ddg":
-            return _search_ddg(query, max_results)
-        return f"[web_search] 不支持的 provider: {self._provider}"
+            return mark_untrusted(_search_ddg(query, max_results), "web_search 结果")
+        return mark_untrusted(f"[web_search] 不支持的 provider: {self._provider}", "web_search 结果")
 
 
 def _search_ddg(query: str, max_results: int) -> str:

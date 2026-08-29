@@ -43,6 +43,65 @@ def _path_in_excluded_dir(path: Path, root: Path) -> bool:
     return any(part in EXCLUDED_DIRS for part in rel.parts[:-1])
 
 
+# ── 敏感文件 / 关键文件保护（plans/0020 B1/B3）──────────────────────────────
+
+# read_file 禁止读取的敏感文件（按文件名 / 相对路径片段匹配，大小写不敏感）。
+SENSITIVE_FILE_PARTS = {
+    ".env",
+    ".env.*",
+    ".git-credentials",
+    "id_rsa",
+    "id_ed25519",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+}
+SENSITIVE_REL_PATHS = {
+    ".git/config",
+}
+
+# write_file / patch 禁止（或需强确认）的 .agent 关键文件（规则/权限/记忆）。
+PROTECTED_AGENT_PARTS = {
+    ".agent/permission-rules.json",
+    ".agent/settings.toml",
+    ".agent/rules.md",
+    ".agent/memory.md",
+}
+
+
+def _rel_parts(path: Path, root: Path) -> list[str]:
+    """返回 path 相对 root 的规范化小写片段列表（跨平台统一 '/'）。"""
+    try:
+        rel = path.resolve().relative_to(root.resolve())
+    except ValueError:
+        return []
+    return [p.replace("\\", "/").lower() for p in rel.parts]
+
+
+def _is_sensitive_read(path: Path, root: Path) -> bool:
+    """B1：read_file 是否命中敏感文件保护。"""
+    import fnmatch
+
+    parts = _rel_parts(path, root)
+    if not parts:
+        return False
+    rel = "/".join(parts)
+    if rel in SENSITIVE_REL_PATHS:
+        return True
+    name = parts[-1]
+    return any(fnmatch.fnmatch(name, pat) for pat in SENSITIVE_FILE_PARTS)
+
+
+def _is_protected_write(path: Path, root: Path) -> bool:
+    """B3：write_file / patch 是否命中 .agent 关键文件保护。"""
+    parts = _rel_parts(path, root)
+    if not parts:
+        return False
+    rel = "/".join(parts)
+    return rel in PROTECTED_AGENT_PARTS
+
+
 # ── ripgrep 定位（plans/0019）────────────────────────────────────────────
 
 _rg_cache: str | None = None
@@ -139,6 +198,8 @@ class ReadFileTool(Tool):
     def run(self, input: dict) -> str:
         path_str = self.extract(input, "path")
         target = self.resolve_path(path_str)
+        if _is_sensitive_read(target, self.root):
+            raise ToolInputError(f"拒绝读取敏感文件: {path_str}")
         if not target.exists():
             raise _not_found_error(self.root, path_str)
         if target.is_dir():
@@ -267,6 +328,8 @@ class WriteFileTool(Tool):
     def run(self, input: dict) -> str:
         path_str = self.extract(input, "path")
         target = self.resolve_path(path_str)
+        if _is_protected_write(target, self.root):
+            raise ToolInputError(f"拒绝写入受保护文件: {path_str}")
         content = input.get("content")
         if content is None:
             raise ToolInputError("内容必须是非空字符串，收到 null")
@@ -352,6 +415,8 @@ class PatchTool(Tool):
     def run(self, input: dict) -> str:
         path_str = self.extract(input, "path")
         target = self.resolve_path(path_str)
+        if _is_protected_write(target, self.root):
+            raise ToolInputError(f"拒绝写入受保护文件: {path_str}")
         if not target.is_file():
             raise _not_found_error(self.root, path_str)
         if target.stat().st_size > MAX_PATCH_BYTES:

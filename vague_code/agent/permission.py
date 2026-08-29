@@ -58,6 +58,14 @@ _SAFE_COMMANDS: tuple[str, ...] = (
     r"^\s*type\b",
     r"^\s*cp\b",
     r"^\s*mv\b",
+    # ── 2026-08-28 补（B4）：版本/只读查询不误伤 ──
+    r"^\s*python\s+(-v|--version)\b",
+    r"^\s*pip(3)?\s+--version\b",
+    r"^\s*git\s+config\s+(--get|--list)\b",
+    r"^\s*git\s+config\s+--global\s+--get\b",
+    r"^\s*(cargo|go|npm|pnpm|bun|uv)\s+--version\b",
+    r"^\s*go\s+version\b",
+    r"^\s*npx\s+--version\b",
 )
 
 _DANGEROUS_COMMANDS: tuple[str, ...] = (
@@ -94,20 +102,99 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"yarn\s+add\b",
     r"taskkill\b",
     r"format\s+[a-zA-Z]:",
+    # ── 2026-08-28 补盲（B4）：RCE / 下载执行 / 解码执行 / 写脚本执行 ──
+    r"curl\s+\S+\s+(-o|--output)\s+\S+",
+    r"wget\s+\S+\s+(-O|--output-document)\s+\S+",
+    r"certutil\s+.*-decode\b",
+    r"mshta\b",
+    r"regsvr32\b",
+    r"powershell.*(-enc|-encodedcommand)\b",
+    r"powershell.*(IEX|Invoke-Expression)\b",
+    r"base64\s+(-d|--decode)\b",
+    r"python\s+\S+\.py\b",
+    r"bash\s+\S+\.(sh|bash)\b",
+    r"cmd\s+/c\s+\S+\.bat\b",
+    r"powershell\s+(-File|-f)\b",
+    r"call\s+\S+\.bat\b",
+    # ── 2026-08-28 补盲（B4）：Windows 进程 / 磁盘 / 系统 ──
+    r"stop-process\b",
+    r"wmic\s+process\b",
+    r"sc\s+stop\b",
+    r"shutdown\b",
+    r"restart\b",
+    r"diskpart\b",
+    r"clear-disk\b",
+    # ── 2026-08-28 补盲（B4）：包管理器执行/安装 ──
+    r"cargo\s+(run|install|build)\b",
+    r"go\s+(run|install)\b",
+    r"uv\s+pip\s+install\b",
+    r"pnpm\s+(install|add)\b",
+    r"bun\s+(install|add)\b",
+    r"npm\s+run\b",
+    r"npx\s+(?!--version\b)",
+    # ── 2026-08-28 补盲（B4）：git 写面 ──
+    r"git\s+push\s+-f\b",
+    r"git\s+remote\s+set-url\b",
+    r"git\s+filter-branch\b",
+    r"git\s+submodule\s+update\b",
+    r"git\s+config\s+(?:--global|--local|--system)\s+[a-zA-Z]",
 )
 
 _SAFE_PATTERNS = [re.compile(p) for p in _SAFE_COMMANDS]
 _DANGEROUS_PATTERNS = [re.compile(p) for p in _DANGEROUS_COMMANDS]
 
+# 命令分隔符（plans/0020 B2）：拆段后逐段分类，堵住 `cat x; rm` / `dir & del` 等拼接绕行。
+_CMD_SEPARATOR_RE = re.compile(r"[&|;\n]+")
+
+
+def _normalize_command(command: str) -> str:
+    """规范化命令：小写 + 去引号 + 展开常见包装前缀（cmd /c、powershell -c 等）。
+
+    只用于分类，不改变实际执行。
+    """
+    cmd = (command or "").lower()
+    cmd = cmd.replace('"', "").replace("'", "").replace("`", "")
+    # 展开包装前缀，使 `cmd /c Rm -rf /` → `rm -rf /`
+    cmd = re.sub(
+        r"^\s*(?:cmd(?:\.exe)?\s*/c\s*|"
+        r"powershell\s+(?:-command|-c)\s*|"
+        r"pwsh\s+(?:-command|-c)\s*|"
+        r"bash\s+-c\s*)\s*",
+        "",
+        cmd,
+    )
+    return cmd.strip()
+
+
+def _split_command_segments(command: str) -> list[str]:
+    """按命令分隔符拆段，返回规范化后的非空片段。"""
+    norm = _normalize_command(command)
+    return [seg.strip() for seg in _CMD_SEPARATOR_RE.split(norm) if seg.strip()]
+
+
+def _segment_dangerous(segment: str) -> bool:
+    return any(p.search(segment) for p in _DANGEROUS_PATTERNS)
+
+
+def _segment_safe(segment: str) -> bool:
+    return any(p.search(segment) for p in _SAFE_PATTERNS)
+
 
 def classify_bash(command: str) -> DangerLevel:
-    for pattern in _DANGEROUS_PATTERNS:
-        if pattern.search(command):
+    """三段式分类：先危险、后安全、默认危险；并对命令拆段逐段判定（plans/0020 B2）。
+
+    任一段命中危险 → 整体危险；全部段安全 → 安全；存在未知段 → 保守危险。
+    """
+    segments = _split_command_segments(command)
+    if not segments:
+        return DangerLevel.DANGEROUS
+    all_safe = True
+    for seg in segments:
+        if _segment_dangerous(seg):
             return DangerLevel.DANGEROUS
-    for pattern in _SAFE_PATTERNS:
-        if pattern.search(command):
-            return DangerLevel.SAFE
-    return DangerLevel.DANGEROUS
+        if not _segment_safe(seg):
+            all_safe = False
+    return DangerLevel.SAFE if all_safe else DangerLevel.DANGEROUS
 
 
 _DEFAULT_POLICIES: dict[PermissionMode, dict[str, Decision]] = {

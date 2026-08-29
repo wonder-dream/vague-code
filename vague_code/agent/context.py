@@ -4,6 +4,7 @@ from pathlib import Path
 
 from vague_code.agent.context_compress import compress_chain  # noqa: F401
 from vague_code.agent.context_rules import load_rules
+from vague_code.agent.trust import TRUST_POLICY
 
 
 class SystemPrompt:
@@ -34,6 +35,7 @@ class SystemPrompt:
 
     def build(self) -> str:
         parts: list[str] = [self._identity or self.AGENT_IDENTITY]
+        parts.append(f"\n{TRUST_POLICY}")
         rules = load_rules(self._workdir)
         if rules:
             parts.append(
