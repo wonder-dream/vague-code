@@ -407,6 +407,13 @@ def test_resolve_rejects_unc_path(ws, rel: str) -> None:
         handler({"path": rel})
 
 
+def test_classify_cmd_control_flow_dangerous() -> None:
+    assert classify_bash("for %f in (*.py) do rm %f") == DangerLevel.DANGEROUS
+    assert classify_bash("for /f %i in (dir) do del %i") == DangerLevel.DANGEROUS
+    assert classify_bash("if exist x (rm x)") == DangerLevel.DANGEROUS
+    assert classify_bash("for /R src %f in (*.py) do @del %f") == DangerLevel.DANGEROUS
+
+
 def test_classify_openssl_decrypt_exec_dangerous() -> None:
     assert classify_bash("openssl enc -d -aes-256-cbc -in x.bin -out x.sh && sh x.sh") == DangerLevel.DANGEROUS
     assert classify_bash("openssl enc -d -in payload -out /tmp/evil && /tmp/evil") == DangerLevel.DANGEROUS

@@ -121,6 +121,9 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"certutil\s+-urlcache\b",
     r"cmd\s+/v:?on\s+/c\b",
     r"%comspec%\s*/c\b",
+    # ── 阶段0.6（#8）：cmd 控制结构内的危险操作（for/if 分支）──
+    r"for\s+.*\b(rm|del|rd|rmdir|format|shutdown)\b",
+    r"if\s+.*\(.*\b(rm|del|rd|rmdir|format|shutdown)\b",
     # ── 2026-08-28 补盲（B4）：Windows 进程 / 磁盘 / 系统 ──
     r"stop-process\b",
     r"wmic\s+process\b",
