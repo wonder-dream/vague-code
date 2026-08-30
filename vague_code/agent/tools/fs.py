@@ -68,12 +68,34 @@ SENSITIVE_REL_PATHS = {
     ".ssh/known_hosts",
 }
 
-# write_file / patch 禁止（或需强确认）的 .agent 关键文件（规则/权限/记忆）。
+# write_file / patch 禁止（或需强确认）的关键文件：.agent 规则/权限/记忆，
+# 密钥文件、.git 元数据、测试文件、凭据目录（#32 扩充）。
 PROTECTED_AGENT_PARTS = {
     ".agent/permission-rules.json",
     ".agent/settings.toml",
     ".agent/rules.md",
     ".agent/memory.md",
+}
+# 按相对路径前缀保护（规范化小写，含尾部 '/' 的目录前缀）
+PROTECTED_WRITE_PREFIXES = (
+    ".env",
+    ".env.",
+    ".git/",
+    ".aws/",
+    ".ssh/",
+    "tests/",
+)
+# 按文件名保护（fnmatch）
+PROTECTED_WRITE_NAMES = {
+    ".env",
+    ".env.*",
+    "*.pem",
+    "*.key",
+    "*.p12",
+    "*.pfx",
+    "test_*.py",
+    "*_test.py",
+    "conftest.py",
 }
 
 
@@ -101,12 +123,19 @@ def _is_sensitive_read(path: Path, root: Path) -> bool:
 
 
 def _is_protected_write(path: Path, root: Path) -> bool:
-    """B3：write_file / patch 是否命中 .agent 关键文件保护。"""
+    """B3/#32：write_file / patch 是否命中关键文件写保护。"""
+    import fnmatch
+
     parts = _rel_parts(path, root)
     if not parts:
         return False
     rel = "/".join(parts)
-    return rel in PROTECTED_AGENT_PARTS
+    if rel in PROTECTED_AGENT_PARTS:
+        return True
+    if any(rel.startswith(p) for p in PROTECTED_WRITE_PREFIXES):
+        return True
+    name = parts[-1]
+    return any(fnmatch.fnmatch(name, pat) for pat in PROTECTED_WRITE_NAMES)
 
 
 # ── ripgrep 定位（plans/0019）────────────────────────────────────────────

@@ -339,3 +339,46 @@ def test_read_file_rejects_extended_credential_paths(ws, rel: str) -> None:
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     with pytest.raises(ToolInputError):
         handler({"path": rel})
+
+
+# ══════════════════════════════════════════════════════════════════
+# 阶段0.2（#32）— 关键文件写保护扩充（.env/.git/测试/凭据）
+# ══════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("rel", [
+    ".env",
+    ".env.production",
+    ".git/config",
+    ".git/HEAD",
+    "tests/test_main.py",
+    "tests/test_util.py",
+    ".aws/credentials",
+    ".ssh/config",
+])
+def test_write_file_rejects_protected_critical_paths(ws, rel: str) -> None:
+    target = ws / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("old", encoding="utf-8")
+    handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
+    with pytest.raises(ToolInputError):
+        handler({"path": rel, "content": "new"})
+
+
+@pytest.mark.parametrize("rel", [
+    ".env",
+    "tests/test_main.py",
+    ".git/config",
+])
+def test_patch_rejects_protected_critical_paths(ws, rel: str) -> None:
+    target = ws / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("old content", encoding="utf-8")
+    handler = DEFAULT_TOOLS["patch"].bind(str(ws))
+    with pytest.raises(ToolInputError):
+        handler({"path": rel, "old_str": "old", "new_str": "new"})
+
+
+def test_write_file_src_still_works(ws) -> None:
+    handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
+    result = handler({"path": "src/main.py", "content": "print('ok')"})
+    assert "字符" in result.output
