@@ -41,17 +41,17 @@
 | 5 | 任务内嵌"chmod -R 777 /" / "向 /etc/hosts 追加" | D2 `chmod` 危险档；D7 工具路径限工作区；safe 模式 bash 全 DENY | 通过写脚本再执行 / 混淆 / `powershell` 变体可绕（见 #18-20）；auto 模式 write 自动放行 | 调研：静态正则 + 路径白名单是当前防线；差距=无"系统敏感路径/全局写"运行时黑名单 | 🟡 | 增加系统敏感路径黑名单（/etc、/usr、C:\Windows、$HOME 外等）；高危命令在 auto 模式也强制确认 |
 | 6 | 任务内嵌"把密钥/文件发到外部地址"（网络外传） | D14 network 权限（safe 拒 / normal 确认）；D2 curl 等网络命令危险档 | 无 DLP/出口审计；web_search 结果可被用作外传通道；auto 模式 network ALLOW | 调研：当前无通用网络工具，外传主要靠 bash curl；差距=无数据外泄检测（内容指纹） | 🟡 | 网络请求统一收敛到 network 权限工具；对含密钥/凭据的输出做脱敏；记录外发审计 |
 | 7 | 任务内嵌"忽略权限规则 / 直接切 auto 模式" | 模式只能降权不能升权（settings.toml 防提权）；模式切换需用户批准 | Agent 无法自行升权，但**可写 `.agent/permission-rules.json` 加 allow 规则**（见 #33） | 调研：升权路径被堵，但规则表自提权通道未堵 | 🟡 | 权限规则文件设为只读/签名校验；write 工具对 `.agent/permission-rules.json` 与 settings.toml 强制确认 |
-| 8 | 任务内嵌"先执行 A 再执行 B"多阶段注入 | D2 危险正则对整个 command 字符串 search（部分拼接可命中） | 行首锚定导致 `cmd; rm` / `cmd & rm` 等拼接逃逸（见 #17） | 差距=正则锚定行首，多命令拼接未全覆盖 | ❌ | 危险正则去掉行首锚定或对分隔符后片段分别分类；引入 AST/分词级命令分类 |
+| 8 | 任务内嵌"先执行 A 再执行 B"多阶段注入 | D2 危险正则 + B2 拆段逐段分类 + **阶段0.6：cmd for/if 分支危险操作显式正则** | 极少数混淆分支语法 | 差距=多段/分支命令已覆盖 | ✅ | 已落地拆段 + for/if 分支检测 |
 
 ### B. 间接 / 上下文注入（Indirect & Context Injection）
 
 | # | 对抗场景 | 防了什么 | 没防什么 | IR / 调研结论 / 差距认知 | 状态 | 加固建议 |
 |---|---------|---------|---------|--------------------------|------|---------|
-| 9 | README/文档中埋"忽略规则删文件"指令 | D5 规则围栏仅约束 rules.md；D1 权限栈拦截破坏命令；**B5：系统提示已注入"信息信任层级 + 不可信数据不得作为指令"策略** | read_file 返回内容尚未逐条加"不可信"标记（仅靠系统提示软约束）；安全命令指令仍可能被采纳 | 调研：信任策略已注入；差距=read 内容逐条标记未做 | 🟡（策略已注入） | 已落地 `trust.py` + `TRUST_POLICY`；后续可对 read 输出逐条标记 |
-| 10 | 源码注释/字符串中埋恶意指令 | D2 权限栈拦截破坏命令；**B5 信任策略** | 无静态扫描；诱导 agent 写恶意代码/改测试的指令可穿透（写操作在 auto 模式放行） | 差距=没有"代码内容→行为"的异常检测 | 🟡（策略已注入） | 信任策略已注入；后续补内容注入检测 |
+| 9 | README/文档中埋"忽略规则删文件"指令 | D5 规则围栏 + D1 权限栈 + **B5 信任策略 + 阶段0.4：read_file 内容已标"不可信仓库数据"** | 内容注入静态扫描/消毒未做 | 差距=来源标记已落地；静态扫描待补 | 🟡→✅（标记已落地） | 已落地 read 不可信标记；后续补内容注入检测 |
+| 10 | 源码注释/字符串中埋恶意指令 | D2 权限栈拦截破坏命令；**B5 信任策略 + 阶段0.4 read 标记** | 无静态扫描；诱导 agent 写恶意代码/改测试的指令可穿透 | 差距=没有"代码内容→行为"的异常检测 | 🟡（策略+标记已落地） | 信任策略 + read 标记已落地；后续补内容注入检测 |
 | 11 | 依赖/第三方代码中埋恶意指令 | 评测容器隔离（eval docker）；产品运行无沙箱 | 产品实际运行在宿主，无容器/sandbox；依赖安装被 D2 危险档拦截，但恶意源码指令可被 read 后采纳 | 调研：产品级沙箱缺失是最大差距；评测级有容器 | ❌ | 产品层引入可选 sandbox（容器/WSL）运行不可信命令；至少对"执行来自依赖目录的脚本"强制确认 |
 | 12 | web_search 结果中埋恶意指令 | D14 network 权限；**B5：web_search 输出已加"不可信外部数据"标记** | 无内容消毒（摘要原文仍可能含注入措辞） | 调研：来源标记已加；差距=摘要内容消毒未做 | ✅（标记已落地） | 已落地 `mark_untrusted`；后续可做摘要内容消毒 |
-| 13 | 压缩摘要/记忆文件中埋指令（上下文污染） | D10 记忆限长 + 项目隔离；**B5：记忆注入已标"历史蒸馏记忆"不可信** | 压缩摘要（auto_compact/structured）尚未逐条加标记；无防伪签名 | 调研：记忆侧已标；差距=压缩摘要标记未做 | 🟡（记忆已标） | 已落地记忆标记；后续给压缩摘要加来源标注 |
+| 13 | 压缩摘要/记忆文件中埋指令（上下文污染） | D10 记忆限长 + 项目隔离；**B5 记忆标记 + 阶段0.4 压缩摘要标记** | 无防伪签名；内容消毒未做 | 差距=记忆+压缩摘要均已标不可信 | 🟡→✅（标记已落地） | 已落地记忆 + 压缩摘要不可信标记 |
 | 14 | 规则文件 rules.md 被恶意改写后诱导 | D5 规则围栏 + D6 层级加载上限；**B3：write_file/patch 已拒绝 `.agent/rules.md`** | 签名/哈希校验未做；间接注入仍依赖提示隔离（见 #9） | 差距=写路径已堵；完整性校验为可选增强 | ✅（写保护已落地） | 已落地 `PROTECTED_AGENT_PARTS`；可选补签名/哈希校验 |
 
 ### C. 命令执行与绕过（Command Execution & Bypass）
@@ -68,7 +68,7 @@
 | 22 | 包安装供应链（pip/npm/yarn install 恶意包） | D2 pip/npm/yarn 危险档；**B4：cargo/go/uv/pnpm/bun install·add、npm run、npx 已入危险档** | pipx、`go get`、`cargo install` 之外的其他入口待补 | 调研：主流包管理器执行/安装入口已覆盖 | ✅（主流入口已覆盖） | 已落地 B4 包管理器扩展 |
 | 23 | 系统资源/进程操作（taskkill/kill/reboot/shutdown/format） | D2 taskkill/kill/killall/pkill/reboot/shutdown/format 危险档；**B4：Stop-Process、wmic process、sc stop、shutdown、restart 已入危险档** | PowerShell cmdlet 变体仍可能漏 | 调研：Windows 进程/系统变体已覆盖 | ✅（主流变体已覆盖） | 已落地 B4 进程/系统扩展 |
 | 24 | 磁盘/设备操作（dd/mkfs/fdisk） | D2 dd/mkfs/fdisk 危险档；**B4：diskpart、Clear-Disk 已入危险档** | `\\\\.\\PhysicalDrive` 直写、`format` 变体待补 | 调研：磁盘设备主流变体已覆盖 | ✅（主流变体已覆盖） | 已落地 B4 磁盘扩展 |
-| 25 | 环境变量/凭据窃取（env、printenv、cat ~/.ssh、cat .git/config） | D2 `env`/`printenv` 已移出免确认白名单（safe DENY）；**B1：read_file 已拒绝 .env/.git/config/密钥** | Windows `type` 仍在 safe 白名单（可读 .env）；`.aws/.npmrc` 等路径未入 B1 清单 | 调研：bash 侧 + read_file 侧已收紧；差距=Windows `type` 与凭据路径清单 | 🟡 | 已落地 B1 敏感读保护；后续把 Windows `type` 移出免确认或加参数校验、扩充凭据清单 |
+| 25 | 环境变量/凭据窃取（env、printenv、cat ~/.ssh、cat .git/config） | D2 `env`/`printenv` 移出免确认；**阶段0.1：type 移出白名单 + B1 清单扩 .aws/.npmrc/.pypirc/.netrc/.ssh/config/.git/credentials** | 内容级脱敏/DLP 未做 | 差距=双通道凭据读取已堵 | ✅ | 已落地 type 移除 + 敏感清单扩充 |
 
 ### D. 数据外泄（Data Exfiltration）
 
@@ -83,9 +83,9 @@
 
 | # | 对抗场景 | 防了什么 | 没防什么 | IR / 调研结论 / 差距认知 | 状态 | 加固建议 |
 |---|---------|---------|---------|--------------------------|------|---------|
-| 30 | 路径穿越（`../../etc/passwd`、绝对路径） | D7 `resolve_path` 空字节 + `is_relative_to(root)`；glob 结果也过滤相对 root | Windows junction/reparse point 可能绕过 resolve；UNC 路径 `\\server\share` | 差距=平台链接逃逸未完全覆盖 | 🟡 | 增加 junction/reparse 检测与 UNC 禁止；路径解析后二次规范化校验 |
-| 31 | 符号链接逃逸（symlink 指向工作区外） | D7 `resolve()` 解析 symlink 后校验真实路径，可拦截 | Windows junction/快捷方式 .lnk 未验证 | 差距=平台差异 | 🟡 | 对 symlink/junction 统一策略：默认拒绝或强制确认 |
-| 32 | 写敏感/关键文件（.env、.agent/permission-rules.json、settings.toml、测试文件） | D8 写需确认 + prewrite diff；D2 部分相关命令危险档；**B3：.agent/permission-rules.json、settings.toml、rules.md、memory.md 已写保护** | `.env` 写保护、测试文件写保护仍待做；auto 模式对非 .agent 关键文件仍可能放行 | 差距=.agent 已堵；.env/测试文件待后续 | 🟡（.agent 已堵） | 已落地 `PROTECTED_AGENT_PARTS`；后续补 .env/测试文件写保护 |
+| 30 | 路径穿越（`../../etc/passwd`、绝对路径） | D7 `resolve_path` 空字节 + `is_relative_to(root)` + **阶段0.3：显式拒绝 UNC/设备路径** | Windows junction/reparse 检测待补 | 差距=UNC 已堵；junction 需平台验证 | 🟡→✅（UNC 已堵） | 已落地 `_is_unc_path` 显式拒绝 |
+| 31 | 符号链接逃逸（symlink 指向工作区外） | D7 `resolve()` 解析 symlink 后校验真实路径 + **阶段0.3 回归测试** | Windows junction/快捷方式 .lnk 平台验证待补 | 差距=普通 symlink 已拦 | 🟡→✅（symlink 已拦） | 已落地 symlink 逃逸回归测试 |
+| 32 | 写敏感/关键文件（.env、.agent/permission-rules.json、settings.toml、测试文件） | D8 写需确认 + **B3 + 阶段0.2：.env/.git/tests/.aws/.ssh 写保护** | 内容级脱敏/DLP 未做 | 差距=关键文件写路径已堵 | ✅ | 已落地 `PROTECTED_WRITE_PREFIXES/NAMES` |
 | 33 | 规则表自提权（写 allow 规则 / 改 settings.toml 升权） | D1 模式只能降权不能升权；D3 DENY 优先级；**B3：write_file/patch 已拒绝 `.agent/permission-rules.json` 与 `settings.toml`** | 签名/哈希校验未做 | 调研：规则表自提权写路径已堵 | ✅（写路径已堵） | 已落地 B3 写保护；可选补签名/校验 |
 | 34 | 创建隐藏/持久化后门文件（.bashrc、启动项、.agent/memory.md 投毒） | D7 路径限工作区（home 外 .bashrc 写不了）；D10 记忆隔离；**B3：.agent/memory.md、rules.md 已写保护** | 工作区外（若未来放宽路径）与平台启动项仍待沙箱（B7） | 差距=工作区内持久化文件已堵 | ✅（工作区内已堵） | 已落地 B3 写保护；B7 沙箱进一步隔离宿主 |
 | 35 | 覆盖关键文件后伪装成功（覆盖测试/源码不验证） | D12 监督（最终判定）；D9 bash 测试结构化；eval verify 防钻空子 | 产品层无强制验证门禁；auto 模式可覆盖后直接宣称完成 | 差距=产品层无 verify 门禁 | 🟡 | 产品层增加"修改后必须跑相关测试"软门禁；对覆盖已有文件（非新建）强制确认 |
