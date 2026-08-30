@@ -407,11 +407,74 @@ def test_resolve_rejects_unc_path(ws, rel: str) -> None:
         handler({"path": rel})
 
 
+def _resp(*blocks):
+    from vague_code.agent.ir import Message, ModelResponse, NormalizedUsage, StopReason
+
+    has_tool = any(getattr(b, "name", None) for b in blocks)
+    return ModelResponse(
+        message=Message(role="assistant", content=list(blocks)),
+        stop_reason=StopReason.tool_use if has_tool else StopReason.end_turn,
+        usage=NormalizedUsage(),
+    )
+
+
+def test_require_verify_blocks_end_turn_without_test() -> None:
+    """#35：require_verify 开启且修改未跑测试 → 拦截 end_turn（verify_required hint）。"""
+    from vague_code.agent.config import AgentConfig, MemoryConfig
+    from vague_code.agent.ir import TextBlock, ToolUseBlock
+    from vague_code.agent.loop import Agent
+
+    class _B:
+        def __init__(self):
+            self.i = 0
+            self.responses = [
+                _resp(ToolUseBlock(id="c1", name="write_file", input={"path": "a.py", "content": "x"})),
+                _resp(TextBlock(text="done")),
+            ]
+        def complete(self, messages, tools=None, config=None):
+            r = self.responses[self.i]
+            self.i += 1
+            return r
+
+    cfg = AgentConfig(model="m", memory=MemoryConfig(enabled=False), require_verify=True)
+    agent = Agent(cfg, _B())
+    traj = agent.run("edit", ".")
+    hints = [e for e in traj.events if e.type == "security_hint" and e.payload.get("reason") == "verify_required"]
+    assert hints, "require_verify should emit verify_required hint when no test run"
+
+
+def test_require_verify_allows_after_test() -> None:
+    """#35：修改后跑过测试 → 正常结束，无 verify_required。"""
+    from vague_code.agent.config import AgentConfig, MemoryConfig
+    from vague_code.agent.ir import TextBlock, ToolUseBlock
+    from vague_code.agent.loop import Agent
+
+    class _B:
+        def __init__(self):
+            self.i = 0
+            self.responses = [
+                _resp(ToolUseBlock(id="c1", name="write_file", input={"path": "a.py", "content": "x"})),
+                _resp(ToolUseBlock(id="c2", name="bash", input={"command": "pytest"})),
+                _resp(TextBlock(text="done")),
+            ]
+        def complete(self, messages, tools=None, config=None):
+            r = self.responses[self.i]
+            self.i += 1
+            return r
+
+    cfg = AgentConfig(model="m", memory=MemoryConfig(enabled=False), require_verify=True)
+    agent = Agent(cfg, _B())
+    traj = agent.run("edit", ".")
+    hints = [e for e in traj.events if e.type == "security_hint" and e.payload.get("reason") == "verify_required"]
+    assert not hints, "should not block when test ran"
+    assert traj.events[-1].payload["reason"] == "end_turn"
+
+
 def test_auto_mode_critical_bash_forced_confirm() -> None:
     """#2：auto 模式下高危灾难命令被强制 CONFIRM（不自动放行）。"""
     from vague_code.agent.config import AgentConfig, MemoryConfig
     from vague_code.agent.ir import (
-        Message, ModelResponse, NormalizedUsage, StopReason, TextBlock, ToolUseBlock,
+        Message, ModelResponse, NormalizedUsage, StopReason, ToolUseBlock,
     )
     from vague_code.agent.loop import Agent
 

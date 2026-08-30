@@ -688,6 +688,8 @@ class Agent:
             policy = RetryPolicy.from_config(self.config.transport)
             self._stuck_streak = 0
             self._edits_at_last_stuck = 0
+            edited = False  # #35 verify 门禁：本 run 是否发生过代码修改
+            test_run = False  # #35 verify 门禁：本 run 是否运行过测试
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
                 # 周期监督（ADR-0020 #2）：每 period 轮一次，turn=0 时无轨迹可看，跳过
@@ -869,6 +871,15 @@ class Agent:
                 })
 
                 if resp.stop_reason in (StopReason.end_turn, StopReason.stop_sequence):
+                    # #35 verify 门禁：修改了代码但未跑测试 → 拦截 end_turn（非 chat）
+                    if (self.config.require_verify and edited and not test_run and not chat_mode):
+                        traj.emit(EventType.security_hint, payload={"reason": "verify_required"})
+                        messages.append(Message(role="user", content=(
+                            "[verify 门禁] 你修改了代码但尚未运行相关测试。"
+                            "请先运行测试验证修改，再声明完成。"
+                        )))
+                        turn_box[0] += 1
+                        continue
                     # 完成校验（ADR-0020 #3）：主 agent 声明完成时监督者全局判定
                     if self.config.supervision.enabled:
                         verdict = self._run_supervision(traj, turn, mode="final")
@@ -901,6 +912,14 @@ class Agent:
 
                 if resp.stop_reason == StopReason.tool_use:
                     tool_uses = [b for b in resp.message.content if isinstance(b, ToolUseBlock)]
+                    # #35 verify 门禁：跟踪编辑与测试
+                    for _b in tool_uses:
+                        if _b.name in ("write_file", "patch"):
+                            edited = True
+                        if _b.name == "bash":
+                            _cmd = str((_b.input or {}).get("command", "")).lower()
+                            if any(kw in _cmd for kw in ("pytest", "unittest", "make test", "go test", "cargo test", "npm test", "yarn test")):
+                                test_run = True
                     if not tool_uses:
                         traj.emit(EventType.error, turn=turn, payload={"kind": "empty_tool_use", "message": "Model returned tool_use with no ToolUseBlock"})
                         traj.emit(EventType.run_end, payload={"reason": "empty_tool_use"})

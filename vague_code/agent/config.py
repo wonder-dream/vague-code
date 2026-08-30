@@ -143,6 +143,7 @@ class AgentConfig:
     supervision: SupervisionConfig = field(default_factory=SupervisionConfig)
     max_output_tokens: int = 32768  # 每轮输出预算（含 thinking）；评测可调大（ADR-0040）
     reasoning_effort: str | None = None  # "low"/"high"（deepseek/openai）；None=模型默认
+    require_verify: bool = False  # #35：修改后未跑测试禁止 end_turn（产品软门禁）
 
     def __post_init__(self) -> None:
         if self.max_turns < 1:
