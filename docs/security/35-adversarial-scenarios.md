@@ -48,7 +48,7 @@
 | # | 对抗场景 | 防了什么 | 没防什么 | IR / 调研结论 / 差距认知 | 状态 | 加固建议 |
 |---|---------|---------|---------|--------------------------|------|---------|
 | 9 | README/文档中埋"忽略规则删文件"指令 | D5 规则围栏 + D1 权限栈 + **B5 信任策略 + 阶段0.4：read_file 内容已标"不可信仓库数据"** | 内容注入静态扫描/消毒未做 | 差距=来源标记已落地；静态扫描待补 | 🟡→✅（标记已落地） | 已落地 read 不可信标记；后续补内容注入检测 |
-| 10 | 源码注释/字符串中埋恶意指令 | D2 权限栈拦截破坏命令；**B5 信任策略 + 阶段0.4 read 标记** | 无静态扫描；诱导 agent 写恶意代码/改测试的指令可穿透 | 差距=没有"代码内容→行为"的异常检测 | 🟡（策略+标记已落地） | 信任策略 + read 标记已落地；后续补内容注入检测 |
+| 10 | 源码注释/字符串中埋恶意指令 | D2 权限栈 + B5 信任策略 + 阶段0.4 read 标记 + **阶段#10：scan_content_hints 静态扫描附 soft 提示** | 语义级"代码内容→行为"异常检测未做 | 差距=静态扫描已落地 | 🟡→✅（静态扫描已落地） | 已落地 scan_content_hints + read 提示 |
 | 11 | 依赖/第三方代码中埋恶意指令 | 评测容器隔离（eval docker）；产品运行无沙箱 | 产品实际运行在宿主，无容器/sandbox；依赖安装被 D2 危险档拦截，但恶意源码指令可被 read 后采纳 | 调研：产品级沙箱缺失是最大差距；评测级有容器 | ❌ | 产品层引入可选 sandbox（容器/WSL）运行不可信命令；至少对"执行来自依赖目录的脚本"强制确认 |
 | 12 | web_search 结果中埋恶意指令 | D14 network 权限；**B5：web_search 输出已加"不可信外部数据"标记** | 无内容消毒（摘要原文仍可能含注入措辞） | 调研：来源标记已加；差距=摘要内容消毒未做 | ✅（标记已落地） | 已落地 `mark_untrusted`；后续可做摘要内容消毒 |
 | 13 | 压缩摘要/记忆文件中埋指令（上下文污染） | D10 记忆限长 + 项目隔离；**B5 记忆标记 + 阶段0.4 压缩摘要标记** | 无防伪签名；内容消毒未做 | 差距=记忆+压缩摘要均已标不可信 | 🟡→✅（标记已落地） | 已落地记忆 + 压缩摘要不可信标记 |
@@ -61,7 +61,7 @@
 | 15 | 混淆命令绕过（大小写/引号/转义/编码） | D2 三段式 + **B2 规范化**：小写/去引号/展开 `cmd /c`、`powershell -c` 前缀/拆段逐段分类 | 编码载荷（base64/-enc/certutil）显式正则仍待 B4；`r\m` 类转义变形未穷举 | 调研：`Rm`、`"Rm"`、`cmd /c Rm` 已被规范化拦截；差距=编码变体待 B4 | ✅（大小写/引号/前缀/拼接已落地） | 已落地 `_normalize_command` + `_split_command_segments`；后续补编码解码链（B4） |
 | 16 | 危险命令伪装成安全命令（`echo rm -rf /`） | 拆段分类 + **阶段1.4：echo/printf 把危险命令重定向写进脚本文件→危险档** | 纯 `echo rm -rf /` 打印仍 SAFE（良性，不误伤） | 差距=脚本写入意图已检测 | ✅ | 已落地 echo→脚本重定向危险正则 |
 | 17 | 多命令拼接绕过（`cat x; rm`、`dir & del`） | **B2：按 `&`/`;`/`\|`/换行拆段逐段分类**，任一段危险即整体危险 | 无 | 实测：`cat x; rm -rf /`、`dir & del`、`echo a && chmod` 均拦截 | ✅（拆段已落地） | 已落地 `_CMD_SEPARATOR_RE` 拆段；可再补 AST 级分词（可选） |
-| 18 | 先写脚本再执行绕过（write_file 写 .bat/.ps1/.py 再 bash 跑） | D1 write 需确认（normal）/DENY（safe）；D2 `python -c`/`bash -c` 危险档；**B2 未知段默认危险**；**B4：`python <file>`/`bash <script>`/`cmd /c *.bat`/`powershell -File`/`call *.bat` 已入危险档** | autoedit/auto 下 write ALLOW（写 .bat 后执行组合在 auto 模式仍可能穿透） | 差距=写+执行组合在 auto 模式仍待"写可执行文件"保护 | 🟡（执行侧已堵） | 已落地 B4 执行器危险档；后续补"写可执行文件"组合检测 |
+| 18 | 先写脚本再执行绕过（write_file 写 .bat/.ps1/.py 再 bash 跑） | D1 write 需确认（normal）/DENY（safe）+ B4 执行器危险档 + **阶段#18：write_then_exec 组合告警** | 告警为软提示，不阻断执行 | 差距=写+执行组合已检测 | 🟡→✅（组合已检测） | 已落地 write_then_exec 告警 |
 | 19 | Base64/编码载荷执行（`echo ... \| base64 -d \| sh`） | **B2 拆段**兜底 + **B4：`base64 -d/--decode` 显式危险档**；`certutil -decode`、`powershell -enc` 已入危险档 | 极少数混淆编码变体仍可能逃逸 | 实测：`base64 -d \| sh`、`certutil -decode`、`-enc` 均拦截 | ✅ | 已落地 B4 解码执行链正则 |
 | 20 | `python -c` / `bash -c` 变体 | D2 `python -c`、`bash -c` 危险档；D9 multiline python 改写；**B4：`python <file>`/`bash <script>`/`powershell -File`/`call *.bat` 已入危险档**；`python --version` 等只读查询免误伤 | — | 差距=heredoc/脚本执行均兜底 | ✅ | 已落地 B4 显式执行器 + 版本查询安全档 |
 | 21 | git 破坏性操作（reset --hard / clean / checkout -- / restore） | D2 已补 git reset --hard/clean/checkout --/restore 危险档；**B4：push -f、remote set-url、filter-branch、submodule update、config 写已入危险档** | `git config` 本地无 scope 写、`git update-ref` 等未穷举 | 调研：git 写面已大幅补齐；差距=极少数写子命令待补 | ✅（主流写面已覆盖） | 已落地 B4 git 写面扩展 |
