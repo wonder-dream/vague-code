@@ -54,14 +54,15 @@ class RepoIndex:
         if max_files is not None:
             self.max_files = max_files
 
-        # 用 os.walk 并在遍历时剪枝噪音目录（.venv/.git/__pycache__/node_modules），
-        # 避免 rglob 先下钻到整棵依赖树再过滤（大仓库会慢数秒）。
-        _NOISE_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox"}
+        # 用 os.walk 并在遍历时剪枝噪音/隐藏目录，避免 rglob 先下钻到整棵依赖树
+        # 再过滤（大仓库会慢数秒）。语义与原 rglob 版本一致：
+        # 忽略隐藏目录（.开头）、__pycache__/node_modules 等噪音目录，以及隐藏 .py 文件。
+        _NOISE_DIRS = {"__pycache__", "node_modules", ".idea", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".nox"}
         py_files: list[Path] = []
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in _NOISE_DIRS]
+            dirnames[:] = [d for d in dirnames if not d.startswith(".") and d not in _NOISE_DIRS]
             for fn in filenames:
-                if fn.endswith(".py"):
+                if fn.endswith(".py") and not fn.startswith("."):
                     py_files.append(Path(dirpath) / fn)
                     if len(py_files) >= self.max_files:
                         break
