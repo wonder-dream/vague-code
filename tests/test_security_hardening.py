@@ -407,6 +407,16 @@ def test_resolve_rejects_unc_path(ws, rel: str) -> None:
         handler({"path": rel})
 
 
+def test_read_file_marks_content_untrusted(ws) -> None:
+    """B5/#9：read_file 返回内容标注为不可信仓库数据。"""
+    (ws / "src.py").write_text("print('hi')", encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    result = handler({"path": "src.py"})
+    assert "不可信外部数据" in result.output
+    assert "仓库文件内容" in result.output
+    assert "print('hi')" in result.output
+
+
 def test_symlink_escape_blocked(ws) -> None:
     import os
 

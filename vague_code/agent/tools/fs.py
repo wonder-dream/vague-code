@@ -20,12 +20,16 @@ from vague_code.agent.tools.base import (
     normalize_path,
     pattern_prefix,
 )
+from vague_code.agent.trust import mark_untrusted
 
 MAX_GLOB_RESULTS = 1000
 MAX_PATCH_BYTES = 1_048_576
 MAX_GREP_FILE_SIZE = 5_242_880
 MAX_GREP_FILE_COUNT = 500
 MAX_GREP_RESULTS = 500
+
+# read_file 输出是否加「不可信仓库数据」标记（#9）。压缩压力测试可临时关闭以测纯压缩。
+MARK_READ_UNTRUSTED = True
 
 # 搜索工具排除的噪音目录（避免命中构建产物/轨迹日志等）
 EXCLUDED_DIRS = {
@@ -246,7 +250,13 @@ class ReadFileTool(Tool):
             return f"[二进制文件，跳过内容: {path_str}]"
         offset = int(input.get("offset", 1) or 1)
         limit = int(input.get("limit", READ_DEFAULT_LIMIT) or READ_DEFAULT_LIMIT)
-        return _read_lines(target, path_str, max(1, offset), max(1, limit), self.max_bytes)
+        # 预留不可信标记头部空间，避免外层截断吃掉内部截断标记
+        inner_budget = max(1, self.max_bytes - 256)
+        content = _read_lines(target, path_str, max(1, offset), max(1, limit), inner_budget)
+        # B5/#9：仓库文件内容视为不可信外部数据，标注防间接注入（可开关）
+        if MARK_READ_UNTRUSTED:
+            content = mark_untrusted(content, "仓库文件内容")
+        return content
 
 
 READ_DEFAULT_LIMIT = 2000

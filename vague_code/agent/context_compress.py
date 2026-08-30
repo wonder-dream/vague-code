@@ -13,6 +13,7 @@ from vague_code.agent.ir import (
     ToolResultBlock,
     ToolUseBlock,
 )
+from vague_code.agent.trust import mark_untrusted
 
 
 @dataclass
@@ -420,7 +421,7 @@ def structured_snip(
         first_a, _ = matched[0]
         _, last_u = matched[-1]
         header = f"[已完成子任务 (turn {subtask.start_turn}-{subtask.end_turn})]"
-        summary_text = header + "\n" + "\n".join(summary_lines)
+        summary_text = mark_untrusted(header + "\n" + "\n".join(summary_lines), "压缩摘要")
         summary_block = TextBlock(text=summary_text)
         summary_block.meta["compacted_by"] = "structured_snip"
         summary_block.meta["turn_range"] = [subtask.start_turn, subtask.end_turn]
@@ -624,7 +625,7 @@ def auto_compact(
     reconstructed: list[Message] = []
     if system:
         reconstructed.append(system)
-    reconstructed.append(Message(role="user", content=[TextBlock(text=f"[会话摘要]\n{summary_text}")]))
+    reconstructed.append(Message(role="user", content=[TextBlock(text=mark_untrusted(f"[会话摘要]\n{summary_text}", "压缩摘要"))]))
     reconstructed.extend(msgs[keep_start:])
 
     after = count_tokens(reconstructed, tools, skip_thinking=skip_thinking)

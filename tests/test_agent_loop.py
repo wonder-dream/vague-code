@@ -1492,6 +1492,8 @@ def test_compression_pipeline_30_turns(monkeypatch, tmp_path):
     """
     monkeypatch.setattr("time.sleep", lambda _: None)
     monkeypatch.setattr("random.uniform", lambda lo, hi: lo)
+    # 纯压缩测试：关闭 read_file 不可信标记，避免扰动 token 算术
+    monkeypatch.setattr("vague_code.agent.tools.fs.MARK_READ_UNTRUSTED", False)
 
     # Create 6 test files (~2MB each, 200 lines of 10K chars each).
     # After microcompact head(20 lines)+tail(10 lines), each file produces
