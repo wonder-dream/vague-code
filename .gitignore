@@ -6,6 +6,8 @@ Agent.md
 opencode.json
 discussion.md
 scratch_*.py
+
+# è¯„æµ‹äº§ç‰© / è¿è¡Œæ•°æ®
 runs/
 eval/runs/
 eval/.venvs/
@@ -14,60 +16,38 @@ eval/.cache/
 eval/.sanity_cache.json
 eval/audit_results.md
 eval/audit_scores.json
+eval/audit_report.html
+eval/results.md
 eval/fake_report.md
 eval/judge_results.jsonl
 eval/judge_audit_samples.json
-vague_code.egg-info/
-src/__pycache__/
-src/agent/__pycache__/
-src/agent/codecs/__pycache__/
-tests/__pycache__/
-docs/something maybe need.md
-src/cli/__pycache__/
-eval/__pycache__/
 
-src/tui/__pycache__/
-
-tests/tui/__pycache__/
-
-src/tui/screens/__pycache__/
-src/tui/widgets/__pycache__/
-tui-reference-pack/
-eval/audit_report.html
-eval/results.md
-src/tui/views/__pycache__/
-src/tui/commands/__pycache__/
-
-# å­—èŠ‚ç ï¼ˆå†å²é—ç•™è·Ÿè¸ªæ¸…ç†ï¼‰
+# Python ç¼“å­˜
 __pycache__/
 *.pyc
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
 
-# è¯„æµ‹ä¸­é—´æŠ¥å‘Šï¼ˆæ­£å¼ç»“æœåœ¨ runs/eval/result.json è¯æ®é“¾ï¼Œå¯ --regen é‡å»ºï¼‰
-polyglot_*.md
-!polyglot_final_v5.md
-tmp_vr_reset/
-
-# °²È«¼Ó¹Ì TDD ²âÊÔÁÙÊ±Ä¿Â¼£¨Windows Ä¿Â¼Ëø»·¾³£©
+# æµ‹è¯•ä¸´æ—¶ç›®å½•ï¼ˆå—é™ token ç¯å¢ƒï¼‰
+.pytest_*
+.testtmp*/
 .testtmp/
-
-# ²âÊÔÁÙÊ±Ä¿Â¼£¨conftest ¸²¸Ç tmp_path£©
-.pytest_tmp_root/
-
-# ²âÊÔ¿ÉĞ´ÁÙÊ±Ä¿Â¼£¨ÊÜÏŞ token »·¾³£©
-.writetmp_root/
-.writetmp/
-.testtmp_tui/
-.uv_cache/
-.testtmp/
-
-# pytest ²ĞÁôÁÙÊ±Ä¿Â¼£¨±¾»·¾³ÊÜÏŞ token ÎŞ·¨É¾³ı£©
-.pytest_bt_*/
-.pytest_tmp/
+.writetmp*/
 .tmpenv/
-.pytest-of-*/
+.uv_cache/
+.buildtmp/
 
-# ¹¹½¨²úÎï
+# æ„å»ºäº§ç‰©
 dist/
 build/
-.buildtmp/
 *.egg-info/
+
+# ç¬¬ä¸‰æ–¹/å‚è€ƒ
+tui-reference-pack/
+tmp_vr_reset/
+polyglot_*.md
+!polyglot_final_v5.md
+
+# å†å²é—ç•™
+docs/something maybe need.md
