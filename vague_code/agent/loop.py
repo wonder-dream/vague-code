@@ -690,6 +690,7 @@ class Agent:
             self._edits_at_last_stuck = 0
             edited = False  # #35 verify 门禁：本 run 是否发生过代码修改
             test_run = False  # #35 verify 门禁：本 run 是否运行过测试
+            written_scripts: set[str] = set()  # #18：本 run 写过哪些可执行脚本
             while turn_box[0] < self.config.max_turns:
                 turn = turn_box[0]
                 # 周期监督（ADR-0020 #2）：每 period 轮一次，turn=0 时无轨迹可看，跳过
@@ -912,14 +913,23 @@ class Agent:
 
                 if resp.stop_reason == StopReason.tool_use:
                     tool_uses = [b for b in resp.message.content if isinstance(b, ToolUseBlock)]
-                    # #35 verify 门禁：跟踪编辑与测试
+                    # #35 verify 门禁：跟踪编辑与测试；#18：跟踪写脚本→执行组合
                     for _b in tool_uses:
                         if _b.name in ("write_file", "patch"):
                             edited = True
+                            _p = str((_b.input or {}).get("path", "")).lower()
+                            if _p.endswith((".sh", ".bat", ".cmd", ".ps1", ".py", ".bash", ".zsh")):
+                                written_scripts.add(_p)
                         if _b.name == "bash":
                             _cmd = str((_b.input or {}).get("command", "")).lower()
                             if any(kw in _cmd for kw in ("pytest", "unittest", "make test", "go test", "cargo test", "npm test", "yarn test")):
                                 test_run = True
+                            for _script in written_scripts:
+                                if _script in _cmd:
+                                    traj.emit(EventType.security_alert, turn=turn, payload={
+                                        "kind": "write_then_exec", "script": _script,
+                                    })
+                                    break
                     if not tool_uses:
                         traj.emit(EventType.error, turn=turn, payload={"kind": "empty_tool_use", "message": "Model returned tool_use with no ToolUseBlock"})
                         traj.emit(EventType.run_end, payload={"reason": "empty_tool_use"})

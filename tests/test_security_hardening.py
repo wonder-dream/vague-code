@@ -536,6 +536,57 @@ def test_no_security_hint_for_normal_task() -> None:
     assert not hints
 
 
+def test_write_then_exec_emits_alert() -> None:
+    """#18：先写可执行脚本再执行 → security_alert(write_then_exec)。"""
+    from vague_code.agent.config import AgentConfig, MemoryConfig
+    from vague_code.agent.ir import TextBlock, ToolUseBlock
+    from vague_code.agent.loop import Agent
+
+    class _B:
+        def __init__(self):
+            self.i = 0
+            self.responses = [
+                _resp(ToolUseBlock(id="c1", name="write_file", input={"path": "run.bat", "content": "rm -rf /"})),
+                _resp(ToolUseBlock(id="c2", name="bash", input={"command": "call run.bat"})),
+                _resp(TextBlock(text="done")),
+            ]
+        def complete(self, messages, tools=None, config=None):
+            r = self.responses[self.i]
+            self.i += 1
+            return r
+
+    cfg = AgentConfig(model="m", memory=MemoryConfig(enabled=False), permission_mode="auto")
+    agent = Agent(cfg, _B())
+    traj = agent.run("task", ".")
+    alerts = [e for e in traj.events if e.type == "security_alert" and e.payload.get("kind") == "write_then_exec"]
+    assert alerts, "write script then execute should emit write_then_exec alert"
+
+
+def test_write_then_exec_no_alert_for_normal_file() -> None:
+    from vague_code.agent.config import AgentConfig, MemoryConfig
+    from vague_code.agent.ir import TextBlock, ToolUseBlock
+    from vague_code.agent.loop import Agent
+
+    class _B:
+        def __init__(self):
+            self.i = 0
+            self.responses = [
+                _resp(ToolUseBlock(id="c1", name="write_file", input={"path": "notes.txt", "content": "hello"})),
+                _resp(ToolUseBlock(id="c2", name="bash", input={"command": "cat notes.txt"})),
+                _resp(TextBlock(text="done")),
+            ]
+        def complete(self, messages, tools=None, config=None):
+            r = self.responses[self.i]
+            self.i += 1
+            return r
+
+    cfg = AgentConfig(model="m", memory=MemoryConfig(enabled=False), permission_mode="auto")
+    agent = Agent(cfg, _B())
+    traj = agent.run("task", ".")
+    alerts = [e for e in traj.events if e.type == "security_alert" and e.payload.get("kind") == "write_then_exec"]
+    assert not alerts
+
+
 def test_write_shared_dir_emits_alert() -> None:
     """#27：写 public/upload 等共享目录产生 security_alert。"""
     from vague_code.agent.config import AgentConfig, MemoryConfig
