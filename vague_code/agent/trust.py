@@ -46,3 +46,29 @@ def scan_task_hints(task: str) -> list[str]:
     """扫描用户任务文本中的可疑指令触发词，返回命中列表（大小写不敏感）。"""
     t = (task or "").lower()
     return [w for w in TASK_HINT_TRIGGERS if w.lower() in t]
+
+
+# 仓库内容中的危险指令短语（#10 内容注入静态扫描）。
+CONTENT_HINT_TRIGGERS = (
+    "忽略规则",
+    "忽略所有",
+    "绕过",
+    "删除所有",
+    "rm -rf",
+    "curl ",
+    "curl|sh",
+    "chmod 777",
+    "chmod -r 777",
+    "格式化成",
+    "把密钥",
+    "发送到",
+    "上传到",
+    "base64",
+    "powershell",
+)
+
+
+def scan_content_hints(content: str) -> list[str]:
+    """扫描仓库内容中的危险指令短语，返回命中列表（大小写不敏感）。"""
+    c = (content or "").lower()
+    return [w for w in CONTENT_HINT_TRIGGERS if w.lower() in c]
