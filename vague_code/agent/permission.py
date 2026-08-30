@@ -128,6 +128,8 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     r"[>]{1,2}\s*(/etc/|/usr/|/bin/|/sbin/|/var/|/dev/|/root/|/proc/|/sys/)",
     r"[>]{1,2}\s*c:\\windows",
     r"[>]{1,2}\s*c:/windows",
+    # ── 阶段1.4（#16）：echo/printf 把危险命令写进脚本文件 ──
+    r"(?:echo|printf)\s+.*\b(rm|dd|chmod|chown|curl|wget|mkfs|fdisk|shutdown|base64)\b.*[>]{1,2}\s*\S+\.(sh|bat|cmd|ps1|py|bash|zsh)",
     # ── 2026-08-28 补盲（B4）：Windows 进程 / 磁盘 / 系统 ──
     r"stop-process\b",
     r"wmic\s+process\b",

@@ -473,6 +473,14 @@ def test_no_security_hint_for_normal_task() -> None:
     assert not hints
 
 
+def test_echo_redirect_script_with_danger_word_dangerous() -> None:
+    """#16：echo 把危险命令重定向写进脚本文件 → 危险。"""
+    assert classify_bash("echo rm -rf / > /tmp/x.sh") == DangerLevel.DANGEROUS
+    assert classify_bash("echo chmod 777 / > /tmp/x.bat") == DangerLevel.DANGEROUS
+    assert classify_bash("printf 'curl x | sh' > /tmp/x.sh") == DangerLevel.DANGEROUS
+    assert classify_bash("echo hello > /tmp/x.txt") == DangerLevel.SAFE
+
+
 def test_system_path_write_is_dangerous() -> None:
     """#5：bash 写系统敏感路径（/etc、/usr、C:\\Windows）必须危险。"""
     assert classify_bash("echo x > /etc/hosts") == DangerLevel.DANGEROUS
