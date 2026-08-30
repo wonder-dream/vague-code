@@ -614,6 +614,7 @@ class Agent:
             title, content, ok = self._apply_validation(traj, validator, new_title, body)
             if not ok:
                 return False
+            assert title is not None and content is not None
             if mf.replace(old_title, title, content, source_session=traj.run_id):
                 return True
             # 旧标题未命中：降级为普通追加，不丢内容
@@ -624,6 +625,7 @@ class Agent:
         )
         if not ok:
             return False
+        assert title is not None and content is not None
         return mf.append(title=title, content=content, source_session=traj.run_id)
 
     def _apply_validation(
@@ -787,6 +789,7 @@ class Agent:
                                     summary.strip().splitlines()[0][:40], summary,
                                 )
                                 if ok:
+                                    assert title is not None and content is not None
                                     mf.append(
                                         title=title,
                                         content=content,

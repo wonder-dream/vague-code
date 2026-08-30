@@ -82,6 +82,14 @@ module = "anthropic_tokenizer.*"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+module = "tiktoken.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tree_sitter_python.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = "tests._target_bug.*"
 ignore_errors = true
 

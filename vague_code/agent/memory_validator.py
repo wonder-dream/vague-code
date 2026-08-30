@@ -74,9 +74,12 @@ class MemoryValidator:
         - 未命中任何规则 → verified（不适用规则，放行）
         """
         results: list[FactCheckResult] = []
-        results.append(self._check_db_stack(content))
-        results.append(self._check_path(content))
-        results = [r for r in results if r is not None]
+        db = self._check_db_stack(content)
+        if db is not None:
+            results.append(db)
+        path = self._check_path(content)
+        if path is not None:
+            results.append(path)
 
         if not results:
             return FactCheckResult(level="verified", evidence=[], rule=None)

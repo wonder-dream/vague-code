@@ -18,6 +18,7 @@ import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from vague_code.agent.trust import mark_untrusted
 
@@ -238,7 +239,7 @@ class MemoryFile:
         while i < len(lines):
             line = lines[i]
             if line.startswith("## "):
-                block = {
+                block: dict[str, Any] = {
                     "title": line[3:],
                     "source": None,
                     "created": None,
