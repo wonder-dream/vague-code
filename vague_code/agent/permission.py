@@ -55,7 +55,7 @@ _SAFE_COMMANDS: tuple[str, ...] = (
     r"^\s*id\b",
     r"^\s*uname\b",
     r"^\s*date\b",
-    r"^\s*type\b",
+    # type（Windows cat）不再免确认：type .env 可读密钥，必须走确认/拒绝（#25）
     r"^\s*cp\b",
     r"^\s*mv\b",
     # ── 2026-08-28 补（B4）：版本/只读查询不误伤 ──

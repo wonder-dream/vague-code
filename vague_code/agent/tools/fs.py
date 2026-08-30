@@ -50,6 +50,9 @@ SENSITIVE_FILE_PARTS = {
     ".env",
     ".env.*",
     ".git-credentials",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
     "id_rsa",
     "id_ed25519",
     "*.pem",
@@ -59,6 +62,10 @@ SENSITIVE_FILE_PARTS = {
 }
 SENSITIVE_REL_PATHS = {
     ".git/config",
+    ".git/credentials",
+    ".aws/credentials",
+    ".ssh/config",
+    ".ssh/known_hosts",
 }
 
 # write_file / patch 禁止（或需强确认）的 .agent 关键文件（规则/权限/记忆）。

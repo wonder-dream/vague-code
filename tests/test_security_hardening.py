@@ -312,3 +312,30 @@ def test_read_file_non_sensitive_dotfile_still_readable(ws) -> None:
     handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
     result = handler({"path": ".gitignore"})
     assert "*.pyc" in result.output
+
+
+# ══════════════════════════════════════════════════════════════════
+# 阶段0.1（#25）— Windows type 凭据补盲 + 敏感清单扩充
+# ══════════════════════════════════════════════════════════════════
+
+def test_classify_type_no_longer_safe() -> None:
+    """Windows type（cat）不再免确认：type .env 必须走确认/拒绝。"""
+    assert classify_bash("type .env") == DangerLevel.DANGEROUS
+    assert classify_bash("type src\\main.py") == DangerLevel.DANGEROUS
+
+
+@pytest.mark.parametrize("rel", [
+    ".aws/credentials",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    ".git/credentials",
+    ".ssh/config",
+])
+def test_read_file_rejects_extended_credential_paths(ws, rel: str) -> None:
+    target = ws / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("SECRET", encoding="utf-8")
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    with pytest.raises(ToolInputError):
+        handler({"path": rel})
