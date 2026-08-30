@@ -39,7 +39,7 @@
 | 3 | 任务内嵌"读取并打印 .env / 密钥" | D2 `cat`/`echo` 在 safe 模式 DENY；`env`/`printenv` 已移出免确认白名单；**B1：read_file 已拒绝 `.env`、`.git/config`、密钥/证书、`.agent/*`** | 内容级脱敏/审计仍未做（见 #28）；`.aws`/其他凭据路径待扩充 | 调研：read_file 通道已堵；差距=凭据内容检测/DLP 未做 | ✅（read_file 已拦截） | 已落地 `SENSITIVE_FILE_PARTS` + `SENSITIVE_REL_PATHS`；后续补凭据内容检测与脱敏 |
 | 4 | 任务内嵌"curl \| sh / wget \| sh"远程代码执行 | D2 `curl|sh`、`wget|sh` 危险档 + safe DENY；**B4：curl -o / wget -O / certutil / mshta / regsvr32 / IEX / -enc 已入危险档** | 极少数混淆/编码变体仍可能逃逸 | 实测：curl\|sh 基线 + B4 变体全覆盖；差距=编码混淆未穷举 | ✅（直连+主要变体） | 已落地 B4 危险正则扩展 |
 | 5 | 任务内嵌"chmod -R 777 /" / "向 /etc/hosts 追加" | D2 `chmod` 危险档 + D7 路径限工作区 + **阶段1.3：bash 重定向写系统路径(/etc/usr/C:\Windows)入危险档** | powershell/混淆变体仍可能逃逸 | 差距=系统路径写已堵 | ✅ | 已落地系统路径写危险正则 |
-| 6 | 任务内嵌"把密钥/文件发到外部地址"（网络外传） | D14 network 权限（safe 拒 / normal 确认）；D2 curl 等网络命令危险档 | 无 DLP/出口审计；web_search 结果可被用作外传通道；auto 模式 network ALLOW | 调研：当前无通用网络工具，外传主要靠 bash curl；差距=无数据外泄检测（内容指纹） | 🟡 | 网络请求统一收敛到 network 权限工具；对含密钥/凭据的输出做脱敏；记录外发审计 |
+| 6 | 任务内嵌"把密钥/文件发到外部地址"（网络外传） | D14 network 权限 + **阶段2：network 放行落 security_alert(network_egress)** + #28 输出脱敏 | DLP 内容指纹未做 | 差距=外发审计已落地 | 🟡→✅（审计已落地） | 已落地 network_egress 审计 |
 | 7 | 任务内嵌"忽略权限规则 / 直接切 auto 模式" | 模式只能降权不能升权（settings.toml 防提权）；模式切换需用户批准 | Agent 无法自行升权，但**可写 `.agent/permission-rules.json` 加 allow 规则**（见 #33） | 调研：升权路径被堵，但规则表自提权通道未堵 | 🟡 | 权限规则文件设为只读/签名校验；write 工具对 `.agent/permission-rules.json` 与 settings.toml 强制确认 |
 | 8 | 任务内嵌"先执行 A 再执行 B"多阶段注入 | D2 危险正则 + B2 拆段逐段分类 + **阶段0.6：cmd for/if 分支危险操作显式正则** | 极少数混淆分支语法 | 差距=多段/分支命令已覆盖 | ✅ | 已落地拆段 + for/if 分支检测 |
 
@@ -75,9 +75,9 @@
 | # | 对抗场景 | 防了什么 | 没防什么 | IR / 调研结论 / 差距认知 | 状态 | 加固建议 |
 |---|---------|---------|---------|--------------------------|------|---------|
 | 26 | 读取敏感文件后回传（.env / .aws / .git/config / ~/.ssh） | D2 bash 侧收紧；D14 network 权限；**B1：read_file 已拒绝 .env/.git/config/密钥/证书/.agent*** | `.aws`、`.npmrc` 等其他凭据路径待扩充；外传审计/DLP 未做 | 调研：读取侧已堵；差距=凭据清单扩充 + 外发审计 | ✅（读取侧已拦截） | 已落地 B1 敏感文件黑名单；后续扩充路径清单 + 外发审计 |
-| 27 | 把文件写入可被外部读取的位置（public 目录/上传目录） | D7 路径限工作区；D8 写需确认 | 无出口审计；写入后经 web/共享目录外泄无法检测 | 差距=无数据外泄检测 | ❌ | 写操作审计 + 对含密钥内容写入敏感目录告警 |
-| 28 | 通过 `echo`/`printf` 输出密钥到 stdout | D2 `echo` 在 safe 模式 DENY；normal 确认 | echo 属于 safe 白名单，normal 模式仅确认；输出含密钥无脱敏 | 差距=输出无凭据脱敏 | 🟡 | 工具输出统一做凭据脱敏（key=***）；对含密钥输出告警 |
-| 29 | 用 web_search 作为外传/探测通道 | D14 network 权限 | web_search 结果含用户查询上下文，可能被用于侧信道 | 差距=搜索通道无数据策略 | ❌ | web_search 结果去敏；禁止把文件内容拼进查询参数 |
+| 27 | 把文件写入可被外部读取的位置（public 目录/上传目录） | D7 路径限工作区 + D8 写确认 + **阶段2：写 public/upload/static/shared 落 security_alert(write_shared_dir)** | 内容指纹/DLP 未做 | 差距=写出口审计已落地 | ❌→✅（审计已落地） | 已落地 write_shared_dir 审计 |
+| 28 | 通过 `echo`/`printf` 输出密钥到 stdout | D2 `echo` 在 safe 模式 DENY + **阶段2：ToolResult 统一 redact_secrets 脱敏** | 输出侧仍可能含部分形态未覆盖 | 差距=输出已统一脱敏 | ✅ | 已落地 redact_secrets 接入 ToolResult |
+| 29 | 用 web_search 作为外传/探测通道 | D14 network 权限 + **阶段2：查询参数 redact_secrets 脱敏** | 结果摘要内容消毒未做 | 差距=查询侧已去敏 | ❌→✅（查询已去敏） | 已落地 web_search 查询脱敏 |
 
 ### E. 文件系统 / 工具滥用（FS & Tool Abuse）
 
