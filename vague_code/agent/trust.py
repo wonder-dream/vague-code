@@ -22,3 +22,27 @@ def mark_untrusted(text: str, source: str) -> str:
     if not text:
         return ""
     return f"{UNTRUSTED_MARKER}\n来源: {source}\n\n{text}"
+
+
+# 用户任务中的可疑指令触发词（#1 soft 拦截）。
+TASK_HINT_TRIGGERS = (
+    "忽略所有",
+    "忽略规则",
+    "绕过",
+    "跳过权限",
+    "删除",
+    "格式化",
+    "下载并执行",
+    "执行脚本",
+    "密钥",
+    "密码",
+    "权限规则",
+    "curl",
+    "base64",
+)
+
+
+def scan_task_hints(task: str) -> list[str]:
+    """扫描用户任务文本中的可疑指令触发词，返回命中列表（大小写不敏感）。"""
+    t = (task or "").lower()
+    return [w for w in TASK_HINT_TRIGGERS if w.lower() in t]
