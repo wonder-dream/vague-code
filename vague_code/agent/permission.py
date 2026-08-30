@@ -151,8 +151,32 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
 _SAFE_PATTERNS = [re.compile(p) for p in _SAFE_COMMANDS]
 _DANGEROUS_PATTERNS = [re.compile(p) for p in _DANGEROUS_COMMANDS]
 
+# 高危灾难命令（#2）：即使 auto 模式也强制二次确认。
+_CRITICAL_PATTERNS = [
+    re.compile(p)
+    for p in (
+        r"rm\s+-rf\s+/",
+        r"\bdd\b",
+        r"\bmkfs\b",
+        r"\bfdisk\b",
+        r"chmod\s+-r\s+777\s+/",
+        r"curl\s+\S+\s*\|\s*(sh|bash|zsh)",
+        r"wget\s+\S+\s*\|\s*(sh|bash|zsh)",
+        r"\bdiskpart\b",
+        r"format\s+[a-zA-Z]:",
+        r"\bshutdown\b",
+        r"\breboot\b",
+    )
+]
+
 # 命令分隔符（plans/0020 B2）：拆段后逐段分类，堵住 `cat x; rm` / `dir & del` 等拼接绕行。
 _CMD_SEPARATOR_RE = re.compile(r"[&|;\n]+")
+
+
+def is_critical_bash(command: str) -> bool:
+    """#2：高危灾难命令（rm -rf /、dd、mkfs、fdisk、curl|sh、关机等）。"""
+    cmd = (command or "").lower()
+    return any(p.search(cmd) for p in _CRITICAL_PATTERNS)
 
 
 def _normalize_command(command: str) -> str:

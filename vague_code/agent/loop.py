@@ -1017,7 +1017,7 @@ class Agent:
         decision is ALLOW → content="", is_error=False.
         decision is DENY → content is the human-readable error, is_error=True.
         """
-        from vague_code.agent.permission import Decision, PermissionMode, Operation, evaluate
+        from vague_code.agent.permission import Decision, PermissionMode, Operation, evaluate, is_critical_bash
         tool = tools.get(block.name) if tools else None
         permission_class = tool.permission_class(block.input) if tool else "write"
         op = Operation(
@@ -1025,6 +1025,9 @@ class Agent:
             command=block.input.get("command", "") if block.name == "bash" else "",
         )
         decision = evaluate(perm_mode, permission_class, op, rules=self._permission_rules)
+        # #2：高危灾难命令即使策略放行也强制 CONFIRM（auto 不自动放行）
+        if block.name == "bash" and decision == Decision.ALLOW and is_critical_bash(op.command or ""):
+            decision = Decision.CONFIRM
         traj.emit(EventType.permission_check, turn=turn, payload={
             "tool": block.name, "decision": decision.value,
             "command": (op.command or "")[:200],
