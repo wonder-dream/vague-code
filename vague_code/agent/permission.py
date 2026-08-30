@@ -124,6 +124,10 @@ _DANGEROUS_COMMANDS: tuple[str, ...] = (
     # ── 阶段0.6（#8）：cmd 控制结构内的危险操作（for/if 分支）──
     r"for\s+.*\b(rm|del|rd|rmdir|format|shutdown)\b",
     r"if\s+.*\(.*\b(rm|del|rd|rmdir|format|shutdown)\b",
+    # ── 阶段1.3（#5）：bash 写系统敏感路径 ──
+    r"[>]{1,2}\s*(/etc/|/usr/|/bin/|/sbin/|/var/|/dev/|/root/|/proc/|/sys/)",
+    r"[>]{1,2}\s*c:\\windows",
+    r"[>]{1,2}\s*c:/windows",
     # ── 2026-08-28 补盲（B4）：Windows 进程 / 磁盘 / 系统 ──
     r"stop-process\b",
     r"wmic\s+process\b",

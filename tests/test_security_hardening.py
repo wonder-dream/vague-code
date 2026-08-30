@@ -473,6 +473,16 @@ def test_no_security_hint_for_normal_task() -> None:
     assert not hints
 
 
+def test_system_path_write_is_dangerous() -> None:
+    """#5：bash 写系统敏感路径（/etc、/usr、C:\\Windows）必须危险。"""
+    assert classify_bash("echo x > /etc/hosts") == DangerLevel.DANGEROUS
+    assert classify_bash("echo x >> /etc/hosts") == DangerLevel.DANGEROUS
+    assert classify_bash("echo x > /usr/local/bin/x.sh") == DangerLevel.DANGEROUS
+    assert classify_bash("echo x > C:\\Windows\\system32\\drivers\\etc\\hosts") == DangerLevel.DANGEROUS
+    assert classify_bash("echo x > /tmp/tmpfile") == DangerLevel.SAFE
+    assert classify_bash("ls /etc") == DangerLevel.SAFE
+
+
 def test_is_critical_bash_helper() -> None:
     """#2：高危灾难命令单独标记（auto 也强制确认）。"""
     from vague_code.agent.permission import is_critical_bash
