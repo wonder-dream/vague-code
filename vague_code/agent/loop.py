@@ -1047,6 +1047,18 @@ class Agent:
         # #2：高危灾难命令即使策略放行也强制 CONFIRM（auto 不自动放行）
         if block.name == "bash" and decision == Decision.ALLOW and is_critical_bash(op.command or ""):
             decision = Decision.CONFIRM
+        # #27：写共享/公开目录审计；#6：网络外发审计
+        if decision == Decision.ALLOW:
+            if block.name in ("write_file", "patch"):
+                _p = str((block.input or {}).get("path", "")).lower().replace("\\", "/")
+                if any(_p.startswith(seg) for seg in ("public/", "upload", "uploads/", "static/", "shared/")):
+                    traj.emit(EventType.security_alert, turn=turn, payload={
+                        "kind": "write_shared_dir", "tool": block.name, "path": _p,
+                    })
+            elif permission_class == "network":
+                traj.emit(EventType.security_alert, turn=turn, payload={
+                    "kind": "network_egress", "tool": block.name,
+                })
         traj.emit(EventType.permission_check, turn=turn, payload={
             "tool": block.name, "decision": decision.value,
             "command": (op.command or "")[:200],

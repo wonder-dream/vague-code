@@ -536,6 +536,40 @@ def test_no_security_hint_for_normal_task() -> None:
     assert not hints
 
 
+def test_write_shared_dir_emits_alert() -> None:
+    """#27：写 public/upload 等共享目录产生 security_alert。"""
+    from vague_code.agent.config import AgentConfig, MemoryConfig
+    from vague_code.agent.ir import ToolUseBlock
+    from vague_code.agent.loop import Agent
+
+    class _B:
+        def complete(self, messages, tools=None, config=None):
+            return _resp(ToolUseBlock(id="c1", name="write_file", input={"path": "public/x.txt", "content": "x"}))
+
+    cfg = AgentConfig(model="m", memory=MemoryConfig(enabled=False), permission_mode="auto")
+    agent = Agent(cfg, _B())
+    traj = agent.run("write", ".")
+    alerts = [e for e in traj.events if e.type == "security_alert" and e.payload.get("kind") == "write_shared_dir"]
+    assert alerts, "write to public/ should emit write_shared_dir alert"
+
+
+def test_web_search_query_redacted(monkeypatch) -> None:
+    """#29：web_search 查询含密钥时脱敏（不把文件内容/密钥拼进搜索）。"""
+    from vague_code.agent.tools.web_search import WebSearchTool
+
+    captured: dict = {}
+
+    def fake(query, max_results):
+        captured["query"] = query
+        return "no results"
+
+    monkeypatch.setattr("vague_code.agent.tools.web_search._search_ddg", fake)
+    tool = WebSearchTool(".", provider="ddg")
+    tool.run({"query": "search sk-abcdef1234567890 content"})
+    assert "sk-abcdef1234567890" not in captured["query"]
+    assert "***" in captured["query"]
+
+
 def test_redact_secrets() -> None:
     """#28：输出凭据脱敏。"""
     from vague_code.agent.redact import redact_secrets
