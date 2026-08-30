@@ -22,6 +22,12 @@ from vague_code.agent.ir import ToolSpec
 from vague_code.agent.tools.truncate import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncate_output
 
 
+def _is_unc_path(path_str: str) -> bool:
+    """检测 UNC/网络路径（\\server\\share 或 //server/share）与设备路径（\\\\.\\）。"""
+    p = (path_str or "").lstrip()
+    return p.startswith("\\\\") or p.startswith("//")
+
+
 # ── 两态错误契约（对齐 Codex RespondToModel | Fatal）─────────────────────────
 
 class ToolError(Exception):
@@ -183,11 +189,13 @@ class Tool(ABC):
         value = input.get(key)
         return str(value) if value is not None else ""
 
-    # ── 路径安全基类（空字节 + 穿越防护）─────────────────────────────────
+    # ── 路径安全基类（空字节 + UNC + 穿越防护）────────────────────────────
 
     def resolve_path(self, path_str: str) -> Path:
         if "\x00" in path_str:
             raise ToolInputError("路径包含空字节")
+        if _is_unc_path(path_str):
+            raise ToolPathError(f"拒绝 UNC/网络路径: {path_str}")
         target = (self.root / path_str).resolve()
         if not target.is_relative_to(self.root):
             raise ToolPathError(f"检测到路径穿越: {path_str}")

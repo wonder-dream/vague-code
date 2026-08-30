@@ -382,3 +382,50 @@ def test_write_file_src_still_works(ws) -> None:
     handler = DEFAULT_TOOLS["write_file"].bind(str(ws))
     result = handler({"path": "src/main.py", "content": "print('ok')"})
     assert "字符" in result.output
+
+
+# ══════════════════════════════════════════════════════════════════
+# 阶段0.3（#30/#31）— UNC / symlink 路径加固
+# ══════════════════════════════════════════════════════════════════
+
+def test_is_unc_path_helper() -> None:
+    from vague_code.agent.tools.base import _is_unc_path
+
+    assert _is_unc_path(r"\\server\share\x.txt")
+    assert _is_unc_path("//server/share/x.txt")
+    assert _is_unc_path(r"\\.\PhysicalDrive0")
+    assert not _is_unc_path("src/main.py")
+    assert not _is_unc_path("../x.py")
+
+
+@pytest.mark.parametrize("rel", [r"\\server\share\x.txt", r"\\.\PhysicalDrive0"])
+def test_resolve_rejects_unc_path(ws, rel: str) -> None:
+    from vague_code.agent.tools.base import ToolPathError
+
+    handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+    with pytest.raises(ToolPathError):
+        handler({"path": rel})
+
+
+def test_symlink_escape_blocked(ws) -> None:
+    import os
+
+    from vague_code.agent.tools.base import ToolPathError
+
+    outside = ws.parent / f"outside_{uuid.uuid4().hex[:4]}"
+    outside.mkdir(exist_ok=True)
+    (outside / "secret.txt").write_text("SECRET", encoding="utf-8")
+    link = ws / "link"
+    try:
+        os.symlink(outside, link, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink 需要管理员权限，本环境不可用")
+    try:
+        handler = DEFAULT_TOOLS["read_file"].bind(str(ws))
+        with pytest.raises(ToolPathError):
+            handler({"path": "link/secret.txt"})
+    finally:
+        try:
+            link.unlink()
+        except OSError:
+            pass
