@@ -110,6 +110,13 @@ class ToolResult:
     output: str
     metadata: dict = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # #28：工具输出统一脱敏（可开关）
+        from vague_code.agent.redact import REDACT_OUTPUT, redact_secrets
+
+        if REDACT_OUTPUT:
+            self.output = redact_secrets(self.output)
+
 
 # ── Tool ABC ────────────────────────────────────────────────────────────────
 

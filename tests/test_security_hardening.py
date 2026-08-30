@@ -536,6 +536,31 @@ def test_no_security_hint_for_normal_task() -> None:
     assert not hints
 
 
+def test_redact_secrets() -> None:
+    """#28：输出凭据脱敏。"""
+    from vague_code.agent.redact import redact_secrets
+
+    assert "sk-1234567890abcdef" not in redact_secrets("api_key = sk-1234567890abcdef")
+    assert "hunter2" not in redact_secrets("password: hunter2")
+    assert "abc123" not in redact_secrets("TOKEN=abc123")
+    assert "***" in redact_secrets("TOKEN=abc123")
+    assert redact_secrets("just normal text") == "just normal text"
+
+
+def test_tool_result_redacts_secrets() -> None:
+    """#28：工具输出统一脱敏。"""
+    from vague_code.agent.tools.base import ToolResult
+    from vague_code.agent.redact import REDACT_OUTPUT
+
+    if not REDACT_OUTPUT:
+        import pytest as _pytest
+        _pytest.skip("REDACT_OUTPUT 关闭")
+
+    tr = ToolResult(output="key: sk-live-abcdefgh12345678")
+    assert "sk-live-abcdefgh12345678" not in tr.output
+    assert "***" in tr.output
+
+
 def test_echo_redirect_script_with_danger_word_dangerous() -> None:
     """#16：echo 把危险命令重定向写进脚本文件 → 危险。"""
     assert classify_bash("echo rm -rf / > /tmp/x.sh") == DangerLevel.DANGEROUS
